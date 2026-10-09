@@ -34,12 +34,18 @@ export async function main(
     warning(
       '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
     );
-  const skills = new Skills(config);
-  const catalog = await skills.discover();
-  console.log(
-    `Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => skill.name).join(', ') : '(none discovered)'}`,
-  );
   const store = new Store(config.dataDir);
+  const skills = new Skills(config);
+  let catalog;
+  try {
+    catalog = await skills.discover();
+  } catch (error) {
+    store.close();
+    throw error;
+  }
+  console.log(
+    `Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => `${skill.name} (${skills.source(skill.name)})`).join(', ') : '(none discovered)'}`,
+  );
   const service = new AgentService(
     config,
     store,

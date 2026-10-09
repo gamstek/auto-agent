@@ -7,6 +7,7 @@ import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
   skillRoots: z.array(z.string()).default([]),
+  builtinSkills: z.boolean().default(true),
   host: z.string().default('127.0.0.1'),
   port: z.number().int().min(0).max(65535).default(4096),
   allowRemote: z.boolean().default(false),
@@ -42,6 +43,7 @@ export async function ensureDefaultConfig(
   const template = {
     dataDir: '.',
     skillRoots: [],
+    builtinSkills: true,
     host: '127.0.0.1',
     port: 4096,
     allowRemote: false,

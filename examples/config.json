@@ -15,5 +15,6 @@
   "maxSteps": 12,
   "maxTokens": 32000,
   "maxConcurrent": 4,
-  "systemPrompt": ""
+  "systemPrompt": "",
+  "builtinSkills": true
 }

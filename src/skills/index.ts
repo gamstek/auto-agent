@@ -4,12 +4,14 @@ import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import type { Config } from '../config';
 import { AppError, type SkillInfo } from '../shared/types';
+import { materializeBuiltins } from './builtin';
 
 const validName = /^(?:[\p{Ll}\p{Lo}\p{N}]+)(?:-[\p{Ll}\p{Lo}\p{N}]+)*$/u;
 const copy = (skill: SkillInfo): SkillInfo => structuredClone(skill);
 interface Entry {
   skill: SkillInfo;
   root: string;
+  source: 'built-in' | 'configured';
 }
 
 /** Trusted local skills, not an OS sandbox. Discovery is atomic and fails closed. */
@@ -21,8 +23,16 @@ export class Skills {
     this.entries.clear();
     const found = new Map<string, Entry>();
     const diagnostics: string[] = [];
-    for (const configured of this.config.skillRoots) {
-      const root = resolve(configured);
+    const roots: { path: string; source: Entry['source'] }[] = this.config.skillRoots.map(
+      (path) => ({ path, source: 'configured' }),
+    );
+    if (this.config.builtinSkills)
+      roots.unshift({
+        path: await materializeBuiltins(this.config.dataDir),
+        source: 'built-in',
+      });
+    for (const configured of roots) {
+      const root = resolve(configured.path);
       try {
         await this.confined(root, root, false);
         const children = await readdir(root, { withFileTypes: true });
@@ -44,7 +54,7 @@ export class Skills {
             const data: unknown = document.toJS({ maxAliasCount: 0 });
             const skill = this.validate(data, directory);
             if (found.has(skill.name)) throw new Error(`Duplicate skill name: ${skill.name}`);
-            found.set(skill.name, { skill, root });
+            found.set(skill.name, { skill, root, source: configured.source });
           } catch (error) {
             diagnostics.push(
               `${directory}: ${error instanceof Error ? error.message : 'Invalid skill'}`,
@@ -62,6 +72,10 @@ export class Skills {
 
   list(): SkillInfo[] {
     return [...this.entries.values()].map((entry) => copy(entry.skill));
+  }
+
+  source(name: string): Entry['source'] {
+    return this.entry(name).source;
   }
 
   /** Return the complete SKILL.md, including its frontmatter, only when requested. */

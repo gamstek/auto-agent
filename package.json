@@ -4,13 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "bun scripts/generate-builtin-assets.ts",
     "dev": "bun scripts/dev.ts",
+    "prestart": "bun scripts/generate-builtin-assets.ts",
     "start": "bun src/index.ts",
+    "pretest": "bun scripts/generate-builtin-assets.ts",
     "test": "bun test",
+    "pretypecheck": "bun scripts/generate-builtin-assets.ts",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "prebuild:windows": "bun scripts/generate-builtin-assets.ts",
     "build:windows": "bun build --compile --target=bun-windows-x64 --minify src/index.ts --outfile dist/auto-agent.exe",
+    "prebuild:linux": "bun scripts/generate-builtin-assets.ts",
     "build:linux": "bun build --compile --target=bun-linux-x64 --minify src/index.ts --outfile dist/auto-agent"
   },
   "dependencies": {

@@ -8,7 +8,7 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
   async () => {
     const f = await fixture();
     const file = join(f.dir, 'config.json');
-    await writeFile(file, JSON.stringify(f.config));
+    await writeFile(file, JSON.stringify({ ...f.config, skillRoots: [], builtinSkills: true }));
     const proc = Bun.spawn([binary, 'serve', '--config', file], {
       cwd: f.dir,
       env: { ...process.env, AUTO_AGENT_TOKEN: f.config.token },
@@ -30,6 +30,7 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         startup += new TextDecoder().decode(next.value);
       }
       const info = JSON.parse(startup.split('\n').find((line) => line.startsWith('{'))!);
+      expect(startup).toContain('device-automation (built-in)');
       const base = info.url;
       await reader.cancel();
       expect((await fetch(base + '/global/health')).status).toBe(200);

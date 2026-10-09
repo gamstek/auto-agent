@@ -24,6 +24,7 @@ export async function fixture() {
   const config: Config = {
     dataDir: join(dir, 'data'),
     skillRoots: [root],
+    builtinSkills: false,
     host: '127.0.0.1',
     port: 0,
     allowRemote: false,

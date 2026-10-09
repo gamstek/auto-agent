@@ -39,7 +39,7 @@ test('development selects repository config without touching user config and exp
     );
     const catalog = await new Response(skills.stdout).text();
     expect(await skills.exited).toBe(0);
-    expect(JSON.parse(catalog).sort()).toEqual(['hello-world', 'sum-values']);
+    expect(JSON.parse(catalog).sort()).toEqual(['device-automation', 'hello-world', 'sum-values']);
   } finally {
     await f.cleanup();
   }

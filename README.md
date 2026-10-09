@@ -68,7 +68,7 @@ Start with [examples/config.json](examples/config.json). Relative dataDir/skillR
 
 Cloud credentials come only from AUTO_AGENT_API_KEY. Do not commit secrets or place them in systemPrompt. Restart after configuration changes. The default prompt identifies Auto-Agent and describes skill discovery, loading, resource access, script arguments, real tool outcomes, and operator reconciliation. Empty prompts fall back to this project-specific default; custom prompts append preferences and cannot bypass tool restrictions. Startup prints the resolved skill roots and discovered names so missing configuration is distinguishable from a model refusing or overlooking a skill.
 
-Development defaults resolve to repository `examples/config.json`, `examples/skills`, and `.auto-agent` data. Installed defaults resolve to user `~/.auto-agent/config.json` and its data directory with no implicitly trusted skills. Explicit paths behave identically in both modes: relative paths resolve against the selected configuration, not cwd; the model and tool loop do not otherwise vary by mode.
+Development defaults resolve to repository `examples/config.json`, `examples/skills`, and `.auto-agent` data. Installed defaults resolve to user `~/.auto-agent/config.json` and its data directory with built-in skills enabled and no implicitly trusted external skills. Explicit paths behave identically in both modes: relative paths resolve against the selected configuration, not cwd; the model and tool loop do not otherwise vary by mode.
 
 ```json
 { "systemPrompt": "Answer concisely and explain actions without inventing results." }
@@ -122,6 +122,14 @@ Events include session.status, model.started/completed/failed, message.part.delt
 No event replay exists. Each client has a 64-frame queue; subscriber capacity is maxConcurrent * 8. Disconnecting SSE does not cancel generation. Read history after reconnecting; **do not blindly resubmit ambiguous side-effecting tasks**. A synchronous response contains only the final reply. Client applications must render raw Markdown safely, not as trusted HTML.
 
 There is no /v1/chat/completions, business /runs, /devices, or /skills endpoint, third-party browser CORS configuration, or OpenAPI service.
+
+## Built-in Skills
+
+The independent built-in package in [skills/builtin](skills/builtin) is a virtual device automation simulator. It lists virtual devices and simulates status, power, and desk-lamp brightness operations. It never connects to or controls real hardware or networks, and simulated changes are not persisted.
+
+`builtinSkills` defaults to `true`. Source and compiled applications embed the package and release a content-versioned copy under `dataDir/builtin-skills/<version>` before discovery. No `skillRoots` configuration is needed for `device-automation`; its script requires Node.js on PATH. Built-ins use the same metadata/path validation, execution limits, audit, and cancellation as configured skills.
+
+Set `builtinSkills: false` to disable extraction/loading. Extracted built-in files are verified against embedded content; modifications fail closed instead of being overwritten or executed. A configured skill with the same name produces a duplicate-name diagnostic, never silently overriding the built-in. Do not edit generated copies: change the source package and rebuild, or supply a separately named configured skill.
 
 ## Skills and trust
 
