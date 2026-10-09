@@ -25,7 +25,6 @@
   "devDependencies": {
     "prettier": "3.9.9",
     "@types/bun": "1.4.2",
-    "typescript": "7.0.2",
-    "bun": "1.4.2"
+    "typescript": "7.0.2"
   }
 }
