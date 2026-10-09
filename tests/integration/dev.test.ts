@@ -29,6 +29,17 @@ test('development selects repository config without touching user config and exp
     expect(output).toContain('Mode: development');
     expect(output).toContain('Configuration: ' + file);
     expect(output).toContain('Data: ' + f.config.dataDir);
+    const skills = Bun.spawn(
+      [
+        Bun.argv[0],
+        '-e',
+        `import {loadConfig} from ${JSON.stringify(resolve('src', 'config', 'index.ts'))}; import {Skills} from ${JSON.stringify(resolve('src', 'skills', 'index.ts'))}; const config=await loadConfig(${JSON.stringify(resolve('examples', 'config.json'))},false,true);console.log(JSON.stringify((await new Skills(config).discover()).map(skill=>skill.name)));`,
+      ],
+      { cwd: f.dir, stdout: 'pipe', stderr: 'pipe' },
+    );
+    const catalog = await new Response(skills.stdout).text();
+    expect(await skills.exited).toBe(0);
+    expect(JSON.parse(catalog).sort()).toEqual(['hello-world', 'sum-values']);
   } finally {
     await f.cleanup();
   }

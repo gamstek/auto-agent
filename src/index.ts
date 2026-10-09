@@ -35,7 +35,10 @@ export async function main(
       '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
     );
   const skills = new Skills(config);
-  await skills.discover();
+  const catalog = await skills.discover();
+  console.log(
+    `Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => skill.name).join(', ') : '(none discovered)'}`,
+  );
   const store = new Store(config.dataDir);
   const service = new AgentService(
     config,

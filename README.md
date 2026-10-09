@@ -6,7 +6,7 @@ A local-first general AI agent with trusted Agent Skills, persistent sessions, a
 
 ## Requirements
 
-- Bun **1.4.2** (native SQLite; Node.js cannot run the application directly).
+- Bun **1.4.2**, installed as a system runtime (CI uses `oven-sh/setup-bun`); do not install the npm `bun` package in this project because its shim shadows the runtime in package scripts. Native SQLite requires Bun; Node.js cannot run the application directly.
 - Node.js on PATH for the example skill scripts (22+ recommended).
 - PowerShell/CIM on Windows for owned-process tracking.
 - Other skill languages require configured interpreters.
@@ -66,7 +66,9 @@ Start with [examples/config.json](examples/config.json). Relative dataDir/skillR
 | resourceLimitBytes / requestLimitBytes | 65536 each                                                           |
 | maxConcurrent                          | 4, session/script concurrency budget                                 |
 
-Cloud credentials come only from AUTO_AGENT_API_KEY. Do not commit secrets or place them in systemPrompt. Restart after configuration changes. Custom prompts cannot bypass tool restrictions.
+Cloud credentials come only from AUTO_AGENT_API_KEY. Do not commit secrets or place them in systemPrompt. Restart after configuration changes. The default prompt identifies Auto-Agent and describes skill discovery, loading, resource access, script arguments, real tool outcomes, and operator reconciliation. Empty prompts fall back to this project-specific default; custom prompts append preferences and cannot bypass tool restrictions. Startup prints the resolved skill roots and discovered names so missing configuration is distinguishable from a model refusing or overlooking a skill.
+
+Development defaults resolve to repository `examples/config.json`, `examples/skills`, and `.auto-agent` data. Installed defaults resolve to user `~/.auto-agent/config.json` and its data directory with no implicitly trusted skills. Explicit paths behave identically in both modes: relative paths resolve against the selected configuration, not cwd; the model and tool loop do not otherwise vary by mode.
 
 ```json
 { "systemPrompt": "Answer concisely and explain actions without inventing results." }

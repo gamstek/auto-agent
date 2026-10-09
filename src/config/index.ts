@@ -3,6 +3,7 @@ import { resolve, dirname, join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppError } from '../shared/types';
+import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
   skillRoots: z.array(z.string()).default([]),
@@ -11,7 +12,7 @@ const schema = z.object({
   allowRemote: z.boolean().default(false),
   token: z.string(),
   model: z.string().default('deepseek-flash'),
-  systemPrompt: z.string().max(16000).optional(),
+  systemPrompt: z.string().max(16000).default(DEFAULT_SYSTEM_PROMPT),
   baseURL: z.string().url().default('https://api.deepseek.com'),
   apiKey: z.string().optional(),
   maxSteps: z.number().int().positive().max(100).default(12),
@@ -27,7 +28,11 @@ const schema = z.object({
     .default({ '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' }),
   scriptEnv: z.record(z.string(), z.string()).default({}),
 });
-export type Config = z.infer<typeof schema> & { noToken?: boolean; configPath?: string };
+export type Config = Omit<z.infer<typeof schema>, 'systemPrompt'> & {
+  systemPrompt?: string;
+  noToken?: boolean;
+  configPath?: string;
+};
 export async function ensureDefaultConfig(
   home = homedir(),
 ): Promise<{ path: string; created: boolean }> {
@@ -42,7 +47,7 @@ export async function ensureDefaultConfig(
     allowRemote: false,
     model: 'deepseek-flash',
     baseURL: 'https://api.deepseek.com',
-    systemPrompt: '',
+    systemPrompt: DEFAULT_SYSTEM_PROMPT,
     interpreters: { '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' },
   };
   try {
