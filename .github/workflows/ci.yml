@@ -1,0 +1,31 @@
+name: validate
+on: [push, pull_request]
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: bun install --frozen-lockfile
+      - run: bun run format:check
+      - run: bun run typecheck
+      - run: bun test
+      - if: runner.os == 'Windows'
+        run: bun run build:windows
+      - if: runner.os == 'Linux'
+        run: bun run build:linux
+      - run: bun test tests/integration/binary.test.ts
+        env:
+          AUTO_AGENT_TEST_BINARY: '1'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: auto-agent-${{ runner.os }}-x64
+          path: dist/*

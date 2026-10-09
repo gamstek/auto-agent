@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.auto-agent/
+.env
+*.sqlite*
+coverage/

@@ -1,0 +1,31 @@
+{
+  "name": "auto-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun scripts/dev.ts",
+    "start": "bun src/index.ts",
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "build:windows": "bun build --compile --target=bun-windows-x64 --minify src/index.ts --outfile dist/auto-agent.exe",
+    "build:linux": "bun build --compile --target=bun-linux-x64 --minify src/index.ts --outfile dist/auto-agent"
+  },
+  "dependencies": {
+    "@ai-sdk/openai": "4.0.91",
+    "@langchain/langgraph": "1.4.21",
+    "@langchain/langgraph-checkpoint": "1.1.6",
+    "ai": "7.0.136",
+    "marked": "17.0.1",
+    "yaml": "2.9.1",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "prettier": "3.9.9",
+    "@types/bun": "1.4.2",
+    "typescript": "7.0.2",
+    "bun": "1.4.2"
+  }
+}

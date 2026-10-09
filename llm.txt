@@ -1,0 +1,92 @@
+# Auto-Agent integration guide
+
+Auto-Agent is a local-first general AI agent with trusted Agent Skills, persistent sessions, a readline CLI, and an HTTP service. This file describes the implemented API, not the complete OpenCode protocol. No built-in device control, experimental workflow, unrestricted shell, or business REST endpoints exist.
+
+## Discovery and authentication
+Default origin: http://127.0.0.1:4096
+Development: npm run dev loads the repository examples/config.json and identifies development mode; --config overrides it. Installed usage: npm run start and compiled executables use user-directory configuration by default. Development never creates or edits the default user configuration.
+Without --config, start or the compiled application creates ~/.auto-agent/config.json on first launch and automatically loads it thereafter. Existing files are not overwritten; credentials are never generated or saved. Set model/baseURL and AUTO_AGENT_API_KEY before chatting. Startup diagnostics show the selected configuration and warn about missing credentials. Missing HTTP bearer-token errors also suggest serve --no-token for trusted local use.
+GET / returns a human-readable integration page.
+GET /llm.txt returns this guide as text/plain; GET /llms.txt is an alias.
+GET /global/health returns {"healthy":true,"version":"0.1.0"}.
+These documentation and health routes are public and never expose credentials, configuration, sessions, or local skills.
+All other routes require Authorization: Bearer <local-token> by default.
+The local bearer token is different from AUTO_AGENT_API_KEY (cloud credentials).
+Explicit serve --no-token disables authentication only on loopback. Do not assume the service is unauthenticated; do not expose it through public forwarding.
+Content-Type: application/json for JSON request bodies. UTF-8 throughout.
+No OpenAI /v1/chat/completions endpoint, OpenAPI endpoint, CORS policy for third-party browser clients, or complete OpenCode client compatibility is supplied.
+
+## Sessions
+POST /session with {} or {"title":"Optional manual title"} returns HTTP 201:
+{"id":"uuid","title":"New session","createdAt":1790000000000,"updatedAt":1790000000000}
+Manual titles are at most 200 characters and are preserved. Omitted titles are summarized by the configured model after a successful reply. Title generation adds a separate model call; failure does not fail the reply.
+GET /session returns an array of session objects, newest updated first.
+GET /session/{sessionId} returns one session.
+GET /session/{sessionId}/message returns an array of messages, chronological order.
+Message shape:
+{"id":"uuid","sessionId":"uuid","role":"user|assistant","content":"Markdown text","createdAt":1790000000000}
+Session and message objects do not expose internal execution or checkpoint IDs.
+Do not infer equipment state or side-effect success from a session's title or agent activity.
+
+## Send a message
+POST /session/{sessionId}/message
+Body: {"content":"Natural-language task"}
+Returns HTTP 200 with the persisted final assistant message. This request waits for generation and optional title generation. The server may emit events before the HTTP response arrives.
+POST /session/{sessionId}/prompt_async
+Same body. Returns HTTP 204 (empty body) after accepting generation, not after completing the task. Follow events and/or message history.
+Messages must be nonempty. The default request body limit is 65536 bytes. Only one generation may be active per session; conflicts return 409. Default global concurrency is 4; capacity exhaustion returns 429.
+Model failures are recorded as assistant error messages and return errors; do not interpret error text as successful execution.
+Do not automatically retry scripts or submissions after an ambiguous disconnect. Read message history and reconcile external effects first.
+
+## Streaming events
+Subscribe GET /event BEFORE submitting a message. Include the bearer header (native browser EventSource cannot attach it; use fetch streaming or a client supporting custom headers).
+Response: text/event-stream. Heartbeats are comment frames. Each data frame contains JSON:
+{"type":"tool.started","sessionId":"uuid","messageId":"assistant-message-uuid","properties":{"name":"load_skill","toolCallId":"provider-call-id","status":"running","skill":"sum-values"}}
+Filter by sessionId and correlate messageId for each generation. Assistant messageId differs from the submitted user message ID. toolCallId correlates a tool's start and end.
+Event types and properties:
+- session.status: status = busy or idle (agent activity, not device status)
+- model.started: step (1-based)
+- model.completed: step, totalTokens (per-step usage), durationMs
+- model.failed: step, status, message, durationMs
+- message.part.delta: delta (raw Markdown fragment), step
+- tool.started: name, toolCallId, status=running; optional skill/path summary
+- tool.completed: name, toolCallId, status=completed, durationMs
+- tool.failed: name, toolCallId, status, message, durationMs
+- session.title.started: empty properties
+- session.title.failed: message
+- session.updated: session object
+- message.completed: message object (final persisted assistant reply)
+- session.error: code, message
+Steps may contain intermediate assistant text preceding tools. The final history reply contains the final model turn, not every intermediate step. Render Markdown incrementally without treating model text/tool data as trusted HTML.
+There is no event replay, Last-Event-ID support, or durable event history. A slow subscriber is disconnected when its 64-frame queue fills. Default maximum subscribers: maxConcurrent * 8. Disconnecting SSE does NOT abort generation. Query history after reconnecting; do not resubmit automatically.
+Events omit raw script output, full arguments, and skill resource bodies. They expose necessary progress metadata; do not treat them as unrestricted audit logs.
+
+## Abort
+POST /session/{sessionId}/abort (no body required)
+Returns {"aborted":true} after attempting to stop the active generation and its owned scripts; false if no generation was active.
+Aborting an agent is NOT confirmation that physical equipment stopped or that external effects were undone. Unknown script outcomes require operator reconciliation; such sessions are blocked from further execution. No public resume or reconciliation endpoint exists.
+
+## Errors
+Typical JSON response: {"error":"code","message":"sanitized explanation"}. Some auth responses only contain error.
+400 invalid input; 401 missing/invalid bearer token; 404 session/route absent; 409 active session, cancellation or ownership conflict; 413 body too large; 429 capacity; 502 model/agent failure; 503 missing cloud model configuration (may be wrapped by agent failure).
+Consumers should use HTTP status plus error, not brittle matching of human-readable messages. Unregistered business endpoints /runs, /devices, and /skills are unsupported.
+
+## Client example (JavaScript)
+const base = 'http://127.0.0.1:4096';
+const headers = { Authorization: `Bearer ${process.env.AUTO_AGENT_TOKEN}`, 'Content-Type': 'application/json' };
+const sessionResponse = await fetch(`${base}/session`, { method: 'POST', headers, body: '{}' });
+if (!sessionResponse.ok) throw new Error(`Create session failed: ${sessionResponse.status}`);
+const session = await sessionResponse.json();
+const response = await fetch(`${base}/session/${session.id}/message`, { method: 'POST', headers, body: JSON.stringify({ content: 'Explain available capabilities' }) });
+if (!response.ok) throw new Error(`Agent failed: ${response.status}`);
+const reply = await response.json();
+console.log(reply.content);
+
+## Runtime and trust
+Requires Bun 1.4.2; sample scripts require Node.js on PATH, Windows script tracking requires PowerShell/CIM. Start HTTP: npm run dev -- serve --config .\examples\config.json. Start local REPL: npm run dev -- --config .\examples\config.json (no HTTP token required).
+Cloud provider: OpenAI-compatible chat API configured with model/baseURL and AUTO_AGENT_API_KEY. Defaults: model=deepseek-flash, baseURL=https://api.deepseek.com. Existing user configurations are preserved; change model/baseURL explicitly to adopt new defaults. Optional systemPrompt appends instructions but cannot bypass tool checks.
+Configured trusted skill roots contain skill directories with SKILL.md; discovery loads metadata, instructions/resources on demand. Registered tools: list_skills, load_skill, read_skill_resource, execute_skill_script.
+Script entry paths are confined to scripts/ in their configured skill directory. Arguments are passed as arrays. This is NOT an OS sandbox: trusted scripts retain host filesystem/network privileges. Do not configure untrusted skill directories.
+Skill content and necessary tool output may enter cloud model context. Data-directory sessions/checkpoints persist locally. Known configured keys/tokens are redacted, but arbitrary secrets cannot be automatically recognized.
+Default budgets: 12 model steps, 32000 reported tokens (title calls separate), 60s model request timeout, 30s script timeout, 64KiB combined stdout/stderr, 64KiB per resource/request. One process exclusively owns a data directory. Model/read checkpoints are not automatically resumed after restart; unfinished side effects are marked unknown and never replayed.
+Windows/Linux x64 builds are supported. Linux runtime acceptance depends on Linux CI/host verification; cross-compilation alone is not acceptance. Live cloud validation requires explicit consent.
