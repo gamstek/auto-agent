@@ -7,7 +7,7 @@ import { Store } from '../../src/storage';
 import { AgentService } from '../../src/agent';
 import { serve, handler } from '../../src/api';
 import { Events } from '../../src/agent/events';
-import type { ModelAdapter, ModelTurn } from '../../src/shared/types';
+import type { AgentEvent, ModelAdapter, ModelTurn } from '../../src/shared/types';
 import { cli, argumentsFor } from '../../src/cli';
 async function app(model: ModelAdapter) {
   const f = await fixture();
@@ -271,14 +271,13 @@ test.skip('explicit no-token mode supports sessions messages events scripts and 
   }
 }, 30000);
 
-test('HTTP SSE streams correlated model steps and truthful tool outcomes', async () => {
+test('HTTP SSE streams correlated model steps and resource tool outcomes without executing scripts', async () => {
   const a = await app(
     sequence([
       call('load_skill', { skill: 'sum-values' }),
-      call('execute_skill_script', {
+      call('read_skill_resource', {
         skill: 'sum-values',
-        path: 'scripts/main.js',
-        args: ['2', '3'],
+        path: 'reference.txt',
       }),
       call('read_skill_resource', { skill: 'missing', path: 'reference.txt' }),
       { text: 'Done', totalTokens: 1, toolCalls: [] },
@@ -288,16 +287,19 @@ test('HTTP SSE streams correlated model steps and truthful tool outcomes', async
   const base = 'http://127.0.0.1:' + server.port;
   const headers = { Authorization: 'Bearer ' + a.config.token, 'Content-Type': 'application/json' };
   const controller = new AbortController();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let consumption: Promise<AgentEvent[]> | undefined;
   try {
     const session = a.store.createSession();
     const response = await fetch(base + '/event', { headers, signal: controller.signal });
-    const reader = response.body!.getReader();
-    await reader.read();
+    const streamReader = response.body!.getReader();
+    reader = streamReader;
+    await streamReader.read();
     const consume = (async () => {
       let buffer = '';
-      const events = [];
+      const events: AgentEvent[] = [];
       while (true) {
-        const part = await reader.read();
+        const part = await streamReader.read();
         if (part.done) throw new Error('SSE closed');
         buffer += new TextDecoder().decode(part.value);
         let index;
@@ -311,12 +313,16 @@ test('HTTP SSE streams correlated model steps and truthful tool outcomes', async
         }
       }
     })();
-    await a.service.submit(session.id, 'calculate');
+    consumption = consume;
+    // Observe reader failures immediately, even while submission is still pending.
+    void consume.catch(() => {});
+    await a.service.submit(session.id, 'read the resource');
     const events = await consume;
     expect(events.filter((e) => e.type === 'model.started').length).toBe(4);
     expect(events.filter((e) => e.type === 'model.completed').length).toBe(4);
     const starts = events.filter((e) => e.type === 'tool.started');
     expect(starts.length).toBe(3);
+    expect(starts.some((event) => event.properties.name === 'execute_skill_script')).toBe(false);
     for (const start of starts) {
       const ends = events.filter(
         (e) =>
@@ -332,10 +338,11 @@ test('HTTP SSE streams correlated model steps and truthful tool outcomes', async
     expect(events.every((e) => e.sessionId === session.id)).toBe(true);
     expect(new Set(events.map((e) => e.messageId)).size).toBe(1);
     expect(JSON.stringify(events)).not.toContain(a.config.apiKey!);
-    controller.abort();
-    await reader.cancel().catch(() => {});
   } finally {
     controller.abort();
+    await reader?.cancel().catch(() => {});
+    await consumption?.catch(() => {});
+    reader?.releaseLock();
     server.stop(true);
     await a.dispose();
   }
