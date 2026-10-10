@@ -1,15 +1,20 @@
 import { safeTerminalText, TerminalMarkdown } from './markdown';
 import type { Writable } from 'node:stream';
 import type { AgentEvent, Message } from '../shared/types';
+import { ConsoleOutput } from '../shared/console';
 const colors = { user: 36, assistant: 32, system: 90, tool: 33, error: 31 };
 export class ReplRenderer {
   private textOpen = false;
   private markdown?: TerminalMarkdown;
+  private readonly console: ConsoleOutput;
   constructor(
     private output: Writable,
-    private error: Writable,
+    error: Writable,
     private color: boolean,
-  ) {}
+    diagnosticColor = color,
+  ) {
+    this.console = new ConsoleOutput(output, error, diagnosticColor);
+  }
   private style(text: string, role: keyof typeof colors): string {
     const safe = safeTerminalText(text);
     return this.color ? `\x1b[${colors[role]}m${safe}\x1b[0m` : safe;
@@ -24,7 +29,8 @@ export class ReplRenderer {
   }
   line(text: string, role: keyof typeof colors = 'system'): void {
     this.closeText();
-    this.output.write(this.style(text, role) + '\n');
+    if (role === 'user' || role === 'assistant') this.output.write(this.style(text, role) + '\n');
+    else this.console.diagnostic(text, role === 'error' ? 'error' : 'info');
   }
   history(message: Message): void {
     if (message.role === 'user') {
@@ -98,6 +104,6 @@ export class ReplRenderer {
   }
   failure(text: string): void {
     this.closeText();
-    this.error.write(this.style(`[error] ${text}`, 'error') + '\n');
+    this.console.error(text);
   }
 }

@@ -10,8 +10,9 @@ test('development selects repository config without touching user config and exp
     stderr: 'pipe',
   });
   expect(await child.exited).toBe(1);
-  expect(await new Response(child.stderr).text()).toContain('AUTO_AGENT_TOKEN');
-  const diagnostic = await new Response(child.stdout).text();
+  const diagnostic = await new Response(child.stderr).text();
+  expect(diagnostic).toContain('AUTO_AGENT_TOKEN');
+  expect(await new Response(child.stdout).text()).toBe('');
   expect(diagnostic).toContain('Selected configuration: ' + resolve('examples', 'config.json'));
   const f = await fixture();
   try {
@@ -24,7 +25,8 @@ test('development selects repository config without touching user config and exp
       stdout: 'pipe',
       stderr: 'pipe',
     });
-    const output = await new Response(override.stdout).text();
+    const output = await new Response(override.stderr).text();
+    expect(await new Response(override.stdout).text()).toBe('');
     expect(await override.exited).toBe(0);
     expect(output).toContain('Mode: development');
     expect(output).toContain('Configuration: ' + file);

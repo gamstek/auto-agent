@@ -4,6 +4,7 @@ import type { Readable, Writable } from 'node:stream';
 import type { AgentService } from '../agent';
 import type { Config } from '../config';
 import { AppError, errorText, type Message } from '../shared/types';
+import { ConsoleOutput, supportsColor } from '../shared/console';
 import type { argumentsFor } from './index';
 export interface ReplIO {
   input: Readable;
@@ -27,22 +28,24 @@ export async function repl(
   const renderer = new ReplRenderer(
     io.output,
     io.error,
-    !args.values.json &&
-      (io.color ??
-        (Boolean(io.terminal) &&
-          process.env.NO_COLOR === undefined &&
-          process.env.TERM !== 'dumb')),
+    !args.values.json && (io.color ?? (Boolean(io.terminal) && supportsColor(io.output))),
+    !args.values.json && (io.color ?? supportsColor(io.error)),
   );
+  const console = new ConsoleOutput(io.output, io.error);
   const sessionId = args.values.session ?? local.store.createSession().id;
   if (args.values.session) local.store.getSession(sessionId);
   const history: Message[] = args.values.session ? local.store.messages(sessionId) : [];
   renderer.line(`Session: ${sessionId}`);
   renderer.line('Type a message; /exit to quit. Ctrl+C cancels a reply, or exits when idle.');
-  for (const message of history) renderer.history(message);
+  for (const message of history) {
+    if (args.values.json) console.json(message);
+    else renderer.history(message);
+  }
+  const terminal = Boolean(io.terminal) && !args.values.json;
   const readline = createInterface({
     input: io.input,
     output: io.output,
-    terminal: io.terminal ?? false,
+    terminal,
     crlfDelay: Infinity,
   });
   let busy = false;
@@ -57,7 +60,7 @@ export async function repl(
     void local.abort(sessionId).catch((error) => renderer.failure(errorText(error)));
   };
   readline.on('SIGINT', interrupt);
-  if (!io.terminal) process.on('SIGINT', interrupt);
+  if (!terminal) process.on('SIGINT', interrupt);
   const send = async (content: string) => {
     if (!content.trim()) return;
     busy = true;
@@ -70,7 +73,7 @@ export async function repl(
     });
     try {
       const reply = await local.submit(sessionId, content);
-      if (args.values.json) io.output.write(JSON.stringify(reply) + '\n');
+      if (args.values.json) console.json(reply);
       else renderer.reply(reply, streamed);
     } catch (error) {
       renderer.failure(errorText(error));
@@ -86,14 +89,14 @@ export async function repl(
     const initial = args.positionals.join(' ');
     if (initial.trim() === '/exit') return;
     if (initial) await send(initial);
-    if (io.terminal) {
+    if (terminal) {
       readline.setPrompt(renderer.prompt());
       readline.prompt();
     }
     for await (const line of { [Symbol.asyncIterator]: () => lines }) {
       if (line.trim() === '/exit') break;
       await send(line);
-      if (io.terminal) readline.prompt();
+      if (terminal) readline.prompt();
     }
   } finally {
     readline.removeListener('SIGINT', interrupt);

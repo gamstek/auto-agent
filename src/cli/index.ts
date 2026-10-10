@@ -15,8 +15,33 @@ export function argumentsFor(argv: string[]) {
     },
   });
 }
-export const help =
-  'auto-agent [serve] [--config PATH] [--no-token] [--session ID] [--json]\nWithout serve: interactive REPL. Other positional arguments are the first chat message, not commands. REPL: /exit; Ctrl+C cancels generation or exits when idle.\nserve starts HTTP and requires a token unless --no-token is specified. REPL runs locally without authentication.';
+export const help = `Auto-Agent — local AI agent with trusted skills
+
+Usage
+  auto-agent [serve] [options]
+  auto-agent [options] [message]
+
+Commands
+  serve              Start the HTTP service (bearer token required by default)
+  No command         Start interactive chat; positional text is the first message
+
+Options
+  --config PATH      Load a JSON configuration file
+  --session ID       Resume an existing chat session
+  --json             Print chat history and replies as newline-delimited JSON
+  --no-token         Disable HTTP authentication on loopback only
+  --help             Show this help
+
+Examples
+  auto-agent
+  auto-agent --config config.json "List available skills"
+  auto-agent serve --no-token
+
+Chat controls
+  /exit              Quit
+  Ctrl+C             Cancel the current reply, or exit when idle
+
+Diagnostics and progress go to stderr; replies and JSON go to stdout.`;
 export async function cli(
   args: ReturnType<typeof argumentsFor>,
   config: Config,

@@ -1,6 +1,6 @@
 import { constants } from 'node:fs';
 import { lstat, open, readdir, realpath } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 import { parseDocument } from 'yaml';
 import type { Config } from '../config';
 import { AppError, type SkillInfo } from '../shared/types';
@@ -125,6 +125,14 @@ export class Skills {
     const rel = relative(root, target);
     if (isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`))
       throw new AppError('skill_path', 'Path escapes skill directory');
+    const volume = parse(root).root;
+    let ancestor = volume;
+    for (const part of relative(volume, root).split(sep).filter(Boolean)) {
+      ancestor = join(ancestor, part);
+      if ((await lstat(ancestor)).isSymbolicLink())
+        throw new AppError('skill_path', 'Symbolic links are not permitted');
+    }
+    const canonicalRoot = await realpath(root);
     let current = root;
     const parts = rel ? rel.split(sep) : [];
     for (let i = -1; i < parts.length; i++) {
@@ -135,8 +143,8 @@ export class Skills {
       if (i < parts.length - 1 || !file) {
         if (!stat.isDirectory()) throw new AppError('skill_path', 'Expected a directory');
       } else if (!stat.isFile()) throw new AppError('skill_path', 'Expected a regular file');
-      if (relative(current, await realpath(current)) !== '')
-        throw new AppError('skill_path', 'Non-canonical path is not permitted');
+      if (relative(canonicalRoot, await realpath(current)) !== relative(root, current))
+        throw new AppError('skill_path', 'Path resolves outside its skill directory');
     }
   }
 

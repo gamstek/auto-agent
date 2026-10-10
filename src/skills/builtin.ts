@@ -2,8 +2,7 @@ import { createHash } from 'node:crypto';
 import { mkdir, lstat, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve, relative } from 'node:path';
 import { AppError } from '../shared/types';
-import { builtinAssets as files } from './builtin-assets.generated';
-const version = createHash('sha256').update(JSON.stringify(files)).digest('hex').slice(0, 16);
+import { collectBuiltinAssets } from './builtin-assets';
 async function directory(path: string): Promise<void> {
   try {
     await mkdir(path);
@@ -18,6 +17,8 @@ async function directory(path: string): Promise<void> {
     );
 }
 export async function materializeBuiltins(dataDir: string): Promise<string> {
+  const files = await collectBuiltinAssets();
+  const version = createHash('sha256').update(JSON.stringify(files)).digest('hex').slice(0, 16);
   const data = resolve(dataDir);
   await mkdir(data, { recursive: true });
   const root = join(data, 'builtin-skills', version);

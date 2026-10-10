@@ -1,16 +1,33 @@
 import { test, expect } from 'bun:test';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
 import { Skills } from '../../src/skills';
 import { ScriptExecutor } from '../../src/execution';
 import { materializeBuiltins } from '../../src/skills/builtin';
-import { builtinAssets } from '../../src/skills/builtin-assets.generated';
-import { collectBuiltinAssets } from '../../scripts/generate-builtin-assets';
+import { collectBuiltinAssets } from '../../src/skills/builtin-assets';
+test('asset collection reads nested and hidden text files deterministically and rejects binary files', async () => {
+  const f = await fixture();
+  try {
+    const root = join(f.dir, 'assets');
+    await mkdir(join(root, 'nested'), { recursive: true });
+    await writeFile(join(root, '.hidden'), 'hidden');
+    await writeFile(join(root, 'nested', 'resource.txt'), '资源');
+    const first = await collectBuiltinAssets(root);
+    expect(first).toEqual({ '.hidden': 'hidden', 'nested/resource.txt': '资源' });
+    expect(await collectBuiltinAssets(root)).toEqual(first);
+    await writeFile(join(root, 'nested', 'resource.txt'), 'updated');
+    expect((await collectBuiltinAssets(root))['nested/resource.txt']).toBe('updated');
+    await writeFile(join(root, 'binary.bin'), Buffer.from([0xff]));
+    await expect(collectBuiltinAssets(root)).rejects.toThrow('UTF-8');
+  } finally {
+    await f.cleanup();
+  }
+});
 test('embedded built-ins discover without roots, load resources, execute and remain stable', async () => {
   const f = await fixture();
   try {
-    expect(builtinAssets).toEqual(await collectBuiltinAssets());
+    const assets = await collectBuiltinAssets();
     const config = { ...f.config, skillRoots: [], builtinSkills: true };
     const skills = new Skills(config);
     expect((await skills.discover()).map((s) => s.name)).toEqual(['device-automation']);
@@ -26,6 +43,8 @@ test('embedded built-ins discover without roots, load resources, execute and rem
       device: { id: 'desk-lamp', powered: true, brightness: 50 },
     });
     const first = await materializeBuiltins(config.dataDir);
+    for (const [path, content] of Object.entries(assets))
+      expect(await readFile(join(first, ...path.split('/')), 'utf8')).toBe(content);
     expect(await materializeBuiltins(config.dataDir)).toBe(first);
   } finally {
     await f.cleanup();

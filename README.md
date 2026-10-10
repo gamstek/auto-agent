@@ -125,9 +125,9 @@ There is no /v1/chat/completions, business /runs, /devices, or /skills endpoint,
 
 ## Built-in Skills
 
-The independent built-in package in [skills/builtin](skills/builtin) is a virtual device automation simulator. It lists virtual devices and simulates status, power, and desk-lamp brightness operations. It never connects to or controls real hardware or networks, and simulated changes are not persisted.
+The root [skills](skills) directory contains built-in packages; examples remain under [examples/skills](examples/skills), and external skills are configured through `skillRoots`. The built-in `device-automation` package is a virtual device automation simulator. It lists virtual devices and simulates status, power, and desk-lamp brightness operations. It never connects to or controls real hardware or networks, and simulated changes are not persisted.
 
-`builtinSkills` defaults to `true`. Source and compiled applications embed the package and release a content-versioned copy under `dataDir/builtin-skills/<version>` before discovery. No `skillRoots` configuration is needed for `device-automation`; its script requires Node.js on PATH. Built-ins use the same metadata/path validation, execution limits, audit, and cancellation as configured skills.
+`builtinSkills` defaults to `true`. Source runs read every UTF-8 file under the root `skills` directory, relative to the source module rather than the launch directory. The `build:windows` and `build:linux` commands use a Bun build plugin to embed the same resources into standalone executables; no generated source files or `pre*` hooks are required. Both modes release a content-versioned copy under `dataDir/builtin-skills/<version>` before discovery. No `skillRoots` configuration is needed for `device-automation`; its script requires Node.js on PATH. Built-ins use the same metadata/path validation, execution limits, audit, and cancellation as configured skills.
 
 Set `builtinSkills: false` to disable extraction/loading. Extracted built-in files are verified against embedded content; modifications fail closed instead of being overwritten or executed. A configured skill with the same name produces a duplicate-name diagnostic, never silently overriding the built-in. Do not edit generated copies: change the source package and rebuild, or supply a separately named configured skill.
 
@@ -150,7 +150,13 @@ Tools: list_skills, load_skill, read_skill_resource, execute_skill_script. Scrip
 
 Execution intent is persisted first. Failed scripts are not automatically retried. Interrupted scripts without results become unknown and require operator reconciliation; other interrupted generations fail rather than resume automatically. No public resume/unblock endpoint exists. Cleanup tracks owned processes/groups, not deliberately detached scripts. **Aborting the agent does not confirm equipment stopped or effects were undone.**
 
+## CLI output
+
+`--help` shows commands, options, and examples. Startup diagnostics and progress use stderr; messages use `[info]`, `[warn]`, and `[error]` levels, with yellow warnings and red errors only on color-capable terminals. Redirected output, `NO_COLOR`, and `TERM=dumb` disable automatic coloring. Replies and help use stdout; `--json` emits newline-delimited JSON for history and replies without diagnostic text. The HTTP service retains its JSON `listening` notification on stdout for integrations.
+
 ## Development and release
+
+`src/app.ts` exports application startup without running it on import. `src/index.ts` is the shared source/standalone entrypoint and explicitly awaits startup; `scripts/dev.ts` calls the same application with development defaults. Builds keep ESM format and do not rely on `import.meta.main`.
 
 ```powershell
 bun run format

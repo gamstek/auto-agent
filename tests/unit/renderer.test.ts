@@ -34,10 +34,11 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
   r.event('tool.failed', { name: 'execute_skill_script', status: 'timeout', message: 'Timed out' });
   r.view.failure('bad\x1b[2Jpayload');
   expect(r.output()).toContain('\x1b[32m');
-  expect(r.output()).toContain('\x1b[33m');
-  expect(r.output()).toContain('running');
-  expect(r.output()).toContain('4 tokens');
-  expect(r.output()).toContain('timeout');
+  expect(r.errors()).toContain('\x1b[90m');
+  expect(r.errors()).toContain('running');
+  expect(r.errors()).toContain('4 tokens');
+  expect(r.errors()).toContain('timeout');
+  expect(r.output()).not.toContain('[model]');
   expect(r.errors()).not.toContain('\x1b[2J');
 });
 test('plain renderer omits ANSI for redirected output and closes text before tool lines', () => {
@@ -45,7 +46,9 @@ test('plain renderer omits ANSI for redirected output and closes text before too
   r.event('message.part.delta', { delta: 'answer' });
   r.event('tool.started', { name: 'list_skills' });
   r.view.failure('error');
-  expect(r.output()).toContain('assistant > answer\n[tool]');
+  expect(r.output()).toContain('assistant > answer\n');
+  expect(r.errors()).toContain('[tool]');
+  expect(r.output()).not.toContain('[tool]');
   expect(r.output()).not.toContain('\x1b');
   expect(r.errors()).not.toContain('\x1b');
 });

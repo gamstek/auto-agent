@@ -88,15 +88,36 @@ test('REPL JSON replies do not mix in process events or ANSI codes', async () =>
   });
   try {
     const c = capture(Readable.from(['hi\n/exit\n']));
-    await cli(argumentsFor(['--json']), f.config, service, { ...c.io, color: true });
+    await cli(argumentsFor(['--json']), f.config, service, {
+      ...c.io,
+      terminal: true,
+      color: true,
+    });
     expect(c.output()).not.toContain('\x1b');
     expect(c.output()).not.toContain('[model]');
     expect(c.output()).not.toContain('[agent]');
-    const reply = c
+    const replies = c
       .output()
+      .trim()
       .split('\n')
-      .find((line) => line.startsWith('{'));
-    expect(JSON.parse(reply!).content).toBe('hello');
+      .map((line) => JSON.parse(line));
+    expect(replies).toHaveLength(1);
+    expect(replies[0].content).toBe('hello');
+    expect(c.errors()).toContain('Session:');
+    const resumed = capture(Readable.from(['/exit\n']));
+    await cli(
+      argumentsFor(['--json', '--session', store.listSessions()[0].id]),
+      f.config,
+      service,
+      { ...resumed.io, terminal: true, color: true },
+    );
+    const history = resumed
+      .output()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(history.map((message) => message.role)).toEqual(['user', 'assistant']);
+    expect(history[1].content).toBe('hello');
   } finally {
     await service.shutdown();
     store.close();
@@ -163,9 +184,11 @@ test('no command starts REPL and old command words are chat text rather than dis
       stderr: 'pipe',
     });
     const stdout = await new Response(child.stdout).text();
+    const stderr = await new Response(child.stderr).text();
     expect(await child.exited).toBe(0);
-    expect(stdout).toContain('Session:');
-    expect(stdout).toContain('/exit');
+    expect(stdout).toBe('');
+    expect(stderr).toContain('Session:');
+    expect(stderr).toContain('/exit');
     const config = f.config;
     const store = new Store(config.dataDir);
     const skills = new Skills(config);

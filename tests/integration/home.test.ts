@@ -30,7 +30,14 @@ test('public minimal homepage and integration guide expose no local secrets and 
       const guide = await fetch(new Request('http://localhost' + path));
       expect(guide.status).toBe(200);
       expect(guide.headers.get('content-type')).toContain('text/plain');
-      expect(await guide.text()).toBe(await Bun.file('llm.txt').text());
+      const text = await guide.text();
+      expect(text).toBe(await Bun.file('llm.txt').text());
+      expect(text).toContain('integrating with an installed Auto-Agent service');
+      expect(text).toContain('auto-agent serve');
+      expect(text).toContain('POST /session');
+      expect(text).not.toMatch(
+        /npm run dev|examples\/|build:windows|build:linux|Bun build plugin|Linux CI/,
+      );
     }
     expect((await fetch(new Request('http://localhost/session'))).status).toBe(401);
   } finally {

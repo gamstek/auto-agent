@@ -1,11 +1,23 @@
 # Auto-Agent integration guide
 
-Auto-Agent is a local-first general AI agent with trusted Agent Skills, persistent sessions, a readline CLI, and an HTTP service. This file describes the implemented API, not the complete OpenCode protocol. No built-in device control, experimental workflow, unrestricted shell, or business REST endpoints exist.
+This guide is for applications and AI assistants integrating with an installed Auto-Agent service. Auto-Agent provides persistent chat sessions, trusted skills, and an HTTP API. Use the routes documented here; it is not an OpenAI-compatible or complete OpenCode server. No real device-control API, unrestricted shell endpoint, or business workflow endpoints are provided.
+
+## Start the service
+Use the installed executable: auto-agent.exe on Windows or auto-agent on Linux. Bun is not required to run the executable. Configure the model and cloud credentials on the service host, not in client requests.
+Set AUTO_AGENT_API_KEY for the cloud model and AUTO_AGENT_TOKEN to a random bearer token of at least 16 characters, then run auto-agent serve (Windows: .\auto-agent.exe serve; Linux: ./auto-agent serve).
+The default model is deepseek-flash at https://api.deepseek.com. Without --config, the application creates ~/.auto-agent/config.json on first launch and reuses it without overwriting edits. Use --config PATH to select another JSON configuration; relative dataDir/skillRoots paths resolve against that file. Set model/baseURL there and keep credentials in environment variables.
+For trusted loopback-only use, auto-agent serve --no-token disables client authentication; do not expose this service through a public proxy or port forward. This does not disable cloud provider authentication.
+The default address is http://127.0.0.1:4096. If the operator changes host/port, configure your client with the actual service URL. Readiness is indicated by a JSON listening notification on stdout; startup diagnostics and errors use stderr. Check GET /global/health before connecting. Health confirms the service is running, not that model credentials or external devices work.
+
+## Integration flow
+1. Obtain the service URL and bearer token from the operator; never send the cloud API key to the local API.
+2. Create a session with POST /session and keep the returned id for subsequent messages.
+3. For a final reply, use POST /session/{id}/message. For streaming, subscribe to GET /event first, then submit POST /session/{id}/prompt_async.
+4. Filter events by sessionId and correlate each generation using messageId. Query message history after reconnecting.
+5. Use POST /session/{id}/abort to request cancellation; do not interpret cancellation as undoing physical effects.
 
 ## Discovery and authentication
 Default origin: http://127.0.0.1:4096
-Development: npm run dev loads the repository examples/config.json and identifies development mode; --config overrides it. Installed usage: npm run start and compiled executables use user-directory configuration by default. Development never creates or edits the default user configuration.
-Without --config, start or the compiled application creates ~/.auto-agent/config.json on first launch and automatically loads it thereafter. Existing files are not overwritten; credentials are never generated or saved. Set model/baseURL and AUTO_AGENT_API_KEY before chatting. Startup diagnostics show the selected configuration and warn about missing credentials. Missing HTTP bearer-token errors also suggest serve --no-token for trusted local use.
 GET / returns a human-readable integration page.
 GET /llm.txt returns this guide as text/plain; GET /llms.txt is an alias.
 GET /global/health returns {"healthy":true,"version":"0.1.0"}.
@@ -41,7 +53,7 @@ Do not automatically retry scripts or submissions after an ambiguous disconnect.
 ## Streaming events
 Subscribe GET /event BEFORE submitting a message. Include the bearer header (native browser EventSource cannot attach it; use fetch streaming or a client supporting custom headers).
 Response: text/event-stream. Heartbeats are comment frames. Each data frame contains JSON:
-{"type":"tool.started","sessionId":"uuid","messageId":"assistant-message-uuid","properties":{"name":"load_skill","toolCallId":"provider-call-id","status":"running","skill":"sum-values"}}
+{"type":"tool.started","sessionId":"uuid","messageId":"assistant-message-uuid","properties":{"name":"load_skill","toolCallId":"provider-call-id","status":"running","skill":"device-automation"}}
 Filter by sessionId and correlate messageId for each generation. Assistant messageId differs from the submitted user message ID. toolCallId correlates a tool's start and end.
 Event types and properties:
 - session.status: status = busy or idle (agent activity, not device status)
@@ -82,12 +94,13 @@ if (!response.ok) throw new Error(`Agent failed: ${response.status}`);
 const reply = await response.json();
 console.log(reply.content);
 
+## CLI output
+Startup diagnostics, warnings, errors, session notices, and progress use stderr. Help and replies use stdout. --json emits newline-delimited JSON for history and replies; stdout contains no startup or progress text. The HTTP service emits its JSON listening notification on stdout. Diagnostics use [info], [warn], and [error] levels; automatic colors are disabled when the relevant stream is redirected or NO_COLOR/TERM=dumb is set.
+
 ## Runtime and trust
-Requires Bun 1.4.2; sample scripts require Node.js on PATH, Windows script tracking requires PowerShell/CIM. Start HTTP: npm run dev -- serve --config .\examples\config.json. Start local REPL: npm run dev -- --config .\examples\config.json (no HTTP token required).
-Cloud provider: OpenAI-compatible chat API configured with model/baseURL and AUTO_AGENT_API_KEY. Defaults: model=deepseek-flash, baseURL=https://api.deepseek.com. Existing user configurations are preserved; change model/baseURL explicitly to adopt new defaults. Optional systemPrompt appends preferences but cannot bypass tool checks. The project-specific default identifies Auto-Agent and describes skill catalog use, instruction loading, resource/script calls, outcome reporting, and unknown-side-effect reconciliation. Empty prompts fall back to it. Startup reports resolved skill roots and discovered skill names. Development resolves example skill roots against examples/config.json; installed defaults trust no skills unless explicitly configured. Both modes use the same path resolution and agent loop.
-The built-in device-automation skill under skills/builtin is embedded into the application and enabled by default (builtinSkills=true). It provides a virtual device simulator only: list devices, inspect status, and simulate power/desk-lamp brightness changes. It never controls real devices, uses no network, and does not persist simulated changes. Its results must not be represented as physical device state or completed real actions. The package is released to dataDir/builtin-skills/<content-version> and uses the same loader/executor as user skills; Node.js on PATH is required. builtinSkills=false disables it. Configured same-name skills cause an explicit conflict. Built-in content is not read from examples at runtime, and modified extracted resources fail validation.
-Configured trusted skill roots contain skill directories with SKILL.md; discovery loads metadata, instructions/resources on demand. Registered tools: list_skills, load_skill, read_skill_resource, execute_skill_script.
-Script entry paths are confined to scripts/ in their configured skill directory. Arguments are passed as arrays. This is NOT an OS sandbox: trusted scripts retain host filesystem/network privileges. Do not configure untrusted skill directories.
-Skill content and necessary tool output may enter cloud model context. Data-directory sessions/checkpoints persist locally. Known configured keys/tokens are redacted, but arbitrary secrets cannot be automatically recognized.
-Default budgets: 12 model steps, 32000 reported tokens (title calls separate), 60s model request timeout, 30s script timeout, 64KiB combined stdout/stderr, 64KiB per resource/request. One process exclusively owns a data directory. Model/read checkpoints are not automatically resumed after restart; unfinished side effects are marked unknown and never replayed.
-Windows/Linux x64 builds are supported. Linux runtime acceptance depends on Linux CI/host verification; cross-compilation alone is not acceptance. Live cloud validation requires explicit consent.
+The operator configures skills, model preferences, and limits on the service host. Clients submit natural-language tasks; model-facing tools are not direct HTTP endpoints. Ask the agent about available capabilities rather than assuming a fixed installed skill catalog. The service has no /skills or /devices endpoint.
+The built-in device-automation skill is a simulator, enabled by default unless builtinSkills=false. It lists virtual devices and simulates status, power, and desk-lamp brightness changes. It never controls real devices, uses no network, and does not persist simulated changes. Its results are not evidence of physical device state or completed real actions. Its script requires Node.js on the service host, not on an HTTP client's host.
+External skills must be explicitly trusted and configured by the operator through skillRoots. Duplicate skill names fail startup. Trusted scripts retain the host's filesystem/network privileges; this is not an OS sandbox and scripts run without per-call approval. Do not accept arbitrary skill directories from client input.
+Skill content and necessary tool output may enter cloud model context. Sessions persist in the host's data directory; do not submit secrets that must not be stored or shared with the model provider. Known configured credentials are redacted, but arbitrary secrets cannot be automatically recognized.
+Default limits include 12 model steps, 32000 reported tokens (title calls separate), a 60s timeout per model request, a 30s script timeout, and a 64KiB request body limit. A message may involve multiple steps, scripts, and title generation, so the total request duration can exceed one model timeout. Set client timeouts accordingly or use prompt_async with events/history; a client timeout is not a cancellation request.
+One service process exclusively owns a data directory. Interrupted operations are not automatically replayed after restart; ambiguous script effects require operator reconciliation. Clients must not blindly resubmit tasks after disconnects or restarts.

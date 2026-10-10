@@ -3,6 +3,7 @@ import { resolve, dirname, join, isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppError } from '../shared/types';
+import { output } from '../shared/console';
 import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
@@ -67,7 +68,7 @@ export async function loadConfig(file?: string, noToken = false, local = false):
   const selected = file ? { path: resolve(file), created: false } : await ensureDefaultConfig();
   const path = selected.path;
   if (selected.created)
-    console.log(
+    output.info(
       `Created configuration: ${path}\nConfigure model/baseURL and set AUTO_AGENT_API_KEY before sending messages. No credentials were saved.`,
     );
   let raw: Record<string, unknown> = {};

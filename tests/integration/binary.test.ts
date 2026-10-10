@@ -1,12 +1,30 @@
 import { test, expect } from 'bun:test';
 import { join, resolve } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
-const binary = resolve('dist', process.platform === 'win32' ? 'auto-agent.exe' : 'auto-agent');
+import { collectBuiltinAssets } from '../../src/skills/builtin-assets';
+const binary = process.env.AUTO_AGENT_TEST_BINARY_PATH
+  ? resolve(process.env.AUTO_AGENT_TEST_BINARY_PATH)
+  : resolve('dist', process.platform === 'win32' ? 'auto-agent.exe' : 'auto-agent');
 test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
   'compiled binary serves authenticated sessions and works outside repository cwd',
   async () => {
     const f = await fixture();
+    try {
+      const help = Bun.spawn([binary, '--help'], { cwd: f.dir, stdout: 'pipe', stderr: 'pipe' });
+      expect(await new Response(help.stdout).text()).toContain('auto-agent [serve]');
+      expect(await help.exited).toBe(0);
+      const invalid = Bun.spawn([binary, '--config', join(f.dir, 'missing.json')], {
+        cwd: f.dir,
+        stdout: 'pipe',
+        stderr: 'pipe',
+      });
+      expect(await new Response(invalid.stderr).text()).toContain('Cannot read configuration');
+      expect(await invalid.exited).toBe(1);
+    } catch (error) {
+      await f.cleanup();
+      throw error;
+    }
     const file = join(f.dir, 'config.json');
     await writeFile(file, JSON.stringify({ ...f.config, skillRoots: [], builtinSkills: true }));
     const proc = Bun.spawn([binary, 'serve', '--config', file], {
@@ -30,7 +48,14 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         startup += new TextDecoder().decode(next.value);
       }
       const info = JSON.parse(startup.split('\n').find((line) => line.startsWith('{'))!);
-      expect(startup).toContain('device-automation (built-in)');
+      expect(startup).not.toContain('[info]');
+      const builtinsRoot = join(f.config.dataDir, 'builtin-skills');
+      const versions = await readdir(builtinsRoot);
+      expect(versions).toHaveLength(1);
+      for (const [path, content] of Object.entries(await collectBuiltinAssets()))
+        expect(await readFile(join(builtinsRoot, versions[0]!, ...path.split('/')), 'utf8')).toBe(
+          content,
+        );
       const base = info.url;
       await reader.cancel();
       expect((await fetch(base + '/global/health')).status).toBe(200);
@@ -45,6 +70,7 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
       expect(session.id).toBeTruthy();
       proc.kill();
       await proc.exited;
+      expect(await new Response(proc.stderr).text()).toContain('device-automation (built-in)');
       const cli = Bun.spawn([binary, '--config', file], {
         cwd: f.dir,
         env: { ...process.env, AUTO_AGENT_TOKEN: f.config.token },
@@ -53,7 +79,8 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         stdin: new Blob(['/exit\n']),
       });
       expect(await cli.exited).toBe(0);
-      expect(await new Response(cli.stdout).text()).toContain('Session: ');
+      expect(await new Response(cli.stdout).text()).toBe('');
+      expect(await new Response(cli.stderr).text()).toContain('Session: ');
     } finally {
       proc.kill();
       await proc.exited;
