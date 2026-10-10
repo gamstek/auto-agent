@@ -74,7 +74,7 @@ Development defaults resolve to repository `examples/config.json`, `examples/ski
 { "systemPrompt": "Answer concisely and explain actions without inventing results." }
 ```
 
-Untitled sessions receive a model-generated title after a successful reply. This adds a separate paid request, capped at 128 output tokens and 15 seconds (or the configured shorter timeout). Titles are at most 60 characters; manual titles are preserved. Failures do not fail the reply and are retried on a later message. Existing New session records are updated on their next successful interaction, not by uploading history at startup.
+Untitled sessions receive a model-generated title in the background after a successful reply. This adds a separate paid request, capped at 128 output tokens and 15 seconds (or the configured shorter timeout), without delaying reply completion or holding a session/generation slot. Title work has a separate maxConcurrent budget, with at most one pending title per session; work skipped at capacity or failed is retried on a later successful message. Shutdown cancels pending titles. Titles are at most 60 characters; manual titles are preserved. Existing New session records are updated on their next successful interaction, not by uploading history at startup.
 
 ## HTTP API
 
@@ -92,6 +92,8 @@ Full request, event, and error contracts: [llm.txt](llm.txt). JSON requests use 
 | POST       | /session/:id/prompt_async | Submit {content}, 204 acceptance                  |
 | GET        | /event                    | SSE model, text, tool, and session events         |
 | POST       | /session/:id/abort        | Wait for owned generation cancellation; {aborted} |
+
+GET /session and GET /session/:id/message accept limit (default 100, maximum 1000) and offset (default 0), and retain array responses. Sessions are newest-updated first. Messages select the latest page, skip offset messages from the newest end, and return that page chronologically; increase offset to fetch older history. Equal timestamps are ordered by insertion order. Invalid pagination returns 400. Offset pages can shift during concurrent writes. Agent context is read lazily from newest history up to its byte budget, independently of API pagination. Abort returns false after reply completion, even while a background title is pending; titles may emit session.updated after message.completed.
 
 Session fields: id/title/createdAt/updatedAt. Message fields: id/sessionId/role/content/createdAt. Content is Markdown; timestamps are Unix milliseconds. Internal execution/checkpoint IDs are not exposed. Concurrent generation in the same session returns 409; exhausted capacity returns 429.
 

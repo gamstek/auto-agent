@@ -1,4 +1,6 @@
 import { timingSafeEqual } from 'node:crypto';
+import { version } from '../../package.json';
+import { validatePage } from '../storage';
 import type { AgentService } from '../agent';
 import { AppError, errorText } from '../shared/types';
 import { home, llmText } from './home';
@@ -36,7 +38,7 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
           },
         });
       if (request.method === 'GET' && path === '/global/health')
-        return json({ healthy: true, version: '0.1.0' });
+        return json({ healthy: true, version });
       if (!service.config.noToken && !authorized(request, service.config.token))
         return json({ error: 'unauthorized' }, 401);
       if (request.method === 'GET' && path === '/event')
@@ -80,8 +82,20 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
           throw new AppError('invalid_json', 'Expected a JSON object');
         }
       };
+      const page = (): [number, number] => {
+        const values = ['limit', 'offset'].map((name, index) => {
+          const raw = url.searchParams.get(name);
+          if (raw === null) return index === 0 ? 100 : 0;
+          if (!/^\d+$/.test(raw))
+            throw new AppError('invalid_pagination', 'Invalid pagination parameter');
+          return Number(raw);
+        });
+        const [limit, offset] = values;
+        validatePage(limit, offset);
+        return [limit, offset];
+      };
       if (path === '/session') {
-        if (request.method === 'GET') return json(service.store.listSessions());
+        if (request.method === 'GET') return json(service.store.listSessions(...page()));
         if (request.method === 'POST') {
           const input = await body();
           if (
@@ -97,7 +111,8 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
       const [, id, action] = match;
       service.store.getSession(id);
       if (request.method === 'GET' && !action) return json(service.store.getSession(id));
-      if (request.method === 'GET' && action === 'message') return json(service.store.messages(id));
+      if (request.method === 'GET' && action === 'message')
+        return json(service.store.messages(id, ...page()));
       if (request.method === 'POST' && action === 'abort')
         return json({ aborted: await service.abort(id) });
       if (request.method === 'POST' && (action === 'message' || action === 'prompt_async')) {

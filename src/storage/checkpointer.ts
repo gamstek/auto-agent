@@ -75,6 +75,11 @@ export class SQLiteSaver extends BaseCheckpointSaver {
       );
     `,
     );
+    migrate(
+      db,
+      'checkpoints-2-list-index',
+      'CREATE INDEX checkpoints_list ON checkpoints(id DESC, threadId, namespace)',
+    );
   }
 
   private async tuple(row: CheckpointRow): Promise<CheckpointTuple> {
@@ -148,26 +153,33 @@ export class SQLiteSaver extends BaseCheckpointSaver {
         'Checkpoint limit must be a nonnegative integer.',
       );
     }
-    const rows = this.db
-      .query<CheckpointRow, string[]>(
-        `SELECT * FROM checkpoints ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY id DESC, threadId, namespace`,
-      )
-      .all(...params);
-    let count = 0;
-    for (const row of rows) {
-      if (options.limit !== undefined && count >= options.limit) break;
-      const tuple = await this.tuple(row);
-      if (
-        options.filter &&
-        !Object.entries(options.filter).every(
-          ([field, value]) =>
-            Object.hasOwn(tuple.metadata ?? {}, field) &&
-            equal((tuple.metadata as Record<string, unknown>)[field], value),
-        )
-      )
-        continue;
-      count++;
-      yield tuple;
+    if (options.limit === 0) return;
+    const filter = Object.entries(options.filter ?? {});
+    const statement = this.db.prepare<CheckpointRow, (string | number)[]>(
+      `SELECT * FROM checkpoints ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY id DESC, threadId, namespace${options.limit !== undefined && !filter.length ? ' LIMIT ?' : ''}`,
+    );
+    try {
+      let count = 0;
+      for (const row of statement.iterate(
+        ...params,
+        ...(options.limit !== undefined && !filter.length ? [options.limit] : []),
+      )) {
+        if (filter.length) {
+          const metadata = await this.serde.loadsTyped(row.metadataType, row.metadata);
+          if (
+            !filter.every(
+              ([field, value]) =>
+                Object.hasOwn(metadata ?? {}, field) &&
+                equal((metadata as Record<string, unknown>)[field], value),
+            )
+          )
+            continue;
+        }
+        yield await this.tuple(row);
+        if (options.limit !== undefined && ++count >= options.limit) break;
+      }
+    } finally {
+      statement.finalize();
     }
   }
 

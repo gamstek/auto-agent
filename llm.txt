@@ -20,7 +20,7 @@ The default address is http://127.0.0.1:4096. If the operator changes host/port,
 Default origin: http://127.0.0.1:4096
 GET / returns a human-readable integration page.
 GET /llm.txt returns this guide as text/plain; GET /llms.txt is an alias.
-GET /global/health returns {"healthy":true,"version":"0.1.0"}.
+GET /global/health returns {"healthy":true,"version":"0.1.1"}; version comes from the deployed package metadata.
 These documentation and health routes are public and never expose credentials, configuration, sessions, or local skills.
 All other routes require Authorization: Bearer <local-token> by default.
 The local bearer token is different from AUTO_AGENT_API_KEY (cloud credentials).
@@ -31,10 +31,11 @@ No OpenAI /v1/chat/completions endpoint, OpenAPI endpoint, CORS policy for third
 ## Sessions
 POST /session with {} or {"title":"Optional manual title"} returns HTTP 201:
 {"id":"uuid","title":"New session","createdAt":1790000000000,"updatedAt":1790000000000}
-Manual titles are at most 200 characters and are preserved. Omitted titles are summarized by the configured model after a successful reply. Title generation adds a separate model call; failure does not fail the reply.
+Manual titles are at most 200 characters and are preserved. Omitted titles are summarized in the background after a successful reply. Title generation adds a separate model call but does not delay completion or hold a generation slot. At most maxConcurrent titles run, with one pending per session; failed or capacity-skipped titles retry on a later successful message. Shutdown cancels titles. Title events and session.updated may arrive after message.completed.
 GET /session returns an array of session objects, newest updated first.
 GET /session/{sessionId} returns one session.
-GET /session/{sessionId}/message returns an array of messages, chronological order.
+GET /session/{sessionId}/message returns the latest page of messages, ordered chronologically.
+Both list endpoints accept limit (default 100, range 1–1000) and offset (default 0, nonnegative safe integer). Invalid values return 400. Message offset skips from the newest end; increase offset to retrieve older pages. Equal timestamps use insertion order. Responses remain arrays; an empty page marks the end. Offset pages may shift during concurrent writes. Agent context uses a lazy byte-budgeted history read independent of these pages.
 Message shape:
 {"id":"uuid","sessionId":"uuid","role":"user|assistant","content":"Markdown text","createdAt":1790000000000}
 Session and message objects do not expose internal execution or checkpoint IDs.
@@ -43,7 +44,7 @@ Do not infer equipment state or side-effect success from a session's title or ag
 ## Send a message
 POST /session/{sessionId}/message
 Body: {"content":"Natural-language task"}
-Returns HTTP 200 with the persisted final assistant message. This request waits for generation and optional title generation. The server may emit events before the HTTP response arrives.
+Returns HTTP 200 with the persisted final assistant message. This request waits for reply generation only, not background title generation. The server may emit events before the HTTP response arrives.
 POST /session/{sessionId}/prompt_async
 Same body. Returns HTTP 204 (empty body) after accepting generation, not after completing the task. Follow events and/or message history.
 Messages must be nonempty. The default request body limit is 65536 bytes. Only one generation may be active per session; conflicts return 409. Default global concurrency is 4; capacity exhaustion returns 429.
@@ -75,7 +76,7 @@ Events omit raw script output, full arguments, and skill resource bodies. They e
 
 ## Abort
 POST /session/{sessionId}/abort (no body required)
-Returns {"aborted":true} after attempting to stop the active generation and its owned scripts; false if no generation was active.
+Returns {"aborted":true} after attempting to stop the active generation and its owned scripts; false if no generation was active or the reply was already completed, even with a pending background title.
 Aborting an agent is NOT confirmation that physical equipment stopped or that external effects were undone. Unknown script outcomes require operator reconciliation; such sessions are blocked from further execution. No public resume or reconciliation endpoint exists.
 
 ## Errors
@@ -102,5 +103,5 @@ The operator configures skills, model preferences, and limits on the service hos
 The built-in device-automation skill is a simulator, enabled by default unless builtinSkills=false. It lists virtual devices and simulates status, power, and desk-lamp brightness changes. It never controls real devices, uses no network, and does not persist simulated changes. Its results are not evidence of physical device state or completed real actions. Its script requires Node.js on the service host, not on an HTTP client's host.
 External skills must be explicitly trusted and configured by the operator through skillRoots. Duplicate skill names fail startup. Trusted scripts retain the host's filesystem/network privileges; this is not an OS sandbox and scripts run without per-call approval. Do not accept arbitrary skill directories from client input.
 Skill content and necessary tool output may enter cloud model context. Sessions persist in the host's data directory; do not submit secrets that must not be stored or shared with the model provider. Known configured credentials are redacted, but arbitrary secrets cannot be automatically recognized.
-Default limits include 12 model steps, 32000 reported tokens (title calls separate), a 60s timeout per model request, a 30s script timeout, and a 64KiB request body limit. A message may involve multiple steps, scripts, and title generation, so the total request duration can exceed one model timeout. Set client timeouts accordingly or use prompt_async with events/history; a client timeout is not a cancellation request.
+Default limits include 12 model steps, 32000 reported tokens (title calls separate), a 60s timeout per model request, a 30s script timeout, and a 64KiB request body limit. A message may involve multiple steps and scripts, so the total request duration can exceed one model timeout. Background title generation is separately capped at 15 seconds and does not extend the message request. Set client timeouts accordingly or use prompt_async with events/history; a client timeout is not a cancellation request.
 One service process exclusively owns a data directory. Interrupted operations are not automatically replayed after restart; ambiguous script effects require operator reconciliation. Clients must not blindly resubmit tasks after disconnects or restarts.

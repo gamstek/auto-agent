@@ -7,6 +7,20 @@ import { migrate } from './migrations';
 
 type RunStatus = 'completed' | 'failed' | 'cancelled' | 'waiting_for_operator';
 
+export function validatePage(limit: number, offset: number): void {
+  if (
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > 1000 ||
+    !Number.isSafeInteger(offset) ||
+    offset < 0
+  )
+    throw new AppError(
+      'invalid_pagination',
+      'limit must be 1–1000 and offset a nonnegative safe integer',
+    );
+}
+
 export class Store {
   readonly db: Database;
   private readonly ownership: Database;
@@ -77,6 +91,11 @@ export class Store {
         ALTER TABLE sessions ADD COLUMN autoTitle INTEGER NOT NULL DEFAULT 0;
         UPDATE sessions SET autoTitle = 1 WHERE title = 'New session';
       `,
+      );
+      migrate(
+        db,
+        'store-4-session-list-index',
+        'CREATE INDEX sessions_updated ON sessions(updatedAt);',
       );
       this.recover();
     } catch (error) {
@@ -159,12 +178,13 @@ export class Store {
     );
   }
 
-  listSessions(): Session[] {
+  listSessions(limit = 100, offset = 0): Session[] {
+    validatePage(limit, offset);
     return this.db
-      .query<Session, []>(
-        'SELECT id, title, createdAt, updatedAt FROM sessions ORDER BY updatedAt DESC, rowid DESC',
+      .query<Session, [number, number]>(
+        'SELECT id, title, createdAt, updatedAt FROM sessions ORDER BY updatedAt DESC, rowid DESC LIMIT ? OFFSET ?',
       )
-      .all();
+      .all(limit, offset);
   }
 
   getSession(id: string): Session {
@@ -175,13 +195,44 @@ export class Store {
     return session;
   }
 
-  messages(id: string): Message[] {
+  messages(id: string, limit = 100, offset = 0): Message[] {
     this.getSession(id);
+    validatePage(limit, offset);
     return this.db
-      .query<Message, [string]>(
-        'SELECT * FROM messages WHERE sessionId = ? ORDER BY createdAt, rowid',
+      .query<Message, [string, number, number]>(
+        'SELECT * FROM messages WHERE sessionId = ? ORDER BY createdAt DESC, rowid DESC LIMIT ? OFFSET ?',
       )
-      .all(id);
+      .all(id, limit, offset)
+      .reverse();
+  }
+
+  contextMessages(id: string, maxBytes: number): Message[] {
+    this.getSession(id);
+    const history: Message[] = [];
+    let bytes = 0;
+    const statement = this.db.prepare<Message, [string]>(
+      'SELECT * FROM messages WHERE sessionId = ? ORDER BY createdAt DESC, rowid DESC',
+    );
+    try {
+      for (const message of statement.iterate(id)) {
+        bytes += Buffer.byteLength(message.content);
+        if (bytes > maxBytes) break;
+        history.push(message);
+      }
+    } finally {
+      statement.finalize();
+    }
+    return history.reverse();
+  }
+
+  firstUserContent(id: string): string {
+    return (
+      this.db
+        .query<{ content: string }, [string]>(
+          "SELECT substr(content, 1, 2000) AS content FROM messages WHERE sessionId = ? AND role = 'user' ORDER BY createdAt, rowid LIMIT 1",
+        )
+        .get(id)?.content ?? ''
+    );
   }
 
   addMessage(
