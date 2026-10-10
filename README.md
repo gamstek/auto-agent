@@ -165,4 +165,6 @@ bun test .\tests\integration\binary.test.ts
 
 Prettier enforces formatting. Outputs: dist/auto-agent.exe (Windows x64) and dist/auto-agent (Linux x64). Configuration, skills, and interpreters remain external; public documentation is embedded into the binary. Cross-compilation is not Linux runtime acceptance; platform CI validates native runs. Tests use model doubles/local HTTP mocks, never live cloud calls by default.
 
+Push a version tag such as `v0.1.0` to run the same Windows/Linux builds and binary acceptance tests. After both platform jobs pass, CI creates a GitHub Release with generated notes and attaches `auto-agent.exe` and `auto-agent`.
+
 Source areas: src/agent, src/llm, src/skills, src/execution, src/storage, src/api, src/cli, and tests. Future device, experimental, analytical, and reporting skills require verified domain protocols and SDKs.
