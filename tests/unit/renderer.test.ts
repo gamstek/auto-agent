@@ -29,8 +29,8 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
   r.event('model.started', { step: 1 });
   r.event('message.part.delta', { delta: 'Hello' });
   r.event('model.completed', { step: 1, totalTokens: 4, durationMs: 12 });
-  r.event('tool.started', { name: 'load_skill', skill: 'sum-values', status: 'running' });
-  r.event('tool.completed', { name: 'load_skill', status: 'completed', durationMs: 10 });
+  r.event('tool.started', { name: 'skill', skill: 'sum-values', status: 'running' });
+  r.event('tool.completed', { name: 'skill', status: 'completed', durationMs: 10 });
   r.event('tool.failed', { name: 'execute_skill_script', status: 'timeout', message: 'Timed out' });
   r.view.failure('bad\x1b[2Jpayload');
   expect(r.output()).toContain('\x1b[32m');
@@ -44,7 +44,7 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
 test('plain renderer omits ANSI for redirected output and closes text before tool lines', () => {
   const r = renderer(false);
   r.event('message.part.delta', { delta: 'answer' });
-  r.event('tool.started', { name: 'list_skills' });
+  r.event('tool.started', { name: 'skill', skill: 'hello-world' });
   r.view.failure('error');
   expect(r.output()).toContain('assistant > answer\n');
   expect(r.errors()).toContain('[tool]');

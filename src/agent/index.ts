@@ -1,7 +1,8 @@
 import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import type { ModelMessage } from 'ai';
 import type { Config } from '../config';
-import { Skills } from '../skills';
+import { Skills } from '../skill';
+import { escapeXml, skillContent, skillGuidance } from '../skill/prompt';
 import { ScriptExecutor } from '../execution';
 import { Store } from '../storage';
 import { SQLiteSaver } from '../storage/checkpointer';
@@ -118,7 +119,15 @@ export class AgentService {
         };
         let rawTurn: ModelTurn;
         try {
-          rawTurn = await this.model.generate(state.messages, modelSignal, (text) => {
+          let guidance = skillGuidance(this.skills.list());
+          for (const secret of [this.config.apiKey, this.config.token])
+            if (secret) guidance = guidance.split(escapeXml(secret)).join('[redacted]');
+          const modelMessages: ModelMessage[] = [
+            ...state.messages.filter((message) => message.role === 'system'),
+            { role: 'system', content: redact(guidance) },
+            ...state.messages.filter((message) => message.role !== 'system'),
+          ];
+          rawTurn = await this.model.generate(modelMessages, modelSignal, (text) => {
             pendingDelta = redact(pendingDelta + text);
             flush();
           });
@@ -178,9 +187,11 @@ export class AgentService {
           emit('tool.started', {
             ...identity,
             status: 'running',
-            ...(typeof details.skill === 'string'
-              ? { skill: redact(details.skill).slice(0, 256) }
-              : {}),
+            ...(call.name === 'skill' && typeof details.name === 'string'
+              ? { skill: redact(details.name).slice(0, 256) }
+              : typeof details.skill === 'string'
+                ? { skill: redact(details.skill).slice(0, 256) }
+                : {}),
             ...(typeof details.path === 'string'
               ? { path: redact(details.path).slice(0, 256) }
               : {}),
@@ -201,15 +212,26 @@ export class AgentService {
             const schema = toolSchemas[call.name as keyof typeof toolSchemas];
             if (!schema) throw new AppError('unknown_tool', 'Tool is not available');
             const input = schema.parse(call.input) as {
+              name?: string;
               skill?: string;
               path?: string;
               args?: string[];
             };
-            if (call.name === 'list_skills')
-              output = this.skills.list().map(({ name, description }) => ({ name, description }));
-            else if (call.name === 'load_skill') {
-              output = await this.skills.load(input.skill!);
-              loaded.add(input.skill!);
+            if (call.name === 'skill') {
+              const content = await this.skills.load(input.name!);
+              const skill = this.skills.list().find((entry) => entry.name === input.name)!;
+              const body = content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+              output = {
+                name: skill.name,
+                directory: skill.directory,
+                output: skillContent(
+                  skill.name,
+                  skill.directory,
+                  body,
+                  await this.skills.files(skill.name),
+                ),
+              };
+              loaded.add(skill.name);
             } else {
               if (!loaded.has(input.skill!))
                 throw new AppError(
@@ -276,7 +298,10 @@ export class AgentService {
                 type: 'tool-result',
                 toolCallId: call.id,
                 toolName: call.name,
-                output: { type: 'json', value: output as never },
+                output:
+                  call.name === 'skill' && status === 'completed'
+                    ? { type: 'text', value: (output as { output: string }).output }
+                    : { type: 'json', value: output as never },
               },
             ],
           });
@@ -304,7 +329,7 @@ export class AgentService {
       }
       const system: ModelMessage = {
         role: 'system',
-        content: redact(systemInstructions(undefined, this.skills.list())),
+        content: redact(systemInstructions()),
       };
       const customSystem: ModelMessage[] =
         this.config.systemPrompt?.trim() && this.config.systemPrompt !== DEFAULT_SYSTEM_PROMPT

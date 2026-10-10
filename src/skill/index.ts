@@ -83,6 +83,29 @@ export class Skills {
     return this.read(name, 'SKILL.md');
   }
 
+  async files(name: string): Promise<string[]> {
+    const entry = this.entry(name);
+    const directory = entry.skill.directory;
+    await this.confined(entry.root, directory, false);
+    const files: string[] = [];
+    const walk = async (current: string): Promise<void> => {
+      await this.confined(directory, current, false);
+      const children = await readdir(current, { withFileTypes: true });
+      for (const child of children.sort((a, b) => a.name.localeCompare(b.name))) {
+        if (files.length >= 10) break;
+        if (child.isSymbolicLink()) continue;
+        const target = join(current, child.name);
+        if (child.isDirectory()) await walk(target);
+        else if (child.isFile() && child.name !== 'SKILL.md') {
+          await this.confined(directory, target, true);
+          files.push(target);
+        }
+      }
+    };
+    await walk(directory);
+    return files;
+  }
+
   async read(name: string, path: string): Promise<string> {
     const entry = this.entry(name);
     const target = this.target(entry.skill.directory, path);

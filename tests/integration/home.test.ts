@@ -1,7 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fixture } from '../helpers';
 import { Store } from '../../src/storage';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { AgentService } from '../../src/agent';
 import { handler } from '../../src/api';

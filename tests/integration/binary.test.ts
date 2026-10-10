@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { join, resolve } from 'node:path';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
-import { collectBuiltinAssets } from '../../src/skills/builtin-assets';
+import { collectBuiltinAssets } from '../../src/skill/builtin-assets';
 const binary = process.env.AUTO_AGENT_TEST_BINARY_PATH
   ? resolve(process.env.AUTO_AGENT_TEST_BINARY_PATH)
   : resolve('dist', process.platform === 'win32' ? 'auto-agent.exe' : 'auto-agent');

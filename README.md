@@ -144,7 +144,13 @@ skills/
     assets/
 ```
 
-Tools: list_skills, load_skill, read_skill_resource, execute_skill_script. Script entries are confined to the selected skill's scripts/ directory; traversal, absolute paths, and symlinks are rejected. Arguments are passed as arrays.
+Tools: `skill({ name })`, `read_skill_resource({ skill, path })`, and `execute_skill_script({ skill, path, args })`. Following OpenCode's source implementation, the current names, descriptions, and SKILL.md locations appear in `<available_skills>` in dynamically generated system context. This context is refreshed from discovered skills for each model step and is not saved in the configured `systemPrompt`. The `skill` tool description stays short and refers to that catalog; do not copy the catalog into custom prompts. The former `list_skills` and `load_skill` tools are no longer available.
+
+`skill` loads SKILL.md on demand and returns `{ name, directory, output }`. The model receives the instruction body (without YAML frontmatter) inside `<skill_content>`, the base directory, and a `<skill_files>` sample of up to 10 absolute resource paths. Listing does not read resource contents and excludes symbolic links; actual reads and executions still use the restricted tools. Its successful result is trusted local task guidance, subordinate to system instructions and runtime checks. Resources, script outputs, and tool errors remain untrusted data. A skill must be loaded in the current generation before its resources or scripts can be accessed; subsequent user messages start a new generation and require loading again.
+
+This aligns the loading interface, not the entire OpenCode runtime. Auto-Agent retains explicit `skillRoots`, fail-closed discovery, and restricted resource/script tools; it does not add implicit home/project discovery, hot reload, generic shell execution, or OpenCode's allow/deny/ask permissions. Optional invocation metadata is validated but does not implement invocation policy or slash commands.
+
+Script entries are confined to the selected skill's scripts/ directory; traversal, absolute paths, and symlinks are rejected. Arguments are passed as arrays. Commands written in SKILL.md must be translated into `execute_skill_script` parameters, not executed as shell strings. For example, `python scripts/report.py --summary` requires a configured `".py": "python"` interpreter and becomes `execute_skill_script({ skill: "example-skill", path: "scripts/report.py", args: ["--summary"] })`. Python is not configured by default.
 
 **Not an OS sandbox.** Trusted scripts retain host filesystem/network permissions and run without per-call approval. Necessary skill resources and tool output can enter cloud model context. SQLite persists session/checkpoint context; protect the data directory. Known configured credentials are redacted, but arbitrary secrets cannot be automatically detected.
 
@@ -173,4 +179,4 @@ Prettier enforces formatting. Outputs: dist/auto-agent.exe (Windows x64) and dis
 
 Push a version tag such as `v0.1.0` to run the same Windows/Linux builds and binary acceptance tests. After both platform jobs pass, CI creates a GitHub Release with download/startup/integration help from [.github/release-notes.md](.github/release-notes.md), followed by generated change notes, and attaches `auto-agent.exe` and `auto-agent`. This template applies to new releases; previously published release descriptions are not automatically updated.
 
-Source areas: src/agent, src/llm, src/skills, src/execution, src/storage, src/api, src/cli, and tests. Future device, experimental, analytical, and reporting skills require verified domain protocols and SDKs.
+Source areas: src/agent, src/llm, src/skill, src/execution, src/storage, src/api, src/cli, and tests. Future device, experimental, analytical, and reporting skills require verified domain protocols and SDKs.

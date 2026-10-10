@@ -2,10 +2,10 @@ import { test, expect } from 'bun:test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
-import { materializeBuiltins } from '../../src/skills/builtin';
-import { collectBuiltinAssets } from '../../src/skills/builtin-assets';
+import { materializeBuiltins } from '../../src/skill/builtin';
+import { collectBuiltinAssets } from '../../src/skill/builtin-assets';
 test('asset collection reads nested and hidden text files deterministically and rejects binary files', async () => {
   const f = await fixture();
   try {

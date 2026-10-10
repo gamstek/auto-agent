@@ -53,7 +53,7 @@ Do not automatically retry scripts or submissions after an ambiguous disconnect.
 ## Streaming events
 Subscribe GET /event BEFORE submitting a message. Include the bearer header (native browser EventSource cannot attach it; use fetch streaming or a client supporting custom headers).
 Response: text/event-stream. Heartbeats are comment frames. Each data frame contains JSON:
-{"type":"tool.started","sessionId":"uuid","messageId":"assistant-message-uuid","properties":{"name":"load_skill","toolCallId":"provider-call-id","status":"running","skill":"device-automation"}}
+{"type":"tool.started","sessionId":"uuid","messageId":"assistant-message-uuid","properties":{"name":"skill","toolCallId":"provider-call-id","status":"running","skill":"device-automation"}}
 Filter by sessionId and correlate messageId for each generation. Assistant messageId differs from the submitted user message ID. toolCallId correlates a tool's start and end.
 Event types and properties:
 - session.status: status = busy or idle (agent activity, not device status)

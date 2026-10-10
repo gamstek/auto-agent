@@ -1,5 +1,5 @@
 import { loadConfig } from './config';
-import { Skills } from './skills';
+import { Skills } from './skill';
 import { ScriptExecutor } from './execution';
 import { Store } from './storage';
 import { CloudModel } from './llm';

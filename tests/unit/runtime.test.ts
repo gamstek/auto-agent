@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { writeFile, mkdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { Store } from '../../src/storage';
 import { SQLiteSaver } from '../../src/storage/checkpointer';
@@ -31,6 +31,30 @@ test('skills discover, lazy resources, invalid names and path confinement', asyn
     await f.cleanup();
   }
 });
+test('skill file samples are bounded, include hidden files, and never follow symlinks', async () => {
+  const f = await fixture();
+  try {
+    const skills = new Skills(f.config);
+    await skills.discover();
+    const directory = join(f.root, 'hello-world');
+    await writeFile(join(directory, '.hidden.txt'), 'hidden');
+    await mkdir(join(directory, 'assets'));
+    for (let index = 0; index < 15; index++)
+      await writeFile(join(directory, 'assets', `${index}.txt`), 'x'.repeat(5000));
+    await symlink(join(f.root, 'sum-values'), join(directory, '.linked'), 'junction').catch(
+      () => {},
+    );
+    const files = await skills.files('hello-world');
+    expect(files).toHaveLength(10);
+    expect(files).toContain(join(directory, '.hidden.txt'));
+    expect(files.some((file) => file.includes('.linked'))).toBe(false);
+    expect(files.some((file) => file.endsWith('SKILL.md'))).toBe(false);
+    expect(await skills.files('hello-world')).toEqual(files);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test('skills duplicate names across roots fail closed and oversized resources fail', async () => {
   const f = await fixture();
   try {

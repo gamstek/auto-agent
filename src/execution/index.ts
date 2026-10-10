@@ -3,7 +3,7 @@ import { extname } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { Config } from '../config';
 import { AppError, type ScriptRequest, type ScriptResult } from '../shared/types';
-import { Skills } from '../skills';
+import { Skills } from '../skill';
 
 interface Waiter {
   limit: number;

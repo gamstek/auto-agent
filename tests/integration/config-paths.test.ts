@@ -3,8 +3,9 @@ import { resolve, join } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
 import { loadConfig, ensureDefaultConfig } from '../../src/config';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { DEFAULT_SYSTEM_PROMPT, systemInstructions } from '../../src/agent/prompt';
+import { skillGuidance } from '../../src/skill/prompt';
 test('repository config discovers example skills and the built-in simulator', async () => {
   const config = await loadConfig(resolve('examples', 'config.json'), false, true);
   expect(config.skillRoots).toEqual([resolve('examples', 'skills')]);
@@ -18,10 +19,19 @@ test('repository config discovers example skills and the built-in simulator', as
   ]);
   expect(skills.source('device-automation')).toBe('built-in');
   expect(skills.source('hello-world')).toBe('configured');
-  const prompt = systemInstructions(config.systemPrompt, catalog);
+  const prompt = systemInstructions(config.systemPrompt);
   expect(prompt).toContain('You are Auto-Agent');
-  expect(prompt).toContain('hello-world');
-  expect(prompt).toContain('sum-values');
+  expect(prompt).not.toContain('hello-world');
+  expect(prompt).not.toContain('<available_skills>');
+  expect(prompt).not.toContain('only skill,');
+  expect(prompt).not.toContain('skill tool description');
+  expect(prompt).not.toContain('read_skill_resource');
+  expect(prompt).not.toContain('execute_skill_script');
+  expect(prompt).toContain('trusted local SKILL.md instructions');
+  expect(prompt).toContain('Load a skill in the current generation');
+  const description = skillGuidance(catalog);
+  expect(description).toContain('<name>hello-world</name>');
+  expect(description).toContain('<name>sum-values</name>');
 });
 test('installed default config uses user data and no implicit repository skill trust', async () => {
   const f = await fixture();

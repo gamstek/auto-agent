@@ -4,8 +4,7 @@ import { z } from 'zod';
 import type { Config } from '../config';
 import { AppError, type ModelAdapter, type ModelTurn } from '../shared/types';
 export const toolSchemas = {
-  list_skills: z.object({}),
-  load_skill: z.object({ skill: z.string().min(1) }),
+  skill: z.object({ name: z.string().min(1) }),
   read_skill_resource: z.object({ skill: z.string().min(1), path: z.string().min(1) }),
   execute_skill_script: z.object({
     skill: z.string().min(1),
@@ -14,8 +13,8 @@ export const toolSchemas = {
   }),
 };
 const descriptions = {
-  list_skills: 'List configured trusted skill names and descriptions.',
-  load_skill: 'Load full instructions of a skill before using it.',
+  skill:
+    'Load a specialized skill when the task matches an available skill in the system context. The result provides workflow instructions, a base directory, and a sampled file list. The name must match an available skill.',
   read_skill_resource: 'Read a necessary text resource inside a loaded skill.',
   execute_skill_script:
     'Execute a script in a loaded trusted skill. Scripts have host permissions and may cause side effects. Never retry uncertain side effects.',
@@ -87,13 +86,9 @@ export class CloudModel implements ModelAdapter {
       );
     const provider = createOpenAI({ apiKey: this.config.apiKey, baseURL: this.config.baseURL });
     const tools = {
-      list_skills: tool({
-        description: descriptions.list_skills,
-        inputSchema: toolSchemas.list_skills,
-      }),
-      load_skill: tool({
-        description: descriptions.load_skill,
-        inputSchema: toolSchemas.load_skill,
+      skill: tool({
+        description: descriptions.skill,
+        inputSchema: toolSchemas.skill,
       }),
       read_skill_resource: tool({
         description: descriptions.read_skill_resource,

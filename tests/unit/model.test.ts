@@ -1,12 +1,15 @@
 import { test, expect, spyOn } from 'bun:test';
-import { CloudModel } from '../../src/llm';
+import { CloudModel, toolSchemas } from '../../src/llm';
+import { skillGuidance } from '../../src/skill/prompt';
 import { fixture } from '../helpers';
 import { AgentService } from '../../src/agent';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { Store } from '../../src/storage';
 test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', async () => {
   const f = await fixture();
+  const skills = new Skills(f.config);
+  await skills.discover();
   let requests = 0;
   const server = Bun.serve({
     port: 0,
@@ -14,7 +17,13 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
     async fetch(request) {
       requests++;
       const body = await request.json();
-      expect(body.tools.length).toBe(4);
+      expect(
+        body.tools.map((entry: { function: { name: string } }) => entry.function.name),
+      ).toEqual(['skill', 'read_skill_resource', 'execute_skill_script']);
+      const definition = body.tools[0].function;
+      expect(definition.parameters.required).toEqual(['name']);
+      expect(definition.description).not.toContain('<available_skills>');
+      expect(definition.description).toContain('system context');
       expect(
         body.messages.filter((message: { role: string }) => message.role === 'system'),
       ).toEqual([
@@ -64,6 +73,23 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
     await f.cleanup();
   }
 });
+test('skill catalog escapes XML and accepts only the new invocation shape', () => {
+  const description = skillGuidance([
+    {
+      name: 'example',
+      description: 'Use <data> & "quotes"\nthen continue',
+      directory: 'unused',
+      metadata: {},
+    },
+  ]);
+  expect(description).toContain('Use &lt;data&gt; &amp; &quot;quotes&quot;');
+  expect(description).not.toContain('<data>');
+  expect(skillGuidance([])).toContain('No skills are currently available.');
+  expect(toolSchemas.skill.parse({ name: 'example' })).toEqual({ name: 'example' });
+  expect(() => toolSchemas.skill.parse({ skill: 'example' })).toThrow();
+  expect(() => toolSchemas.skill.parse({ name: '' })).toThrow();
+});
+
 test('secrets split across deltas are redacted from events messages and checkpoints', async () => {
   const f = await fixture();
   const store = new Store(f.config.dataDir);
@@ -72,7 +98,9 @@ test('secrets split across deltas are redacted from events messages and checkpoi
   const secret = f.config.apiKey!;
   const events: string[] = [];
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
-    async generate(_m, _s, delta) {
+    async generate(messages, _s, delta) {
+      expect(JSON.stringify(messages)).not.toContain(secret);
+      expect(messages.filter((message) => message.role === 'system')).toHaveLength(2);
       delta(secret.slice(0, 5));
       delta(secret.slice(5));
       return { text: secret, toolCalls: [], totalTokens: 1 };

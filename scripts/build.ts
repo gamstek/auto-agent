@@ -1,6 +1,6 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { collectBuiltinAssets } from '../src/skills/builtin-assets';
+import { collectBuiltinAssets } from '../src/skill/builtin-assets';
 
 const platform = process.argv[2];
 if (platform !== 'windows' && platform !== 'linux')

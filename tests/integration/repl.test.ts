@@ -3,7 +3,7 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 import { join, resolve } from 'node:path';
 import { writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
-import { Skills } from '../../src/skills';
+import { Skills } from '../../src/skill';
 import { Store } from '../../src/storage';
 import { AgentService } from '../../src/agent';
 import { ScriptExecutor } from '../../src/execution';
