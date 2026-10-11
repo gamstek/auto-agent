@@ -21,6 +21,12 @@ test('repository config discovers example skills and the built-in simulator', as
   expect(skills.source('hello-world')).toBe('configured');
   const prompt = systemInstructions(config.systemPrompt);
   expect(prompt).toContain('You are Auto-Agent');
+  expect(prompt).toContain('specific surface area and pore size analyzers');
+  expect(prompt).toContain('not a completed experiment');
+  expect(prompt).toContain('simulator result is only a simulation');
+  expect(prompt).toContain('Software cancellation does not prove');
+  expect(prompt).toContain('BET, BJH, and DFT');
+  expect(prompt).toContain('Preserve raw data');
   expect(prompt).not.toContain('hello-world');
   expect(prompt).not.toContain('<available_skills>');
   expect(prompt).not.toContain('only skill,');
@@ -29,6 +35,13 @@ test('repository config discovers example skills and the built-in simulator', as
   expect(prompt).not.toContain('execute_skill_script');
   expect(prompt).toContain('trusted local SKILL.md instructions');
   expect(prompt).toContain('Load a skill in the current generation');
+  expect(prompt).toContain('conversation history is not currently loaded');
+  expect(prompt).toContain('Read the returned guidance before issuing dependent');
+  expect(prompt).toContain('Use relevant data as evidence');
+  expect(prompt).toContain('Process exit success alone does not establish');
+  expect(prompt).toContain('Do not work around a runtime denial');
+  expect(systemInstructions('Custom role')).toContain('Runtime contract:');
+  expect(systemInstructions('   ')).toBe(systemInstructions());
   const description = skillGuidance(catalog);
   expect(description).toContain('<name>hello-world</name>');
   expect(description).toContain('<name>sum-values</name>');

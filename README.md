@@ -1,6 +1,6 @@
 # Auto-Agent
 
-A local-first general AI agent with trusted Agent Skills, persistent sessions, an interactive CLI, and an HTTP API. Built with Bun, TypeScript, LangGraph, Vercel AI SDK, and SQLite.
+A local-first automation assistant for specific surface area and pore size analyzers, with trusted Agent Skills, persistent sessions, an interactive CLI, and an HTTP API. Built with Bun, TypeScript, LangGraph, Vercel AI SDK, and SQLite. Real instrument tasks and workflows require explicitly configured instrument-specific skills; the bundled device skill is only a simulator.
 
 > Device control, experimental workflows, analytics, and reports are future skill integrations, not built-in features. This is not a complete OpenCode or OpenAI-compatible server.
 
@@ -66,7 +66,7 @@ Start with [examples/config.json](examples/config.json). Relative dataDir/skillR
 | resourceLimitBytes / requestLimitBytes | 65536 each                                                           |
 | maxConcurrent                          | 4, session/script concurrency budget                                 |
 
-Cloud credentials come only from AUTO_AGENT_API_KEY. Do not commit secrets or place them in systemPrompt. Restart after configuration changes. The default prompt identifies Auto-Agent and describes skill discovery, loading, resource access, script arguments, real tool outcomes, and operator reconciliation. Empty prompts fall back to this project-specific default; custom prompts append preferences and cannot bypass tool restrictions. Startup prints the resolved skill roots and discovered names so missing configuration is distinguishable from a model refusing or overlooking a skill.
+Cloud credentials come only from AUTO_AGENT_API_KEY. Do not commit secrets or place them in systemPrompt. Restart after configuration changes. The default prompt focuses Auto-Agent on specific surface area and pore size analyzer tasks and workflows: skill-grounded capabilities, essential sample/method clarification, prerequisite and instrument-state checks, ordered execution, completion evidence, analysis-method distinctions, data traceability, and operator reconciliation. It distinguishes simulations from real instrument results and command acceptance from experiment completion; it does not supply instrument procedures or add hardware capabilities. The runtime contract requires reading loaded skill guidance before dependent calls, treats historical skill mentions as unloaded, uses resource/tool content as evidence rather than overriding instructions, and distinguishes process exit success from instrument completion. Empty prompts fall back to this project-specific default; custom prompts append preferences and cannot bypass tool restrictions. Startup prints the resolved skill roots and discovered names so missing configuration is distinguishable from a model refusing or overlooking a skill.
 
 Development defaults resolve to repository `examples/config.json`, `examples/skills`, and `.auto-agent` data. Installed defaults resolve to user `~/.auto-agent/config.json` and its data directory with built-in skills enabled and no implicitly trusted external skills. Explicit paths behave identically in both modes: relative paths resolve against the selected configuration, not cwd; the model and tool loop do not otherwise vary by mode.
 
