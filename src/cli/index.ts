@@ -11,6 +11,7 @@ export function argumentsFor(argv: string[]) {
       session: { type: 'string' },
       json: { type: 'boolean' },
       help: { type: 'boolean' },
+      'wiki-update': { type: 'boolean' },
       'no-token': { type: 'boolean' },
     },
   });
@@ -30,6 +31,7 @@ Options
   --session ID       Resume an existing chat session
   --json             Print chat history and replies as newline-delimited JSON
   --no-token         Disable HTTP authentication on loopback only
+  --wiki-update      Explicitly compile built-in and external wiki sources using the cloud model, then exit
   --help             Show this help
 
 Examples

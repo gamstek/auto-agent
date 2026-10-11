@@ -1,6 +1,6 @@
 import { test, expect } from 'bun:test';
 import { join, resolve } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, mkdir } from 'node:fs/promises';
 import { fixture } from '../helpers';
 const entry = resolve('src', 'index.ts');
 async function invoke(args: string[], token?: string) {
@@ -57,6 +57,48 @@ test('source server starts and responds when a valid token and configuration are
     await f.cleanup();
   }
 });
+test('startup wiki catalog uses the same source labels as skills without exposing source hashes', async () => {
+  const f = await fixture();
+  const root = join(f.dir, 'wiki');
+  await mkdir(root);
+  await writeFile(join(root, 'example.md'), 'Example knowledge');
+  const configPath = join(f.dir, 'config.json');
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      ...f.config,
+      builtinSkills: true,
+      builtinWiki: true,
+      wikiRoots: [root],
+      resourceLimitBytes: 65536,
+    }),
+  );
+  const child = Bun.spawn([Bun.argv[0], entry, '--config', configPath], {
+    env: { ...process.env, AUTO_AGENT_API_KEY: '' },
+    stdin: new Blob(['/exit\n']),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+  try {
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(code).toBe(0);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('Skills: device-automation (built-in)');
+    expect(stderr).toContain(
+      'Wiki: 比表面积及孔径分析仪自动化模板.md (built-in), example.md (configured)',
+    );
+    expect(stderr).toContain('Wiki knowledge: unbuilt');
+    expect(stderr).not.toContain('external-');
+    expect(stderr).not.toContain('Built-in wiki:');
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test('configuration failures identify fields without leaking their values', async () => {
   const f = await fixture();
   try {

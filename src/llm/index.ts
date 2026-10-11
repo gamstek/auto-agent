@@ -1,24 +1,11 @@
 import { createOpenAI } from '@ai-sdk/openai';
-import { generateText, streamText, tool, type ModelMessage } from 'ai';
-import { z } from 'zod';
+import { generateText, streamText, type ModelMessage } from 'ai';
+import { BuiltinToolRegistry } from './tools';
+export { toolSchemas } from './tools';
 import type { Config } from '../config';
+import { KNOWLEDGE_PROMPT } from '../wiki/prompt';
 import { AppError, type ModelAdapter, type ModelTurn } from '../shared/types';
-export const toolSchemas = {
-  skill: z.object({ name: z.string().min(1) }),
-  read_skill_resource: z.object({ skill: z.string().min(1), path: z.string().min(1) }),
-  execute_skill_script: z.object({
-    skill: z.string().min(1),
-    path: z.string().min(1),
-    args: z.array(z.string().max(4096)).max(64).default([]),
-  }),
-};
-const descriptions = {
-  skill:
-    'Load a specialized skill when the task matches an available skill in the system context. The result provides workflow instructions, a base directory, and a sampled file list. The name must match an available skill.',
-  read_skill_resource: 'Read a necessary text resource inside a loaded skill.',
-  execute_skill_script:
-    'Execute a script in a loaded trusted skill. Scripts have host permissions and may cause side effects. Never retry uncertain side effects.',
-};
+const toolRegistry = new BuiltinToolRegistry();
 export function modelFailure(error: unknown): AppError {
   const status =
     error && typeof error === 'object' && 'statusCode' in error ? Number(error.statusCode) : 0;
@@ -54,6 +41,31 @@ export function modelFailure(error: unknown): AppError {
 }
 export class CloudModel implements ModelAdapter {
   constructor(private config: Config) {}
+  async generateKnowledge(source: string, signal: AbortSignal): Promise<string> {
+    if (!this.config.apiKey)
+      throw new AppError(
+        'model_configuration',
+        'AUTO_AGENT_API_KEY is required for knowledge updates',
+        503,
+      );
+    const provider = createOpenAI({ apiKey: this.config.apiKey, baseURL: this.config.baseURL });
+    try {
+      const result = await generateText({
+        model: provider.chat(this.config.model),
+        instructions: KNOWLEDGE_PROMPT,
+        messages: [{ role: 'user', content: source }],
+        abortSignal: signal,
+        maxRetries: 0,
+        maxOutputTokens: Math.min(16000, this.config.maxTokens),
+      });
+      if (result.finishReason === 'length')
+        throw new AppError('wiki_output_limit', 'Knowledge output exceeded the model output limit');
+      return result.text;
+    } catch (error) {
+      if (signal.aborted || error instanceof AppError) throw error;
+      throw modelFailure(error);
+    }
+  }
   async generateTitle(messages: ModelMessage[], signal: AbortSignal): Promise<string> {
     if (!this.config.apiKey)
       throw new AppError(
@@ -85,20 +97,7 @@ export class CloudModel implements ModelAdapter {
         503,
       );
     const provider = createOpenAI({ apiKey: this.config.apiKey, baseURL: this.config.baseURL });
-    const tools = {
-      skill: tool({
-        description: descriptions.skill,
-        inputSchema: toolSchemas.skill,
-      }),
-      read_skill_resource: tool({
-        description: descriptions.read_skill_resource,
-        inputSchema: toolSchemas.read_skill_resource,
-      }),
-      execute_skill_script: tool({
-        description: descriptions.execute_skill_script,
-        inputSchema: toolSchemas.execute_skill_script,
-      }),
-    };
+    const tools = toolRegistry.modelTools();
     const result = streamText({
       model: provider.chat(this.config.model),
       instructions:

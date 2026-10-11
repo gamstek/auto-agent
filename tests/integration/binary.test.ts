@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { join, resolve } from 'node:path';
 import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
-import { collectBuiltinAssets } from '../../src/skill/builtin-assets';
+import { collectBuiltinAssets } from '../../src/shared/builtin';
 const binary = process.env.AUTO_AGENT_TEST_BINARY_PATH
   ? resolve(process.env.AUTO_AGENT_TEST_BINARY_PATH)
   : resolve('dist', process.platform === 'win32' ? 'auto-agent.exe' : 'auto-agent');
@@ -52,7 +52,7 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
       const builtinsRoot = join(f.config.dataDir, 'builtin-skills');
       const versions = await readdir(builtinsRoot);
       expect(versions).toHaveLength(1);
-      for (const [path, content] of Object.entries(await collectBuiltinAssets()))
+      for (const [path, content] of Object.entries(await collectBuiltinAssets('skills')))
         expect(await readFile(join(builtinsRoot, versions[0]!, ...path.split('/')), 'utf8')).toBe(
           content,
         );

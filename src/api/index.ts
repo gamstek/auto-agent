@@ -82,6 +82,27 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
           throw new AppError('invalid_json', 'Expected a JSON object');
         }
       };
+      if (request.method === 'GET' && path === '/wiki') return json(await service.wiki.status());
+      if (request.method === 'GET' && path === '/wiki/query') {
+        const rawLimit = url.searchParams.get('limit');
+        if (rawLimit !== null && !/^\d+$/.test(rawLimit))
+          throw new AppError('wiki_query', 'limit must be an integer from 1 to 10');
+        return json(
+          await service.wiki.query(
+            url.searchParams.get('query') ?? '',
+            rawLimit === null ? 5 : Number(rawLimit),
+          ),
+        );
+      }
+      if (request.method === 'POST' && path === '/wiki/update') {
+        const input = await body();
+        if (Object.keys(input).length)
+          throw new AppError(
+            'wiki_update',
+            'Update accepts only an empty object; sources and model are server-configured',
+          );
+        return json(await service.updateWiki(request.signal));
+      }
       const page = (): [number, number] => {
         const values = ['limit', 'offset'].map((name, index) => {
           const raw = url.searchParams.get(name);

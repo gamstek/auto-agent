@@ -8,6 +8,8 @@ import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
   skillRoots: z.array(z.string()).default([]),
+  wikiRoots: z.array(z.string()).default([]),
+  builtinWiki: z.boolean().default(true),
   builtinSkills: z.boolean().default(true),
   host: z.string().default('127.0.0.1'),
   port: z.number().int().min(0).max(65535).default(4096),
@@ -45,6 +47,8 @@ export async function ensureDefaultConfig(
     dataDir: '.',
     skillRoots: [],
     builtinSkills: true,
+    wikiRoots: [],
+    builtinWiki: true,
     host: '127.0.0.1',
     port: 4096,
     allowRemote: false,
@@ -84,6 +88,11 @@ export async function loadConfig(file?: string, noToken = false, local = false):
       );
     }
   }
+  if (raw.wikiDir !== undefined)
+    throw new AppError(
+      'invalid_config',
+      'wikiDir was replaced by wikiRoots for external sources; repository wiki is enabled by builtinWiki',
+    );
   const token = noToken || local ? '' : (process.env.AUTO_AGENT_TOKEN ?? raw.token);
   if (!noToken && !local && (typeof token !== 'string' || token.length < 16)) {
     throw new AppError(
@@ -115,6 +124,7 @@ export async function loadConfig(file?: string, noToken = false, local = false):
   const base = path ? dirname(path) : dirname(process.execPath);
   config.dataDir = isAbsolute(config.dataDir) ? config.dataDir : resolve(base, config.dataDir);
   config.skillRoots = config.skillRoots.map((p) => (isAbsolute(p) ? p : resolve(base, p)));
+  config.wikiRoots = [...new Set(config.wikiRoots.map((p) => resolve(base, p)))];
   if (!local && !['127.0.0.1', 'localhost', '::1'].includes(config.host) && !config.allowRemote)
     throw new AppError('remote_binding', 'Non-loopback binding requires allowRemote');
   for (const value of Object.values(config.scriptEnv))

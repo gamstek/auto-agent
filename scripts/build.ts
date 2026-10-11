@@ -1,13 +1,13 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
-import { collectBuiltinAssets } from '../src/skill/builtin-assets';
+import { collectBuiltinAssets } from '../src/shared/builtin';
 
 const platform = process.argv[2];
 if (platform !== 'windows' && platform !== 'linux')
   throw new Error('Usage: bun scripts/build.ts windows|linux [outfile]');
 
 const root = resolve(import.meta.dir, '..');
-const assetsModule = resolve(root, 'src', 'skills', 'builtin-assets.ts');
+const assetsModule = resolve(root, 'src', 'shared', 'builtin.ts');
 await mkdir(resolve(root, 'dist'), { recursive: true });
 const result = await Bun.build({
   entrypoints: [resolve(root, 'src', 'index.ts')],
@@ -24,12 +24,24 @@ const result = await Bun.build({
     {
       name: 'builtin-assets',
       setup(build) {
-        build.onLoad({ filter: /builtin-assets\.ts$/ }, async (args) => {
+        build.onLoad({ filter: /builtin\.ts$/ }, async (args) => {
           if (resolve(args.path) !== assetsModule) return;
-          const assets = await collectBuiltinAssets();
+          const [skills, wiki] = await Promise.all([
+            collectBuiltinAssets('skills'),
+            collectBuiltinAssets('wiki'),
+          ]);
+          const source = await readFile(args.path, 'utf8');
+          const collector = /export function collectBuiltinAssets\([\s\S]*?\n\}/;
+          if (!collector.test(source))
+            throw new Error('Built-in collector not found; cannot embed assets');
           return {
-            contents: `export async function collectBuiltinAssets() { return ${JSON.stringify(assets)}; }`,
-            loader: 'js',
+            contents: source.replace(
+              collector,
+              () => `export async function collectBuiltinAssets(kind: 'skills' | 'wiki'): Promise<Record<string, string>> {
+  return ${JSON.stringify({ skills, wiki })}[kind];
+}`,
+            ),
+            loader: 'ts',
           };
         });
       },

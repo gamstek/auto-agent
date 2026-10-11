@@ -6,7 +6,9 @@ import { escapeXml, skillContent, skillGuidance } from '../skill/prompt';
 import { ScriptExecutor } from '../execution';
 import { Store } from '../storage';
 import { SQLiteSaver } from '../storage/checkpointer';
-import { toolSchemas } from '../llm';
+import { BuiltinToolRegistry } from '../llm/tools';
+import { fetchWeb } from '../llm/tools/web-fetch';
+import { Wiki } from '../wiki';
 import {
   AppError,
   errorText,
@@ -25,12 +27,42 @@ const State = Annotation.Root({
 });
 export class AgentService {
   readonly events = new Events();
+  private readonly toolRegistry = new BuiltinToolRegistry();
   private active = new Map<
     string,
     { controller: AbortController; done: Promise<Message>; completed: boolean }
   >();
   private titles = new Map<string, { controller: AbortController; done: Promise<void> }>();
   private closing = false;
+  private wikiUpdate?: {
+    controller: AbortController;
+    done: Promise<{ sources: number; rebuilt: number; builtAt: number }>;
+  };
+  get wiki(): Wiki {
+    return new Wiki(this.config);
+  }
+  updateWiki(signal: AbortSignal): Promise<{ sources: number; rebuilt: number; builtAt: number }> {
+    if (this.closing) throw new AppError('shutdown', 'Agent is shutting down', 503);
+    if (this.wikiUpdate) throw new AppError('wiki_busy', 'Knowledge update already running', 409);
+    const controller = new AbortController();
+    const combined = AbortSignal.any([signal, controller.signal]);
+    const done = this.wiki
+      .update(this.model, combined)
+      .catch((error) => {
+        if (combined.aborted)
+          throw new AppError(
+            'cancelled',
+            'Knowledge update cancelled; previous snapshot retained',
+            409,
+          );
+        throw error;
+      })
+      .finally(() => {
+        this.wikiUpdate = undefined;
+      });
+    this.wikiUpdate = { controller, done };
+    return done;
+  }
   constructor(
     readonly config: Config,
     readonly store: Store,
@@ -80,9 +112,14 @@ export class AgentService {
   }
   async shutdown(): Promise<void> {
     this.closing = true;
+    this.wikiUpdate?.controller.abort();
+    const wikiDone = this.wikiUpdate?.done;
     for (const entry of [...this.active.values(), ...this.titles.values()])
       entry.controller.abort();
-    await Promise.allSettled([...this.active.values(), ...this.titles.values()].map((v) => v.done));
+    await Promise.allSettled([
+      ...[...this.active.values(), ...this.titles.values()].map((v) => v.done),
+      ...(wikiDone ? [wikiDone] : []),
+    ]);
   }
   private startTitle(sessionId: string, reply: Message): void {
     if (
@@ -279,51 +316,38 @@ export class AgentService {
             });
           };
           try {
-            const schema = toolSchemas[call.name as keyof typeof toolSchemas];
-            if (!schema) throw new AppError('unknown_tool', 'Tool is not available');
-            const input = schema.parse(call.input) as {
-              name?: string;
-              skill?: string;
-              path?: string;
-              args?: string[];
-            };
-            if (call.name === 'skill') {
-              const content = await this.skills.load(input.name!);
-              const skill = this.skills.list().find((entry) => entry.name === input.name)!;
-              const body = content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
-              output = {
-                name: skill.name,
-                directory: skill.directory,
-                output: skillContent(
-                  skill.name,
-                  skill.directory,
-                  body,
-                  await this.skills.files(skill.name),
-                ),
-              };
-              loaded.add(skill.name);
-            } else {
-              if (!loaded.has(input.skill!))
-                throw new AppError(
-                  'skill_not_loaded',
-                  'Load skill instructions before accessing resources or scripts',
-                );
-              if (call.name === 'read_skill_resource')
-                output = await this.skills.read(input.skill!, input.path!);
-              else {
-                const entry = await this.skills.resolveScript(input.skill!, input.path!);
+            output = await this.toolRegistry.execute(call.name, call.input, loaded, {
+              skill: async ({ name }) => {
+                const content = await this.skills.load(name);
+                const skill = this.skills.list().find((entry) => entry.name === name)!;
+                const body = content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
+                const result = {
+                  name: skill.name,
+                  directory: skill.directory,
+                  output: skillContent(
+                    skill.name,
+                    skill.directory,
+                    body,
+                    await this.skills.files(skill.name),
+                  ),
+                };
+                loaded.add(skill.name);
+                return result;
+              },
+              query_knowledge: async ({ query, limit }) => this.wiki.query(query, limit),
+              read_skill_resource: async ({ skill, path }) => this.skills.read(skill, path),
+              web_fetch: async ({ url }) => fetchWeb(url, signal),
+              execute_skill_script: async (input) => {
+                const entry = await this.skills.resolveScript(input.skill, input.path);
                 const signature = JSON.stringify([input.skill, entry.path, input.args]);
                 if (failedScripts.has(signature))
                   throw new AppError(
                     'replay_blocked',
                     'A failed script cannot be automatically retried in this generation',
                   );
-                const executionId = this.store.beginExecution(runId, input.skill!, entry.path);
+                const executionId = this.store.beginExecution(runId, input.skill, entry.path);
                 try {
-                  const result = await this.executor.execute(
-                    { skill: input.skill!, path: input.path!, args: input.args },
-                    signal,
-                  );
+                  const result = await this.executor.execute(input, signal);
                   this.store.finishExecution(executionId, result);
                   output = result;
                   status = result.status;
@@ -335,6 +359,7 @@ export class AgentService {
                       'Script termination is unconfirmed; manual reconciliation required',
                     );
                   }
+                  return result;
                 } catch (error) {
                   if (!output) {
                     uncertain = !(error instanceof AppError);
@@ -348,8 +373,8 @@ export class AgentService {
                   }
                   throw error;
                 }
-              }
-            }
+              },
+            });
           } catch (error) {
             if (status === 'completed')
               status = uncertain ? 'unknown' : signal.aborted ? 'cancelled' : 'failed';

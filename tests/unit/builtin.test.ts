@@ -1,11 +1,12 @@
+import { collectTextAssets } from '../../src/shared/assets';
 import { test, expect } from 'bun:test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
 import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
-import { materializeBuiltins } from '../../src/skill/builtin';
-import { collectBuiltinAssets } from '../../src/skill/builtin-assets';
+import { materializeBuiltins } from '../../src/shared/builtin';
+import { collectBuiltinAssets } from '../../src/shared/builtin';
 test('asset collection reads nested and hidden text files deterministically and rejects binary files', async () => {
   const f = await fixture();
   try {
@@ -13,13 +14,13 @@ test('asset collection reads nested and hidden text files deterministically and 
     await mkdir(join(root, 'nested'), { recursive: true });
     await writeFile(join(root, '.hidden'), 'hidden');
     await writeFile(join(root, 'nested', 'resource.txt'), '资源');
-    const first = await collectBuiltinAssets(root);
+    const first = await collectTextAssets(root);
     expect(first).toEqual({ '.hidden': 'hidden', 'nested/resource.txt': '资源' });
-    expect(await collectBuiltinAssets(root)).toEqual(first);
+    expect(await collectTextAssets(root)).toEqual(first);
     await writeFile(join(root, 'nested', 'resource.txt'), 'updated');
-    expect((await collectBuiltinAssets(root))['nested/resource.txt']).toBe('updated');
+    expect((await collectTextAssets(root))['nested/resource.txt']).toBe('updated');
     await writeFile(join(root, 'binary.bin'), Buffer.from([0xff]));
-    await expect(collectBuiltinAssets(root)).rejects.toThrow('UTF-8');
+    await expect(collectTextAssets(root)).rejects.toThrow('UTF-8');
   } finally {
     await f.cleanup();
   }
@@ -28,7 +29,7 @@ test('asset collection reads nested and hidden text files deterministically and 
 test.skip('embedded built-ins discover without roots, load resources, execute and remain stable', async () => {
   const f = await fixture();
   try {
-    const assets = await collectBuiltinAssets();
+    const assets = await collectBuiltinAssets('skills');
     const config = { ...f.config, skillRoots: [], builtinSkills: true };
     const skills = new Skills(config);
     expect((await skills.discover()).map((s) => s.name)).toEqual(['device-automation']);
@@ -43,10 +44,10 @@ test.skip('embedded built-ins discover without roots, load resources, execute an
       simulated: true,
       device: { id: 'desk-lamp', powered: true, brightness: 50 },
     });
-    const first = await materializeBuiltins(config.dataDir);
+    const first = await materializeBuiltins(config.dataDir, 'skills');
     for (const [path, content] of Object.entries(assets))
       expect(await readFile(join(first, ...path.split('/')), 'utf8')).toBe(content);
-    expect(await materializeBuiltins(config.dataDir)).toBe(first);
+    expect(await materializeBuiltins(config.dataDir, 'skills')).toBe(first);
   } finally {
     await f.cleanup();
   }
@@ -68,9 +69,9 @@ test('built-ins disable cleanly, duplicate names fail, modified resources are no
     await expect(new Skills({ ...f.config, builtinSkills: true }).discover()).rejects.toThrow(
       'Duplicate',
     );
-    const root = await materializeBuiltins(f.config.dataDir);
+    const root = await materializeBuiltins(f.config.dataDir, 'skills');
     await writeFile(join(root, 'device-automation', 'scripts', 'device.js'), 'modified');
-    await expect(materializeBuiltins(f.config.dataDir)).rejects.toThrow('modified');
+    await expect(materializeBuiltins(f.config.dataDir, 'skills')).rejects.toThrow('modified');
   } finally {
     await f.cleanup();
   }

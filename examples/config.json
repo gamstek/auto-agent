@@ -1,6 +1,9 @@
 {
   "dataDir": "../.auto-agent",
+  "wikiRoots": ["wiki"],
+  "builtinWiki": true,
   "skillRoots": ["skills"],
+  "builtinSkills": true,
   "host": "127.0.0.1",
   "port": 4096,
   "model": "deepseek-flash",
@@ -15,6 +18,5 @@
   "maxSteps": 12,
   "maxTokens": 32000,
   "maxConcurrent": 4,
-  "systemPrompt": "",
-  "builtinSkills": true
+  "systemPrompt": ""
 }

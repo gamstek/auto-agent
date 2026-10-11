@@ -25,6 +25,8 @@ export async function fixture() {
     dataDir: join(dir, 'data'),
     skillRoots: [root],
     builtinSkills: false,
+    builtinWiki: false,
+    wikiRoots: [],
     host: '127.0.0.1',
     port: 0,
     allowRemote: false,

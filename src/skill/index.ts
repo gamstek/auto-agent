@@ -4,7 +4,7 @@ import { basename, isAbsolute, join, parse, relative, resolve, sep } from 'node:
 import { parseDocument } from 'yaml';
 import type { Config } from '../config';
 import { AppError, type SkillInfo } from '../shared/types';
-import { materializeBuiltins } from './builtin';
+import { materializeBuiltins } from '../shared/builtin';
 
 const validName = /^(?:[\p{Ll}\p{Lo}\p{N}]+)(?:-[\p{Ll}\p{Lo}\p{N}]+)*$/u;
 const copy = (skill: SkillInfo): SkillInfo => structuredClone(skill);
@@ -28,7 +28,7 @@ export class Skills {
     );
     if (this.config.builtinSkills)
       roots.unshift({
-        path: await materializeBuiltins(this.config.dataDir),
+        path: await materializeBuiltins(this.config.dataDir, 'skills'),
         source: 'built-in',
       });
     for (const configured of roots) {

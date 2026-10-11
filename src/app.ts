@@ -8,6 +8,7 @@ import { serve } from './api';
 import { argumentsFor, cli, help } from './cli';
 import { AppError } from './shared/types';
 import { output } from './shared/console';
+import { Wiki } from './wiki';
 export async function main(
   argv = process.argv.slice(2),
   options: { development?: boolean; defaultConfig?: string } = {},
@@ -17,6 +18,15 @@ export async function main(
     output.text(help);
     return;
   }
+  const updatingWiki = Boolean(args.values['wiki-update']);
+  if (
+    updatingWiki &&
+    (args.positionals.length || args.values.session || args.values.json || args.values['no-token'])
+  )
+    throw new AppError(
+      'usage',
+      '--wiki-update does not accept chat, serve, --session, --json or --no-token arguments',
+    );
   const isServer = args.positionals[0] === 'serve';
   if (isServer && (args.positionals.length !== 1 || args.values.session || args.values.json))
     throw new AppError('usage', 'serve does not accept chat arguments, --session or --json.');
@@ -36,6 +46,23 @@ export async function main(
       '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
     );
   const store = new Store(config.dataDir);
+  if (updatingWiki) {
+    const controller = new AbortController();
+    const stop = () => controller.abort();
+    process.once('SIGINT', stop);
+    process.once('SIGTERM', stop);
+    try {
+      output.info(
+        'Explicit wiki update: changed source text is sent to the configured model provider.',
+      );
+      output.json(await new Wiki(config).update(new CloudModel(config), controller.signal));
+    } finally {
+      process.removeListener('SIGINT', stop);
+      process.removeListener('SIGTERM', stop);
+      store.close();
+    }
+    return;
+  }
   const skills = new Skills(config);
   let catalog;
   try {
@@ -47,6 +74,15 @@ export async function main(
   output.info(
     `Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => `${skill.name} (${skills.source(skill.name)})`).join(', ') : '(none discovered)'}`,
   );
+  const wiki = await new Wiki(config).status();
+  output.info(
+    `Wiki roots: ${config.wikiRoots.length ? config.wikiRoots.join(', ') : '(none configured)'}\nWiki: ${wiki.sources.length ? wiki.sources.map((source) => `${source.slice(source.indexOf('/') + 1)} (${source.startsWith('builtin/') ? 'built-in' : 'configured'})`).join(', ') : '(none discovered)'}\nWiki knowledge: ${wiki.state}${wiki.state === 'ready' ? ` (${wiki.records} records; built ${new Date(wiki.builtAt!).toISOString()})` : ''}`,
+  );
+  if (wiki.state === 'invalid') output.warn(`Wiki: ${wiki.error}`);
+  else if (wiki.state === 'unbuilt' || wiki.state === 'stale')
+    output.warn(
+      'Run --wiki-update explicitly before using wiki knowledge. No model request was made during startup.',
+    );
   const service = new AgentService(
     config,
     store,

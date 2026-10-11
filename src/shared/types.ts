@@ -46,6 +46,7 @@ export interface ModelTurn {
   totalTokens: number;
 }
 export interface ModelAdapter {
+  generateKnowledge?(source: string, signal: AbortSignal): Promise<string>;
   generateTitle?(messages: ModelMessage[], signal: AbortSignal): Promise<string>;
   generate(
     messages: ModelMessage[],

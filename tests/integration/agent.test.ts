@@ -7,6 +7,7 @@ import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { Store } from '../../src/storage';
 import { AgentService } from '../../src/agent';
+import * as web from '../../src/llm/tools/web-fetch';
 import { serve, handler } from '../../src/api';
 import { Events } from '../../src/agent/events';
 import type { AgentEvent, ModelAdapter, ModelTurn } from '../../src/shared/types';
@@ -50,6 +51,86 @@ const call = (name: string, input: unknown): ModelTurn => ({
   text: '',
   totalTokens: 1,
   toolCalls: [{ id: crypto.randomUUID(), name, input }],
+});
+
+test('web fetch results reach the model and emit completion without script execution', async () => {
+  const page = {
+    url: 'https://example.com/',
+    status: 200,
+    contentType: 'text/html',
+    text: 'Public page content',
+    truncated: false,
+  };
+  const fetch = spyOn(web, 'fetchWeb').mockResolvedValue(page);
+  let step = 0;
+  const a = await app({
+    async generate(messages) {
+      if (step++ === 0) return call('web_fetch', { url: page.url });
+      const last = messages.at(-1)!;
+      if (last.role !== 'tool') throw new Error('Expected tool result');
+      const result = last.content[0]!;
+      if (result.type !== 'tool-result' || result.output.type !== 'json')
+        throw new Error('Expected JSON result');
+      expect(result.output.value).toEqual(page);
+      return { text: 'Page retrieved.', totalTokens: 1, toolCalls: [] };
+    },
+  });
+  const events: AgentEvent[] = [];
+  a.service.events.subscribe((event) => events.push(event));
+  try {
+    expect((await a.service.submit(a.store.createSession().id, 'Fetch this page')).content).toBe(
+      'Page retrieved.',
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(fetch.mock.calls[0]?.[0]).toBe(page.url);
+    expect(fetch.mock.calls[0]?.[1]).toBeInstanceOf(AbortSignal);
+    expect(
+      events.some(
+        (event) => event.type === 'tool.completed' && event.properties.name === 'web_fetch',
+      ),
+    ).toBe(true);
+    expect(a.store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({
+      count: 0,
+    });
+  } finally {
+    fetch.mockRestore();
+    await a.dispose();
+  }
+});
+
+test('web fetch is routed without a skill and reports public-network denials as tool failures', async () => {
+  let step = 0;
+  const a = await app({
+    async generate(messages) {
+      if (step++ === 0) return call('web_fetch', { url: 'http://127.0.0.1/private' });
+      const last = messages.at(-1)!;
+      expect(last.role).toBe('tool');
+      if (last.role !== 'tool') throw new Error('Expected tool result');
+      const result = last.content[0]!;
+      expect(result.type).toBe('tool-result');
+      if (result.type !== 'tool-result' || result.output.type !== 'json')
+        throw new Error('Expected JSON result');
+      expect(result.output.value).toHaveProperty('error');
+      expect(result.output.value).not.toHaveProperty('error', 'skill_not_loaded');
+      return { text: 'Private network access denied.', totalTokens: 1, toolCalls: [] };
+    },
+  });
+  const events: AgentEvent[] = [];
+  a.service.events.subscribe((event) => events.push(event));
+  try {
+    const session = a.store.createSession();
+    expect((await a.service.submit(session.id, 'Fetch this page')).content).toBe(
+      'Private network access denied.',
+    );
+    expect(
+      events.some((event) => event.type === 'tool.failed' && event.properties.name === 'web_fetch'),
+    ).toBe(true);
+    expect(a.store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({
+      count: 0,
+    });
+  } finally {
+    await a.dispose();
+  }
 });
 // Temporarily skipped pending investigation of script execution timeouts in CI.
 test.skip('LangGraph selects one of two skills, loads resource, executes and answers; no forced scripts', async () => {
