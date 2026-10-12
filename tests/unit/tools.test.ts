@@ -10,6 +10,8 @@ test('registry co-locates schemas and execution but gives the model declarations
   const specs = registry.specs();
   const modelTools = registry.modelTools();
   expect(Object.keys(modelTools)).toEqual(specs.map((spec) => spec.name));
+  expect(modelTools).toHaveProperty('execute_script');
+  expect(modelTools).not.toHaveProperty('execute_skill_script');
   for (const spec of specs) {
     expect(spec.inputSchema).toBe(toolSchemas[spec.name as keyof typeof toolSchemas]);
     expect(typeof spec.execute).toBe('function');
@@ -33,7 +35,7 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
   for (const [name, input] of [
     ['read', { skill: 'example', path: 'reference.txt' }],
     ['wiki', { skill: 'example', query: 'sample' }],
-    ['execute_skill_script', { skill: 'example', path: 'scripts/main.js' }],
+    ['execute_script', { skill: 'example', path: 'scripts/main.js' }],
   ] as const) {
     await expect(registry.execute(name, input, f.context)).rejects.toThrow(
       'Load skill instructions',
@@ -56,7 +58,7 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
     await registry.execute('read', { skill: 'example', path: 'reference.txt' }, f.context),
   ).toEqual({ output: 'Resource text', status: 'completed' });
   await registry.execute(
-    'execute_skill_script',
+    'execute_script',
     { skill: 'example', path: 'scripts/main.js' },
     f.context,
   );
@@ -156,11 +158,7 @@ test('invalid process outputs stop dependent work for operator review', async ()
     exitCode: NaN,
   });
   await expect(
-    registry.execute(
-      'execute_skill_script',
-      { skill: 'example', path: 'scripts/main.js' },
-      f.context,
-    ),
+    registry.execute('execute_script', { skill: 'example', path: 'scripts/main.js' }, f.context),
   ).rejects.toMatchObject({ code: 'uncertain_execution' });
 });
 

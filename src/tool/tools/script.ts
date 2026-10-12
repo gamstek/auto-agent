@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { AppError, errorText, type ScriptResult } from '../../shared/types';
 import { defineTool, UncertainToolError } from '../context';
 
-export const executeSkillScriptTool = defineTool({
+export const executeScriptTool = defineTool({
   description:
     'Execute a script in a loaded trusted skill. Scripts have host permissions and may cause side effects. Never retry uncertain side effects.',
   effects: ['process'],

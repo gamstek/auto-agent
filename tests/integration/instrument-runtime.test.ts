@@ -41,7 +41,6 @@ test('embedded runtime completes a persistent instrument workflow without Node o
       preprocessing: { temperatureC: 25, durationHours: 1 },
       sampleMassG: 1,
     };
-    expect((await run('validate-template', JSON.stringify(payload))).valid).toBe(true);
     const { template } = await run('save-template', JSON.stringify(payload));
     expect((await run('get-template', template.id)).template.id).toBe(template.id);
     const { measurement } = await run(

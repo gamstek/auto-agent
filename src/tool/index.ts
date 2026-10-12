@@ -4,7 +4,7 @@ import { AppError } from '../shared/types';
 import { UncertainToolError, type ToolContext, type ToolResult } from './context';
 import { skillTool } from './tools/skill';
 import { readTool } from './tools/read';
-import { executeSkillScriptTool } from './tools/script';
+import { executeScriptTool } from './tools/script';
 import { wikiTool } from './tools/wiki';
 import { webFetchTool } from './tools/web-fetch';
 import { webSearchTool } from './tools/web-search';
@@ -14,7 +14,7 @@ export type { ToolContext, ToolResult, ToolSpec, ToolEffect } from './context';
 export const toolSpecs = {
   skill: skillTool,
   read: readTool,
-  execute_skill_script: executeSkillScriptTool,
+  execute_script: executeScriptTool,
   wiki: wikiTool,
   web_fetch: webFetchTool,
   web_search: webSearchTool,

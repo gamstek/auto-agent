@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 async function main() {
-  // The same file runs in the repository's ESM package and in a standalone skill bundle.
+  // 同一脚本兼容仓库的 ESM 包和独立技能包。
   const { createRequire } = await import('node:module');
   const require = createRequire(process.argv[1]);
   const fs = require('node:fs');
@@ -14,13 +14,13 @@ async function main() {
   const devices = [
     {
       id: 'sim-analyzer-1',
-      model: 'Simulation fixture analyzer 1',
+      model: '模拟分析仪 1',
       methods: ['BET', 'BJH'],
       gases: ['N2'],
     },
     {
       id: 'sim-analyzer-2',
-      model: 'Simulation fixture analyzer 2',
+      model: '模拟分析仪 2',
       methods: ['BET', 'BJH', 'DFT'],
       gases: ['N2', 'CO2'],
     },
@@ -28,7 +28,7 @@ async function main() {
   const provenance = {
     backend: 'simulation',
     model: 'synthetic-adsorption-fixture-v1',
-    description: 'Synthetic fixture data; not real measurements or scientific sample calculations.',
+    description: '合成模拟数据，不是真实测量或样品科学性质的计算。',
   };
   function fail(code, message) {
     const error = new Error(message);
@@ -58,47 +58,44 @@ async function main() {
   ];
   function templateErrors(value) {
     const errors = [];
-    if (!exact(value, templateKeys))
-      errors.push('Template must contain exactly the documented fields.');
+    if (!exact(value, templateKeys)) errors.push('模板必须且只能包含文档规定的字段。');
     if (!object(value)) return errors;
-    if (!text(value.name)) errors.push('name must be a nonempty string of at most 128 characters.');
+    if (!text(value.name)) errors.push('name 必须为非空字符串，最多 128 个字符且不包含控制字符。');
     const device = devices.find((item) => item.id === value.deviceId);
-    if (!device) errors.push('deviceId must identify a known simulation fixture.');
+    if (!device) errors.push('deviceId 必须指向已知的模拟设备。');
     if (!['BET', 'BJH', 'DFT'].includes(value.method))
-      errors.push('method must be BET, BJH or DFT.');
+      errors.push('method 必须为 BET、BJH 或 DFT。');
     else if (device && !device.methods.includes(value.method))
-      errors.push('method is not supported by this fixture.');
-    if (!['N2', 'CO2'].includes(value.gas)) errors.push('gas must be N2 or CO2.');
-    else if (device && !device.gases.includes(value.gas))
-      errors.push('gas is not supported by this fixture.');
-    if (!positive(value.temperatureK))
-      errors.push('temperatureK must be a positive finite number.');
-    if (!positive(value.sampleMassG)) errors.push('sampleMassG must be a positive finite number.');
+      errors.push('该模拟设备不支持所选 method。');
+    if (!['N2', 'CO2'].includes(value.gas)) errors.push('gas 必须为 N2 或 CO2。');
+    else if (device && !device.gases.includes(value.gas)) errors.push('该模拟设备不支持所选 gas。');
+    if (!positive(value.temperatureK)) errors.push('temperatureK 必须为正有限数。');
+    if (!positive(value.sampleMassG)) errors.push('sampleMassG 必须为正有限数。');
     if (!exact(value.preprocessing, ['temperatureC', 'durationHours']))
-      errors.push('preprocessing must contain exactly temperatureC and durationHours.');
+      errors.push('preprocessing 必须且只能包含 temperatureC 和 durationHours。');
     if (
       !object(value.preprocessing) ||
       typeof value.preprocessing.temperatureC !== 'number' ||
       !Number.isFinite(value.preprocessing.temperatureC) ||
       value.preprocessing.temperatureC < 0
     )
-      errors.push('preprocessing.temperatureC must be a finite nonnegative number.');
+      errors.push('preprocessing.temperatureC 必须为有限非负数。');
     if (!object(value.preprocessing) || !positive(value.preprocessing.durationHours))
-      errors.push('preprocessing.durationHours must be a positive finite number.');
+      errors.push('preprocessing.durationHours 必须为正有限数。');
     return errors;
   }
   function parse(value) {
     if (Buffer.byteLength(value, 'utf8') > MAX_INPUT)
-      fail('PAYLOAD_TOO_LARGE', 'JSON payload exceeds the size limit.');
+      fail('PAYLOAD_TOO_LARGE', 'JSON 载荷超过大小限制。');
     try {
       return JSON.parse(value);
     } catch {
-      fail('INVALID_JSON', 'A valid JSON payload is required.');
+      fail('INVALID_JSON', '必须提供有效的 JSON 载荷。');
     }
   }
   const override = process.env.AUTO_AGENT_SIMULATION_DIR;
   if (override !== undefined && (!override || !path.isAbsolute(override)))
-    fail('INVALID_CONFIGURATION', 'Simulation directory override must be absolute.');
+    fail('INVALID_CONFIGURATION', '模拟数据目录必须为绝对路径。');
   const root = path.resolve(
     override ?? path.join(os.homedir(), '.auto-agent', 'simulated-instruments'),
   );
@@ -108,7 +105,7 @@ async function main() {
     relative === '' ||
     (!relative.startsWith('..' + path.sep) && relative !== '..' && !path.isAbsolute(relative))
   )
-    fail('INVALID_CONFIGURATION', 'Simulation data must be outside the bundled skill.');
+    fail('INVALID_CONFIGURATION', '模拟数据必须位于技能包目录之外。');
   const durationValue = process.env.AUTO_AGENT_SIMULATION_DURATION_MS ?? '1000';
   if (
     !/^\d+$/.test(durationValue) ||
@@ -116,10 +113,7 @@ async function main() {
     Number(durationValue) < 1 ||
     Number(durationValue) > 600000
   )
-    fail(
-      'INVALID_CONFIGURATION',
-      'Fixture duration must be an integer from 1 to 600000 milliseconds.',
-    );
+    fail('INVALID_CONFIGURATION', '模拟时长必须为 1 至 600000 毫秒的整数。');
   const durationMs = Number(durationValue);
   const statePath = path.join(root, 'simulation-state.json');
   const lockPath = path.join(root, 'simulation-state.lock');
@@ -137,15 +131,14 @@ async function main() {
         if (error.code === 'ENOENT') return null;
         throw error;
       }
-      if (stat.isSymbolicLink())
-        fail('UNSAFE_PATH', 'Symbolic links are not allowed in simulation paths.');
+      if (stat.isSymbolicLink()) fail('UNSAFE_PATH', '模拟路径不允许包含符号链接。');
       if (index < parts.length - 1 && !stat.isDirectory())
-        fail('UNSAFE_PATH', 'Simulation path ancestors must be directories.');
+        fail('UNSAFE_PATH', '模拟路径的上级路径必须为目录。');
       if (index === parts.length - 1) {
         if (kind === 'file' && !stat.isFile())
-          fail('UNSAFE_PATH', 'Simulation file path must be a regular file.');
+          fail('UNSAFE_PATH', '模拟文件路径必须指向普通文件。');
         if (kind === 'directory' && !stat.isDirectory())
-          fail('UNSAFE_PATH', 'Simulation directory path must be a directory.');
+          fail('UNSAFE_PATH', '模拟目录路径必须指向目录。');
         return stat;
       }
     }
@@ -160,8 +153,7 @@ async function main() {
   function readFile(target) {
     const stat = inspect(target, 'file');
     if (!stat) return null;
-    if (stat.size > MAX_STATE)
-      fail('STATE_TOO_LARGE', 'Persistent simulation data exceeds the size limit.');
+    if (stat.size > MAX_STATE) fail('STATE_TOO_LARGE', '持久化模拟数据超过大小限制。');
     const fd = fs.openSync(target, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0));
     try {
       const opened = fs.fstatSync(fd);
@@ -172,7 +164,7 @@ async function main() {
         opened.ino !== stat.ino ||
         opened.dev !== stat.dev
       )
-        fail('UNSAFE_PATH', 'Persistent simulation data is not a bounded regular file.');
+        fail('UNSAFE_PATH', '持久化模拟数据必须为大小受限的普通文件。');
       const buffer = Buffer.alloc(MAX_STATE + 1);
       let size = 0;
       while (size < buffer.length) {
@@ -180,8 +172,7 @@ async function main() {
         if (!count) break;
         size += count;
       }
-      if (size > MAX_STATE)
-        fail('STATE_TOO_LARGE', 'Persistent simulation data exceeds the size limit.');
+      if (size > MAX_STATE) fail('STATE_TOO_LARGE', '持久化模拟数据超过大小限制。');
       return buffer.subarray(0, size).toString('utf8');
     } finally {
       fs.closeSync(fd);
@@ -215,6 +206,7 @@ async function main() {
     'runningSince',
     'completedAt',
   ];
+  // 保留旧版英文来源描述的读取兼容性，避免中文化使已有状态失效。
   function validState(state) {
     if (
       !exact(state, [
@@ -226,7 +218,14 @@ async function main() {
       ]) ||
       state.schemaVersion !== 1 ||
       state.backend !== 'simulation' ||
-      !same(state.sourceProvenance, provenance) ||
+      !(
+        same(state.sourceProvenance, provenance) ||
+        same(state.sourceProvenance, {
+          ...provenance,
+          description:
+            'Synthetic fixture data; not real measurements or scientific sample calculations.',
+        })
+      ) ||
       !Array.isArray(state.templates) ||
       !Array.isArray(state.measurements) ||
       state.templates.length > MAX_RECORDS ||
@@ -295,10 +294,9 @@ async function main() {
     try {
       state = JSON.parse(contents);
     } catch {
-      fail('CORRUPT_STATE', 'Persistent simulation state is malformed; no reset was performed.');
+      fail('CORRUPT_STATE', '持久化模拟状态格式损坏，未执行重置。');
     }
-    if (!validState(state))
-      fail('CORRUPT_STATE', 'Persistent simulation state is invalid; no reset was performed.');
+    if (!validState(state)) fail('CORRUPT_STATE', '持久化模拟状态无效，未执行重置。');
     return state;
   }
   function elapsed(task, now) {
@@ -332,15 +330,13 @@ async function main() {
     return { ...device, status: active ? 'busy' : 'idle', activeMeasurementId: active?.id ?? null };
   }
   function findTask(state, id) {
-    if (!measurementId(id))
-      fail('INVALID_IDENTIFIER', 'A valid measurement identifier is required.');
+    if (!measurementId(id)) fail('INVALID_IDENTIFIER', '必须提供有效的测量任务标识。');
     const task = state.measurements.find((item) => item.id === id);
-    if (!task) fail('NOT_FOUND', 'Measurement was not found.');
+    if (!task) fail('NOT_FOUND', '未找到测量任务。');
     return task;
   }
-  function result(task) {
-    if (task.state !== 'completed')
-      fail('RESULTS_NOT_READY', 'Results are available only for completed measurements.');
+  function result(task, sourceProvenance) {
+    if (task.state !== 'completed') fail('RESULTS_NOT_READY', '仅已完成的测量任务可获取结果。');
     return {
       measurementId: task.id,
       deviceId: task.deviceId,
@@ -348,7 +344,7 @@ async function main() {
       sampleId: task.sampleId,
       templateSnapshot: task.templateSnapshot,
       method: task.templateSnapshot.method,
-      provenance: { ...provenance, fixtureId: task.deviceId },
+      provenance: { ...sourceProvenance, fixtureId: task.deviceId },
       units: {
         relativePressure: '1',
         adsorbedVolume: 'cm3(STP)/g',
@@ -366,7 +362,7 @@ async function main() {
   function encoded(value) {
     const contents = JSON.stringify(value, null, 2) + '\n';
     if (Buffer.byteLength(contents) > MAX_STATE)
-      fail('STATE_TOO_LARGE', 'Persistent simulation data exceeds the size limit.');
+      fail('STATE_TOO_LARGE', '持久化模拟数据超过大小限制。');
     return contents;
   }
   function atomicFile(target, contents, exclusive = false) {
@@ -388,7 +384,7 @@ async function main() {
         } catch (error) {
           if (error.code !== 'EEXIST') throw error;
           if (readFile(target) !== contents)
-            fail('REPORT_CONFLICT', 'Existing report does not match the expected fixture report.');
+            fail('REPORT_CONFLICT', '已有报告与预期的模拟报告不一致。');
         }
       } else fs.renameSync(temp, target);
     } finally {
@@ -403,11 +399,7 @@ async function main() {
     try {
       fd = fs.openSync(lockPath, 'wx', 0o600);
     } catch (error) {
-      if (error.code === 'EEXIST')
-        fail(
-          'STATE_LOCKED',
-          'Simulation state is locked; existing locks are never reclaimed automatically.',
-        );
+      if (error.code === 'EEXIST') fail('STATE_LOCKED', '模拟状态已锁定，不会自动回收已有锁。');
       throw error;
     }
     const identity = fs.fstatSync(fd);
@@ -419,8 +411,7 @@ async function main() {
       const now = Date.now();
       state.measurements = state.measurements.map((task) => effective(task, now));
       const response = action(state, now);
-      if (!validState(state))
-        fail('INVALID_STATE', 'Mutation would create invalid simulation state.');
+      if (!validState(state)) fail('INVALID_STATE', '写操作将产生无效的模拟状态。');
       if (JSON.stringify(state) !== before) atomicFile(statePath, encoded(state));
       return response;
     } finally {
@@ -440,7 +431,6 @@ async function main() {
   const arities = {
     list: 0,
     status: 1,
-    'validate-template': 1,
     'save-template': 1,
     'list-templates': 0,
     'get-template': 1,
@@ -451,20 +441,15 @@ async function main() {
     'export-report': 1,
   };
   if (!Object.hasOwn(arities, command ?? '') || args.length !== arities[command])
-    fail('INVALID_COMMAND', 'Use a documented command with its exact argument count.');
+    fail('INVALID_COMMAND', '请使用文档规定的命令及准确的参数数量。');
   let response;
-  if (command === 'validate-template')
-    response = (() => {
-      const errors = templateErrors(parse(args[0]));
-      return { valid: errors.length === 0, errors };
-    })();
-  else if (command === 'save-template') {
+  if (command === 'save-template') {
     const input = parse(args[0]);
     if (templateErrors(input).length)
-      fail('INVALID_TEMPLATE', 'Template failed simulator structural validation.');
+      fail('INVALID_TEMPLATE', '模板字段或设备能力不符合接口输入要求。');
     response = mutate((state) => {
       if (state.templates.length >= MAX_RECORDS)
-        fail('CAPACITY_EXCEEDED', 'Template capacity has been reached.');
+        fail('CAPACITY_EXCEEDED', '模板数量已达到容量上限。');
       const template = { id: 't-' + randomUUID(), ...input };
       state.templates.push(template);
       return { template };
@@ -477,23 +462,20 @@ async function main() {
       !templateId(input.templateId) ||
       !text(input.sampleId)
     )
-      fail(
-        'INVALID_SUBMISSION',
-        'Submission must contain valid deviceId, templateId and sampleId only.',
-      );
+      fail('INVALID_SUBMISSION', '提交数据必须且只能包含有效的 deviceId、templateId 和 sampleId。');
     response = mutate((state, now) => {
       const template = state.templates.find((item) => item.id === input.templateId);
-      if (!template) fail('NOT_FOUND', 'Template was not found.');
+      if (!template) fail('NOT_FOUND', '未找到模板。');
       if (template.deviceId !== input.deviceId)
-        fail('DEVICE_MISMATCH', 'Template and submission devices must match.');
+        fail('DEVICE_MISMATCH', '模板所属设备必须与下发设备一致。');
       if (
         state.measurements.some(
           (task) => task.deviceId === input.deviceId && ['running', 'paused'].includes(task.state),
         )
       )
-        fail('DEVICE_BUSY', 'Fixture already has an active measurement.');
+        fail('DEVICE_BUSY', '模拟设备已有活动测量任务。');
       if (state.measurements.length >= MAX_RECORDS)
-        fail('CAPACITY_EXCEEDED', 'Measurement capacity has been reached.');
+        fail('CAPACITY_EXCEEDED', '测量任务数量已达到容量上限。');
       const task = {
         id: 'm-' + randomUUID(),
         ...input,
@@ -510,7 +492,7 @@ async function main() {
     });
   } else if (command === 'control-measurement') {
     if (!['pause', 'resume', 'cancel'].includes(args[1]))
-      fail('INVALID_ACTION', 'Control action must be pause, resume or cancel.');
+      fail('INVALID_ACTION', '控制操作必须为 pause（暂停）、resume（恢复）或 cancel（取消）。');
     response = mutate((state, now) => {
       const task = findTask(state, args[0]);
       const action = args[1];
@@ -519,10 +501,7 @@ async function main() {
         (action === 'resume' && task.state === 'paused') ||
         (action === 'cancel' && ['running', 'paused'].includes(task.state))
       ))
-        fail(
-          'INVALID_TRANSITION',
-          'Control action is not legal for the current measurement state.',
-        );
+        fail('INVALID_TRANSITION', '当前测量状态不允许该控制操作。');
       task.elapsedMs = elapsed(task, now);
       task.state = action === 'pause' ? 'paused' : action === 'resume' ? 'running' : 'cancelled';
       task.runningSince = action === 'resume' ? now : null;
@@ -531,7 +510,7 @@ async function main() {
   } else if (command === 'export-report') {
     response = mutate((state) => {
       const task = findTask(state, args[0]);
-      const data = result(task);
+      const data = result(task, state.sourceProvenance);
       const id = 'r-' + task.id;
       const report = {
         id,
@@ -545,7 +524,7 @@ async function main() {
         encoded({
           schemaVersion: 1,
           backend: 'simulation',
-          sourceProvenance: provenance,
+          sourceProvenance: state.sourceProvenance,
           report,
           result: data,
         }),
@@ -560,21 +539,20 @@ async function main() {
       response = { devices: devices.map((device) => deviceStatus(state, device, now)) };
     else if (command === 'status') {
       const device = devices.find((item) => item.id === args[0]);
-      if (!device) fail('NOT_FOUND', 'Device was not found.');
+      if (!device) fail('NOT_FOUND', '未找到设备。');
       response = { device: deviceStatus(state, device, now) };
     } else if (command === 'list-templates') response = { templates: state.templates };
     else if (command === 'get-template') {
-      if (!templateId(args[0]))
-        fail('INVALID_IDENTIFIER', 'A valid template identifier is required.');
+      if (!templateId(args[0])) fail('INVALID_IDENTIFIER', '必须提供有效的模板标识。');
       const template = state.templates.find((item) => item.id === args[0]);
-      if (!template) fail('NOT_FOUND', 'Template was not found.');
+      if (!template) fail('NOT_FOUND', '未找到模板。');
       response = { template };
     } else {
       const task = effective(findTask(state, args[0]), now);
       response =
         command === 'measurement'
           ? { measurement: measurement(task, now) }
-          : { result: result(task) };
+          : { result: result(task, state.sourceProvenance) };
     }
   }
   process.stdout.write(JSON.stringify(response) + '\n');
@@ -585,7 +563,7 @@ main().catch((error) => {
     JSON.stringify({
       error: {
         code: error.publicCode ?? 'IO_ERROR',
-        message: error.publicCode ? error.message : 'Simulation storage operation failed.',
+        message: error.publicCode ? error.message : '模拟数据存储操作失败。',
       },
     }) + '\n',
   );

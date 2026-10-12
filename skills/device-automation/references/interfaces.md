@@ -1,55 +1,54 @@
-# Instrument interfaces — persistent simulation backend
+# 自动化设备接口契约
 
-The current implementation is **local simulation only**. It never connects to hardware, external software, or the network. JSON response envelopes use interface-style fields and omit a per-response `simulated` flag; the backend and persisted artifacts explicitly retain simulation provenance. Generated data must never be represented as real sample measurements.
+本契约定义模板管理、任务下发、运行控制和结果获取的操作及数据约定，不绑定特定 Agent 或工具名称。连接方式、权限、数据存储和运行配置由接口实现与部署环境提供；契约本身不证明设备已连接或操作已完成。
 
-The schemas below are the simulation contract, not a certified vendor API. A future real adapter must document and validate the actual software contract rather than assuming these fields or capabilities are compatible.
+技能负责根据需求和可用资料匹配或生成模板，接口负责接收模板并执行任务。接口不自行推断材料适用性或科学参数，不提供独立模板校验命令。
 
-## Invocation and persistence
+## 调用与配置
 
-Call `execute_skill_script` with `skill: "device-automation"`, `path: "scripts/instrument.js"`, and an argument array. Node.js and a configured `.js` interpreter are required. JSON payloads are single arguments, never shell strings. Inspect exit status and JSON; errors use `{ "error": { "code": "...", "message": "..." } }` with a nonzero exit code.
+先确认宿主实际提供的设备接口调用方式。若使用[随附脚本](../scripts/instrument.js)，需要 Node.js 或兼容的 `.js` 运行环境；脚本路径相对于技能目录解析，以下数组表示命令及其参数，不是宿主工具名称。也可通过已配置并符合本契约的设备工具或服务执行对应操作，不假定存在特定脚本执行工具。
 
-The default data directory is `<user-home>/.auto-agent/simulated-instruments`. An operator may set an absolute `AUTO_AGENT_SIMULATION_DIR` through configuration `scriptEnv`. Keep it separate from real instrument data and outside skill installation/version directories. `simulation-state.json` stores templates, measurements, and backend provenance; reports remain under this directory. Changing the directory selects a different simulation environment, not a real instrument.
+JSON 载荷作为单个参数传递，不拼成 shell 命令字符串。使用脚本时，检查退出状态及 JSON；错误结构为 `{ "error": { "code": "...", "message": "..." } }`，退出码非零。其他调用方式还应检查宿主提供的传输错误。
 
-State persists across calls and restarts. Mutations use exclusive locking and atomic publication. Read-only queries do not create or update state, even when elapsed time changes an observed measurement state. A busy lock or corrupt state is an error; do not delete files or replay an uncertain operation automatically. There is no reset command. Configured limits reject oversized payloads/state.
+存储位置、连接设置、超时和容量限制由接口部署配置决定，不在技能中指定用户主目录、宿主专用目录或配置变量。使用接口返回的模板、任务标识和报告位置，不直接修改后端状态文件。连接或配置缺失时请求操作者补齐，不猜测路径或凭据。
 
-## Commands
+## 操作
 
-- `["list"]` → `{devices}`; `["status", "<deviceId>"]` → `{device}`.
-- `["validate-template", "<template JSON>"]` → `{valid, errors}`.
-- `["save-template", "<template JSON>"]` / `["get-template", "<templateId>"]` → `{template}`; `["list-templates"]` → `{templates}`. Template saving is create-only.
-- `["submit-measurement", "<submission JSON>"]` / `["measurement", "<measurementId>"]` → `{measurement}`.
-- `["control-measurement", "<measurementId>", "<action>"]` → `{measurement}`. Action is exactly `pause`, `resume`, or `cancel`.
-- `["results", "<measurementId>"]` → `{result}` after completion.
-- `["export-report", "<measurementId>"]` → `{report}` with its verified local path.
+- 设备发现：`["list"]` → `{devices}`；状态查询：`["status", "<deviceId>"]` → `{device}`。
+- 保存新模板：`["save-template", "<模板 JSON>"]` → `{template}`；读取模板：`["get-template", "<templateId>"]` → `{template}`；列出已有模板：`["list-templates"]` → `{templates}`。模板保存仅支持创建。
+- 下发并运行：`["submit-measurement", "<提交 JSON>"]` → `{measurement}`；任务查询：`["measurement", "<measurementId>"]` → `{measurement}`。
+- 任务控制：`["control-measurement", "<measurementId>", "<action>"]` → `{measurement}`。`action` 仅支持 `pause`（暂停）、`resume`（恢复）或 `cancel`（取消）。
+- 完成后获取结果：`["results", "<measurementId>"]` → `{result}`。
+- 导出报告：`["export-report", "<measurementId>"]` → `{report}`，使用返回的报告位置，通过当前可用的文件或报告读取能力确认内容与任务一致。
 
-Use IDs from responses rather than fabricating them. Device IDs are `sim-analyzer-1` and `sim-analyzer-2`, representing fixture analyzers, not physical connections. Inspect their supported methods and gases before choosing one.
+设备标识必须来自发现结果，不硬编码或自行编造。选择前查询支持的方法和气体。已有模板满足需求时复用其标识；否则创建新模板并读取确认后提交任务。
 
-## Template and submission schemas
+## 模板与下发数据
 
-A new template has exactly these fields:
+新模板仅包含以下字段：
 
-- `name`: nonempty string.
-- `deviceId`: discovered device ID.
-- `method`: `BET`, `BJH`, or `DFT`, supported by the selected fixture.
-- `gas`: `N2` or `CO2`, supported by the selected fixture.
-- `temperatureK`: positive finite number in kelvin.
-- `preprocessing`: exactly `{ "temperatureC": <finite number >= 0>, "durationHours": <positive finite number> }`.
-- `sampleMassG`: positive finite number in grams.
+- `name`：非空字符串，最多 128 个字符，不包含控制字符。
+- `deviceId`：已发现的设备标识。
+- `method`：所选设备支持的 `BET`、`BJH` 或 `DFT`。
+- `gas`：所选设备支持的 `N2` 或 `CO2`。
+- `temperatureK`：正有限数值，单位为开尔文。
+- `preprocessing`：仅包含 `temperatureC`（有限非负数，单位为摄氏度）和 `durationHours`（正有限数，单位为小时）。
+- `sampleMassG`：正有限数值，单位为克。
 
-No unknown fields, string ranges, implicit defaults, or vendor-specific fields are accepted. Structural validation checks shape, finite values, and fixture capabilities only. It does not certify scientific validity, method applicability, calibration, operating safety, or real hardware limits. Resolve missing values/ranges with the user before forming an executable payload. Template saving is create-only; retain its returned ID and verify by reading it back.
+保存接口拒绝未知字段、字符串范围、隐式默认值、厂商专用字段或不支持的设备能力。这些是接口输入约束，不是独立模板校验流程，也不证明科学有效性、校准或运行安全。形成下发数据前，先与用户明确缺失参数和范围中的具体值。保留保存返回的标识并通过读取确认，不覆盖已有模板。
 
-Measurement submission has exactly `{ "deviceId": "...", "templateId": "...", "sampleId": "..." }`. The template must belong to the device; the sample identifier must be nonempty. Only one active measurement is allowed per fixture. Submission snapshots the saved template for result provenance.
+测量提交仅包含 `{ "deviceId": "...", "templateId": "...", "sampleId": "..." }`。模板必须属于该设备；样品标识必须非空、最多 128 个字符且不包含控制字符。每台设备同时只能有一个活动任务。提交时保留模板快照用于结果追溯。该操作包含下发和启动，不需要额外启动命令；是否接受及实际运行状态以返回结果和后续任务查询为准。
 
-## Measurement lifecycle and results
+## 任务状态与结果
 
-Tasks start running and reach completion according to elapsed simulation time; no process remains running in the background. The default fixture duration is 1,000 milliseconds. Operators/tests can configure `AUTO_AGENT_SIMULATION_DURATION_MS` in `scriptEnv` to an integer between 1 and 600,000 milliseconds. This timing is not a physical experiment duration.
+任务状态通过接口查询确认，不根据经过的时间、脚本退出或预估时长推断完成。运行时间、进度和完成条件由设备接口实现确定。
 
-`pause` applies only to running tasks, `resume` only to paused tasks, and `cancel` only to active tasks. Paused time does not count toward completion. Completed/cancelled tasks are terminal. Read-only inspection computes the current state without writing files; cancellation is not evidence of stopping hardware.
+`pause` 仅作用于 `running`（运行中）任务，转为 `paused`（已暂停）；`resume` 仅作用于已暂停任务；`cancel` 仅作用于运行中或已暂停任务，转为 `cancelled`（已取消）。`completed`（已完成）和已取消为终态。接口返回其他状态或未知状态时，保留原值并停止依赖该状态的操作，不推断成功。控制请求被接受不等于设备已停止，应结合后续状态和设备证据确认。
 
-Results are available only after observed completion and are deterministic synthetic fixtures tied to the sample, device, and saved template, with units and fixture provenance. They are not calculated scientific properties of the supplied sample. Report export stays within the simulation data directory and preserves backend provenance; arbitrary output paths and overwrites are not supported. Verify the returned artifact before claiming export success.
+观察到完成后才能获取结果。保留返回的样品、设备、模板、单位及来源信息，按设备文档解释数值，不补造未返回的数据或分析结论。报告位置和格式以接口返回为准，不假定固定本地目录，也不擅自指定输出路径或覆盖已有报告。无法读取报告时，说明已返回的位置和待确认事项，不宣称已验证导出成功。
 
-## Future real adapter boundary
+## 授权与异常处理
 
-Before adding a real adapter, document supported software versions, explicit connection/authentication configuration, field mappings/units, limits, prerequisites/interlocks, authorization, errors, operation identifiers, idempotency/retry rules, cancellation/timeout semantics, and evidence of completion. Keep credentials outside skill resources. Do not enable real networking or translate simulator acceptance into hardware approval.
+只读查询不得触发写入。保存、提交、控制和报告创建必须在用户授权范围内，并遵守宿主审批、设备权限、运行前提、限值及联锁。凭据由部署环境管理，不放入技能资源。
 
-Read-only queries must not trigger writes. Saving, submission, control, and report creation require authorized scope. Preserve provenance, distinguish unknown effects from failures, and stop dependent operations for operator reconciliation rather than automatically retrying uncertain mutations.
+区分调用失败、设备拒绝与效果未知。连接中断、超时或响应不明确时，保留已获得的操作标识，优先查询状态并请求操作者核对；未明确幂等规则前不自动重试写操作，不删除后端文件或重置状态。接口实现更换后，需确认字段、单位、状态、错误和完成证据仍符合本契约。

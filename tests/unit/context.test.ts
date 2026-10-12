@@ -31,7 +31,7 @@ test('context preserves current request, loaded guidance, resources, cited knowl
       { query: '石墨' },
       { results: [{ source: 'source.md', citations: [1] }] },
     ),
-    ...pair('execute_skill_script', 'latest-id', { args: ['status'] }, { stdout: 'Current state' }),
+    ...pair('execute_script', 'latest-id', { args: ['status'] }, { stdout: 'Current state' }),
   ];
   const before = JSON.stringify(messages);
   const fitted = fitModelContext(messages, 2000, 100);
@@ -51,9 +51,7 @@ test('context preserves current request, loaded guidance, resources, cited knowl
 test('compaction keeps tool calls and their complete result groups together', () => {
   const messages: ModelMessage[] = [{ role: 'user', content: 'Current request' }];
   for (let index = 0; index < 8; index++)
-    messages.push(
-      ...pair('execute_skill_script', String(index), {}, { data: 'payload'.repeat(180) }),
-    );
+    messages.push(...pair('execute_script', String(index), {}, { data: 'payload'.repeat(180) }));
   const fitted = fitModelContext(messages, 1900);
   const calls = fitted.messages.flatMap((message) =>
     message.role === 'assistant' && Array.isArray(message.content)

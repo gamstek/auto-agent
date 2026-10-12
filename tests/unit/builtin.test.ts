@@ -24,7 +24,7 @@ test('asset collection reads nested and hidden text files deterministically and 
     await f.cleanup();
   }
 });
-test('formal built-in skill loads persistent simulation interfaces and preserves asset integrity', async () => {
+test('formal built-in skill loads host-independent interface guidance and preserves asset integrity', async () => {
   const f = await fixture();
   try {
     const assets = await collectBuiltinAssets('skills');
@@ -32,21 +32,30 @@ test('formal built-in skill loads persistent simulation interfaces and preserves
     const skills = new Skills(config);
     const catalog = await skills.discover();
     expect(catalog.map((s) => s.name)).toEqual(['device-automation']);
-    expect(catalog[0]!.description).toContain('persistent instrument-interface simulation');
-    expect(catalog[0]!.metadata.compatibility).toContain('Requires Auto-Agent and Node.js');
+    expect(catalog[0]!.description).toContain('下发自动化设备并运行');
+    expect(catalog[0]!.metadata.compatibility).toContain('需要可调用的设备接口');
     expect(catalog[0]!.metadata.compatibility).not.toContain('builtin');
     expect(skills.source('device-automation')).toBe('built-in');
     const content = await skills.load('device-automation');
-    expect(content).toContain('Surface area and pore size analyzer workflows');
-    expect(content).toContain('wiki');
+    expect(content).toContain('根据需求匹配模板并运行自动化设备');
+    expect(content).toContain('当前环境提供的');
     expect(content).toContain('references/interfaces.md');
-    expect(content).toContain('not an executable or validated instrument configuration');
+    expect(content).toContain('模板推荐草案——参数尚未确认，不可下发运行');
     expect(content).not.toContain('scripts/device.js');
+    expect(content).not.toContain('validate-template');
+    expect(content).toContain('优先复用满足需求的已有模板');
     const interfaces = await skills.read('device-automation', 'references/interfaces.md');
-    expect(interfaces).toContain('local simulation only');
-    expect(interfaces).toContain('AUTO_AGENT_SIMULATION_DIR');
-    expect(interfaces).toContain('Measurement submission');
-    expect(interfaces).toContain('Template saving');
+    expect(interfaces).toContain('不绑定特定 Agent 或工具名称');
+    expect(interfaces).toContain('由接口部署配置决定');
+    expect(interfaces).toContain('测量提交');
+    expect(interfaces).toContain('模板保存');
+    expect(interfaces).not.toContain('validate-template');
+    for (const guidance of [content, interfaces, catalog[0]!.metadata.compatibility]) {
+      expect(guidance).not.toMatch(
+        /wiki|execute_script|`read`|\.auto-agent|AUTO_AGENT_|scriptEnv|模拟|合成|sim-analyzer/i,
+      );
+    }
+    expect(content).toContain('契约描述操作和数据约定，不代表设备已经连接');
     expect(Object.hasOwn(assets, 'device-automation/scripts/instrument.js')).toBe(true);
     expect(Object.hasOwn(assets, 'device-automation/scripts/device.js')).toBe(false);
     expect(

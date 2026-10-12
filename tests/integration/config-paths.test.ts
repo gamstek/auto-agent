@@ -34,7 +34,7 @@ test('repository config discovers example skills and the formal built-in analyze
   expect(prompt).not.toContain('only skill,');
   expect(prompt).not.toContain('skill tool description');
   expect(prompt).not.toContain('Read a UTF-8 resource from a loaded skill');
-  expect(prompt).not.toContain('execute_skill_script');
+  expect(prompt).not.toContain('execute_script');
   expect(prompt).toContain('trusted local SKILL.md instructions');
   expect(prompt).toContain('Load a skill in the current generation');
   expect(prompt).toContain('conversation history is not currently loaded');

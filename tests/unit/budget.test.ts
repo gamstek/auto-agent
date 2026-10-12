@@ -124,7 +124,7 @@ test('exceeding cumulative tokens explains the limit and does not execute pendin
         toolCalls: [
           {
             id: 'pending',
-            name: 'execute_skill_script',
+            name: 'execute_script',
             input: { skill: 'hello-world', path: 'scripts/main.js' },
           },
         ],

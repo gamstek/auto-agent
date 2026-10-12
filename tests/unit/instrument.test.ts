@@ -130,11 +130,12 @@ test('persistent lifecycle, read-only completion, deterministic fixture results 
     expect(
       first.devices.every(
         (device: { model: string; status: string }) =>
-          device.model.includes('Simulation fixture') && device.status === 'idle',
+          device.model.includes('模拟分析仪') && device.status === 'idle',
       ),
     ).toBe(true);
     expect(await readdir(f.root)).toEqual([]);
-    expect(await f.ok('validate-template', [template])).toEqual({ valid: true, errors: [] });
+    const removed = await f.error('validate-template', [template], 'INVALID_COMMAND');
+    expect(removed.message).toContain('文档规定的命令');
     expect(await f.ok('list-templates')).toEqual({ templates: [] });
     expect(await readdir(f.root)).toEqual([]);
     const { saved, measurement } = await f.start();
@@ -203,6 +204,29 @@ test('persistent lifecycle, read-only completion, deterministic fixture results 
   }
 }, 20000);
 
+test('legacy English provenance preserves persisted state, results and existing reports', async () => {
+  const f = await fixture('1');
+  try {
+    const { saved, measurement } = await f.start();
+    const state = JSON.parse(await readFile(f.statePath, 'utf8'));
+    state.sourceProvenance.description =
+      'Synthetic fixture data; not real measurements or scientific sample calculations.';
+    await writeFile(f.statePath, JSON.stringify(state));
+    const before = await readFile(f.statePath, 'utf8');
+    expect((await f.ok('get-template', [saved.id])).template).toEqual(saved);
+    const { result } = await f.ok('results', [measurement.id]);
+    expect(result.provenance.description).toBe(state.sourceProvenance.description);
+    expect(await readFile(f.statePath, 'utf8')).toBe(before);
+    const { report } = await f.ok('export-report', [measurement.id]);
+    const contents = await readFile(report.path, 'utf8');
+    expect(JSON.parse(contents).sourceProvenance).toEqual(state.sourceProvenance);
+    expect((await f.ok('export-report', [measurement.id])).report).toEqual(report);
+    expect(await readFile(report.path, 'utf8')).toBe(contents);
+  } finally {
+    await f.cleanup();
+  }
+});
+
 test('pause freezes elapsed time, resume advances, cancel freezes and legal transitions are enforced', async () => {
   const f = await fixture();
   try {
@@ -268,24 +292,22 @@ test('strict JSON schemas, capabilities, identifiers, argument counts and bounde
       { ...template, preprocessing: { temperatureC: 0, durationHours: 1, extra: true } },
       { ...template, name: 'x'.repeat(129) },
     ]) {
-      expect((await f.ok('validate-template', [invalid])).valid).toBe(false);
-      await f.error('save-template', [invalid], 'INVALID_TEMPLATE');
+      const error = await f.error('save-template', [invalid], 'INVALID_TEMPLATE');
+      expect(error.message).toContain('接口输入要求');
     }
-    expect(
-      (await f.ok('validate-template', [JSON.stringify(template).replace('77', '1e999')])).valid,
-    ).toBe(false);
-    expect(
-      (
-        await f.ok('validate-template', [
-          { ...template, deviceId: 'sim-analyzer-2', method: 'DFT', gas: 'CO2' },
-        ])
-      ).valid,
-    ).toBe(true);
-    const malformed = await f.error(
-      'validate-template',
-      ['{"secret":"do-not-echo"'],
-      'INVALID_JSON',
+    expect(await readdir(f.root)).toEqual([]);
+    await f.error(
+      'save-template',
+      [JSON.stringify(template).replace('77', '1e999')],
+      'INVALID_TEMPLATE',
     );
+    const dft = { ...template, deviceId: 'sim-analyzer-2', method: 'DFT', gas: 'CO2' };
+    const { template: savedDft } = await f.ok('save-template', [dft]);
+    expect((await f.ok('get-template', [savedDft.id])).template).toEqual({
+      ...dft,
+      id: savedDft.id,
+    });
+    const malformed = await f.error('save-template', ['{"secret":"do-not-echo"'], 'INVALID_JSON');
     expect(malformed.message).not.toContain('do-not-echo');
     await f.error('save-template', ['x'.repeat(17000)], 'PAYLOAD_TOO_LARGE');
     for (const command of ['reset', 'real-endpoint', '', 'list extra'])

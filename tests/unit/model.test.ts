@@ -20,7 +20,7 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
       const body = await request.json();
       expect(
         body.tools.map((entry: { function: { name: string } }) => entry.function.name),
-      ).toEqual(['skill', 'read', 'execute_skill_script', 'wiki', 'web_fetch', 'web_search']);
+      ).toEqual(['skill', 'read', 'execute_script', 'wiki', 'web_fetch', 'web_search']);
       const web = body.tools.find(
         (entry: { function: { name: string } }) => entry.function.name === 'web_fetch',
       ).function;

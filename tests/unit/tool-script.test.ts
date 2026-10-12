@@ -29,11 +29,11 @@ for (const status of [
       return value;
     };
     if (status === 'unknown') {
-      await expect(
-        registry.execute('execute_skill_script', input, f.context),
-      ).rejects.toBeInstanceOf(UncertainToolError);
+      await expect(registry.execute('execute_script', input, f.context)).rejects.toBeInstanceOf(
+        UncertainToolError,
+      );
     } else {
-      expect(await registry.execute('execute_skill_script', input, f.context)).toEqual({
+      expect(await registry.execute('execute_script', input, f.context)).toEqual({
         output: value,
         status,
       });
@@ -45,11 +45,7 @@ for (const status of [
     expect(f.context.run.failedScripts.size).toBe(status === 'completed' ? 0 : 1);
     if (status !== 'completed') {
       await expect(
-        registry.execute(
-          'execute_skill_script',
-          { ...input, path: 'scripts/./main.js' },
-          f.context,
-        ),
+        registry.execute('execute_script', { ...input, path: 'scripts/./main.js' }, f.context),
       ).rejects.toThrow('automatically retried');
       expect(launches).toBe(1);
       expect(f.calls.filter((call) => call.name === 'begin')).toHaveLength(1);
@@ -67,7 +63,7 @@ test('script exceptions distinguish known failure from an unknown outcome and fi
     f.context.executor.execute = async () => {
       throw error;
     };
-    const attempt = registry.execute('execute_skill_script', input, f.context);
+    const attempt = registry.execute('execute_script', input, f.context);
     if (unexpected) await expect(attempt).rejects.toBeInstanceOf(UncertainToolError);
     else await expect(attempt).rejects.toBe(error);
     expect(f.calls.filter((call) => call.name === 'finish')).toEqual([
@@ -96,7 +92,7 @@ test('an audit publication failure stops execution without attempting to finish 
     finishes++;
     throw new Error('Database unavailable');
   };
-  await expect(registry.execute('execute_skill_script', input, f.context)).rejects.toBeInstanceOf(
+  await expect(registry.execute('execute_script', input, f.context)).rejects.toBeInstanceOf(
     UncertainToolError,
   );
   expect(finishes).toBe(1);
@@ -112,10 +108,10 @@ test('failed script replay protection belongs to a generation, not the registry'
     stdout: '',
     stderr: '',
   });
-  await registry.execute('execute_skill_script', input, first.context);
+  await registry.execute('execute_script', input, first.context);
   const second = toolFixture();
   second.context.run.loadedSkills.add('example');
-  expect((await registry.execute('execute_skill_script', input, second.context)).status).toBe(
+  expect((await registry.execute('execute_script', input, second.context)).status).toBe(
     'completed',
   );
   expect(first.context.run.failedScripts.size).toBe(1);

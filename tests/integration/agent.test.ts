@@ -106,7 +106,7 @@ test('unknown script outcomes stop dependent tools and require operator reconcil
           text: '',
           totalTokens: 1,
           toolCalls: [
-            ...call('execute_skill_script', {
+            ...call('execute_script', {
               skill: 'sum-values',
               path: 'scripts/main.js',
               args: ['2', '3'],
@@ -133,7 +133,7 @@ test('unknown script outcomes stop dependent tools and require operator reconcil
         events.some(
           (event) =>
             event.type === 'tool.failed' &&
-            event.properties.name === 'execute_skill_script' &&
+            event.properties.name === 'execute_script' &&
             event.properties.status === 'unknown',
         ),
       ).toBe(true);
@@ -331,7 +331,7 @@ test.skip('LangGraph selects one of two skills, loads resource, executes and ans
     sequence([
       call('skill', { name: 'sum-values' }),
       call('read', { skill: 'sum-values', path: 'reference.txt' }),
-      call('execute_skill_script', {
+      call('execute_script', {
         skill: 'sum-values',
         path: 'scripts/main.js',
         args: ['2', '3'],
@@ -473,14 +473,14 @@ test('skill activation preserves script execution and failed replay checks', asy
     skills,
     executor,
     sequence([
-      call('execute_skill_script', { skill: 'hello-world', path: 'scripts/main.js' }),
+      call('execute_script', { skill: 'hello-world', path: 'scripts/main.js' }),
       call('skill', { name: 'hello-world' }),
-      call('execute_skill_script', {
+      call('execute_script', {
         skill: 'hello-world',
         path: 'scripts/main.js',
         args: ['person'],
       }),
-      call('execute_skill_script', {
+      call('execute_script', {
         skill: 'hello-world',
         path: 'scripts/main.js',
         args: ['person'],
@@ -599,8 +599,8 @@ test.skip('failed scripts cannot be replayed within a generation and event subsc
   const a = await app(
     sequence([
       call('skill', { name: 'hello-world' }),
-      call('execute_skill_script', { skill: 'hello-world', path: 'scripts/main.js' }),
-      call('execute_skill_script', { skill: 'hello-world', path: 'scripts/main.js' }),
+      call('execute_script', { skill: 'hello-world', path: 'scripts/main.js' }),
+      call('execute_script', { skill: 'hello-world', path: 'scripts/main.js' }),
       { text: 'Interpreter unavailable', totalTokens: 1, toolCalls: [] },
     ]),
   );
@@ -645,7 +645,7 @@ test.skip('explicit no-token mode supports sessions messages events scripts and 
   const a = await app(
     sequence([
       call('skill', { name: 'sum-values' }),
-      call('execute_skill_script', {
+      call('execute_script', {
         skill: 'sum-values',
         path: 'scripts/main.js',
         args: ['2', '3'],
@@ -749,7 +749,7 @@ test('HTTP SSE streams correlated model steps and resource tool outcomes without
     expect(events.filter((e) => e.type === 'model.completed').length).toBe(4);
     const starts = events.filter((e) => e.type === 'tool.started');
     expect(starts.length).toBe(3);
-    expect(starts.some((event) => event.properties.name === 'execute_skill_script')).toBe(false);
+    expect(starts.some((event) => event.properties.name === 'execute_script')).toBe(false);
     for (const start of starts) {
       const ends = events.filter(
         (e) =>

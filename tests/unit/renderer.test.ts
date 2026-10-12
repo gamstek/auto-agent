@@ -31,7 +31,7 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
   r.event('model.completed', { step: 1, totalTokens: 4, durationMs: 12 });
   r.event('tool.started', { name: 'skill', skill: 'sum-values', status: 'running' });
   r.event('tool.completed', { name: 'skill', status: 'completed', durationMs: 10 });
-  r.event('tool.failed', { name: 'execute_skill_script', status: 'timeout', message: 'Timed out' });
+  r.event('tool.failed', { name: 'execute_script', status: 'timeout', message: 'Timed out' });
   r.view.failure('bad\x1b[2Jpayload');
   expect(r.output()).toContain('\x1b[32m');
   expect(r.errors()).toContain('\x1b[90m');
