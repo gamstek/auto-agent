@@ -11,6 +11,7 @@ export function argumentsFor(argv: string[]) {
       session: { type: 'string' },
       json: { type: 'boolean' },
       help: { type: 'boolean' },
+      licenses: { type: 'boolean' },
       'wiki-update': { type: 'boolean' },
       'no-token': { type: 'boolean' },
     },
@@ -32,6 +33,7 @@ Options
   --json             Print chat history and replies as newline-delimited JSON
   --no-token         Disable HTTP authentication on loopback only
   --wiki-update      Explicitly compile built-in and external wiki sources using the cloud model, then exit
+  --licenses         Show bundled third-party license notices
   --help             Show this help
 
 Examples

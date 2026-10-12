@@ -1,10 +1,10 @@
 import { createOpenAI } from '@ai-sdk/openai';
 import { generateText, streamText, type ModelMessage } from 'ai';
-import { BuiltinToolRegistry } from './tools';
-export { toolSchemas } from './tools';
+import { BuiltinToolRegistry } from '../tool';
+export { toolSchemas } from '../tool';
 import type { Config } from '../config';
 import { KNOWLEDGE_PROMPT } from '../wiki/prompt';
-import { AppError, type ModelAdapter, type ModelTurn } from '../shared/types';
+import { AppError, requireTokenUsage, type ModelAdapter, type ModelTurn } from '../shared/types';
 const toolRegistry = new BuiltinToolRegistry();
 export function modelFailure(error: unknown): AppError {
   const status =
@@ -125,7 +125,9 @@ export class CloudModel implements ModelAdapter {
     return {
       text,
       toolCalls: calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input })),
-      totalTokens: usage.totalTokens ?? 0,
+      totalTokens: requireTokenUsage(usage),
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
     };
   }
 }

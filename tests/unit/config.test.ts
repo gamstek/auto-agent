@@ -1,6 +1,8 @@
 import { test, expect } from 'bun:test';
 import { join, resolve } from 'node:path';
-import { writeFile, mkdir } from 'node:fs/promises';
+import { writeFile, mkdir, rm } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { ensureDefaultConfig, loadConfig } from '../../src/config';
 import { fixture } from '../helpers';
 const entry = resolve('src', 'index.ts');
 async function invoke(args: string[], token?: string) {
@@ -132,5 +134,51 @@ test('no-token cannot be enabled by configuration and rejects remote binding', a
     expect(remote.stderr).toContain('loopback');
   } finally {
     await f.cleanup();
+  }
+});
+
+test('config defaults prefer Node and use independent cumulative/context token limits', async () => {
+  const home = resolve(`.config-defaults-test-${randomUUID()}`);
+  try {
+    const created = await ensureDefaultConfig(home);
+    const template = await Bun.file(created.path).json();
+    expect(template.interpreters['.js']).toBe('node');
+    expect(template.maxTokens).toBe(128000);
+    expect(template.maxContextTokens).toBe(16000);
+    expect(template.webAllowPrivateAddresses).toBe(true);
+    const config = await loadConfig(created.path, true, true);
+    expect(config.interpreters['.js']).toBe('node');
+    expect(config.maxTokens).toBe(128000);
+    expect(config.maxContextTokens).toBe(16000);
+    await writeFile(created.path, '{}');
+    const defaults = await loadConfig(created.path, true, true);
+    expect(defaults.interpreters['.js']).toBe('node');
+    expect(defaults.maxTokens).toBe(128000);
+    expect(defaults.maxContextTokens).toBe(16000);
+    expect(defaults.webAllowPrivateAddresses).toBe(true);
+    await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: false }));
+    expect((await loadConfig(created.path, true, true)).webAllowPrivateAddresses).toBe(false);
+    await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: true }));
+    expect((await loadConfig(created.path, true, true)).webAllowPrivateAddresses).toBe(true);
+    for (const webAllowPrivateAddresses of ['true', 1, null]) {
+      await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses }));
+      await expect(loadConfig(created.path, true, true)).rejects.toThrow(
+        'webAllowPrivateAddresses',
+      );
+    }
+    await writeFile(
+      created.path,
+      JSON.stringify({ interpreters: { '.js': 'node' }, maxTokens: 5000, maxContextTokens: 1000 }),
+    );
+    const explicit = await loadConfig(created.path, true, true);
+    expect(explicit.interpreters['.js']).toBe('node');
+    expect(explicit.maxTokens).toBe(5000);
+    expect(explicit.maxContextTokens).toBe(1000);
+    for (const maxContextTokens of [0, -1, 1.5, '16000']) {
+      await writeFile(created.path, JSON.stringify({ maxContextTokens }));
+      await expect(loadConfig(created.path, true, true)).rejects.toThrow('maxContextTokens');
+    }
+  } finally {
+    await rm(home, { recursive: true, force: true });
   }
 });

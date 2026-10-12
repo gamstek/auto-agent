@@ -10,7 +10,7 @@ import {
 } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { AppError } from '../../src/shared/types';
-import { createWebFetcher, type WebFetchDependencies } from '../../src/llm/tools/web-fetch';
+import { createWebFetcher, type WebFetchDependencies } from '../../src/tool/tools/web-fetch';
 
 type Reply = {
   status?: number;
@@ -19,7 +19,11 @@ type Reply = {
   hang?: boolean;
   error?: boolean;
 };
-function fixture(replies: Reply[] = [{}], overrides: Partial<WebFetchDependencies> = {}) {
+function fixture(
+  replies: Reply[] = [{}],
+  overrides: Partial<WebFetchDependencies> = {},
+  format: { rawHTML?: boolean } = {},
+) {
   const requests: {
     url: URL;
     options: RequestOptions;
@@ -29,63 +33,71 @@ function fixture(replies: Reply[] = [{}], overrides: Partial<WebFetchDependencie
   const resolutions: string[] = [];
   let deadline: () => void = () => {};
   let timerCleaned = false;
-  const fetch = createWebFetcher({
-    lookup: async (hostname) => {
-      resolutions.push(hostname);
-      return [{ address: '93.184.216.34', family: 4 }];
-    },
-    timer: (callback, milliseconds) => {
-      expect(milliseconds).toBe(15000);
-      deadline = callback;
-      return () => {
-        timerCleaned = true;
-      };
-    },
-    request: (url, options, callback) => {
-      const reply = replies[requests.length] ?? {};
-      const emitter = new EventEmitter();
-      const request = Object.assign(emitter, {
-        destroyed: false,
-        destroy() {
-          if (!this.destroyed) {
-            this.destroyed = true;
-            queueMicrotask(() => emitter.emit('close'));
-          }
-          return this;
-        },
-        end() {
-          queueMicrotask(() => {
-            if (request.destroyed) return;
-            if (reply.error) {
-              emitter.emit('error', new Error('SECRET network details'));
-              return;
+  const fetch = createWebFetcher(
+    {
+      lookup: async (hostname) => {
+        resolutions.push(hostname);
+        return [{ address: '93.184.216.34', family: 4 }];
+      },
+      timer: (callback, milliseconds) => {
+        expect(milliseconds).toBe(15000);
+        deadline = callback;
+        return () => {
+          timerCleaned = true;
+        };
+      },
+      request: (url, options, callback) => {
+        const reply = replies[requests.length] ?? {};
+        const emitter = new EventEmitter();
+        const request = Object.assign(emitter, {
+          destroyed: false,
+          destroy() {
+            if (!this.destroyed) {
+              this.destroyed = true;
+              queueMicrotask(() => emitter.emit('close'));
             }
-            const response = Object.assign(new PassThrough(), {
-              statusCode: reply.status ?? 200,
-              headers: reply.headers ?? { 'content-type': 'text/plain; charset=utf-8' },
-              complete: false,
-            }) as unknown as IncomingMessage;
-            record.response = response;
-            callback(response);
+            return this;
+          },
+          end() {
             queueMicrotask(() => {
-              if (response.destroyed || reply.hang) return;
-              for (const chunk of reply.chunks ?? ['hello']) {
-                if (response.destroyed) return;
-                response.push(Buffer.from(chunk));
+              if (request.destroyed) return;
+              if (reply.error) {
+                emitter.emit('error', new Error('SECRET network details'));
+                return;
               }
-              response.complete = true;
-              response.push(null);
+              const response = Object.assign(new PassThrough(), {
+                statusCode: reply.status ?? 200,
+                headers: reply.headers ?? { 'content-type': 'text/plain; charset=utf-8' },
+                complete: false,
+              }) as unknown as IncomingMessage;
+              record.response = response;
+              callback(response);
+              queueMicrotask(() => {
+                if (response.destroyed || reply.hang) return;
+                for (const chunk of reply.chunks ?? ['hello']) {
+                  if (response.destroyed) return;
+                  response.push(Buffer.from(chunk));
+                }
+                response.complete = true;
+                response.push(null);
+              });
             });
-          });
-          return this;
-        },
-      }) as unknown as ClientRequest;
-      const record = { url, options, request, response: undefined as IncomingMessage | undefined };
-      requests.push(record);
-      return request;
+            return this;
+          },
+        }) as unknown as ClientRequest;
+        const record = {
+          url,
+          options,
+          request,
+          response: undefined as IncomingMessage | undefined,
+        };
+        requests.push(record);
+        return request;
+      },
+      ...overrides,
     },
-    ...overrides,
-  });
+    format,
+  );
   const signal = new AbortController().signal;
   return {
     fetch,
@@ -108,6 +120,112 @@ async function rejectsCode(promise: Promise<unknown>, code: string) {
 async function tick() {
   await new Promise<void>((resolve) => setImmediate(resolve));
 }
+
+test('internal HTML mode preserves markup beyond the public text cap', async () => {
+  const html = `<html><body><a href="https://example.com">${'x'.repeat(25000)}</a></body></html>`;
+  const replies = [{ headers: { 'content-type': 'text/html' }, chunks: [html] }];
+  const raw = fixture(replies, {}, { rawHTML: true });
+  expect(await raw.fetch('https://example.com', raw.signal)).toMatchObject({
+    text: html,
+    truncated: false,
+  });
+  const text = fixture(replies);
+  expect(await text.fetch('https://example.com', text.signal)).toMatchObject({
+    text: 'x'.repeat(20000),
+    truncated: true,
+  });
+});
+
+test('internal HTML mode still caps bytes and rejects private DNS destinations', async () => {
+  const raw = fixture(
+    [{ headers: { 'content-type': 'text/html' }, chunks: ['<html>' + 'x'.repeat(1024 * 1024)] }],
+    {},
+    { rawHTML: true },
+  );
+  const result = await raw.fetch('https://example.com', raw.signal);
+  expect(Buffer.byteLength(result.text)).toBe(1024 * 1024);
+  expect(result.truncated).toBe(true);
+  const denied = fixture(
+    [],
+    { lookup: async () => [{ address: '127.0.0.1', family: 4 }] },
+    { rawHTML: true },
+  );
+  await rejectsCode(denied.fetch('https://example.com', denied.signal), 'WEB_FORBIDDEN_ADDRESS');
+  expect(denied.requests).toHaveLength(0);
+});
+
+test('configured private-address access covers literals, DNS, IPv6 and redirects without leaking across calls', async () => {
+  const policy = { allowPrivateAddresses: true };
+  for (const url of [
+    'http://127.0.0.1/',
+    'http://10.0.0.1/',
+    'http://172.16.0.1/',
+    'http://192.168.1.1/',
+    'http://198.18.0.23/',
+    'http://[::1]/',
+    'http://[fd00::1]/',
+    'http://[::ffff:127.0.0.1]/',
+    'http://localhost/',
+  ]) {
+    const f = fixture();
+    expect((await f.fetch(url, f.signal, policy)).text).toBe('hello');
+    expect(f.requests).toHaveLength(1);
+    await rejectsCode(
+      f.fetch(url, f.signal, { allowPrivateAddresses: false }),
+      'WEB_FORBIDDEN_ADDRESS',
+    );
+    expect(f.requests).toHaveLength(1);
+  }
+  for (const address of ['10.0.0.1', '198.18.0.23', 'fd00::1']) {
+    const f = fixture([], {
+      lookup: async () => [{ address, family: address.includes(':') ? 6 : 4 }],
+    });
+    expect((await f.fetch('https://example.com/', f.signal, policy)).text).toBe('hello');
+    await rejectsCode(f.fetch('https://example.com/', f.signal), 'WEB_FORBIDDEN_ADDRESS');
+  }
+  const redirects = [{ status: 302, headers: { location: 'http://127.0.0.1/page' } }, {}];
+  const allowed = fixture(redirects);
+  expect((await allowed.fetch('https://example.com/', allowed.signal, policy)).url).toBe(
+    'http://127.0.0.1/page',
+  );
+  expect(allowed.requests).toHaveLength(2);
+  const denied = fixture(redirects);
+  await rejectsCode(
+    denied.fetch('https://example.com/', denied.signal, { allowPrivateAddresses: false }),
+    'WEB_FORBIDDEN_ADDRESS',
+  );
+  expect(denied.requests).toHaveLength(1);
+});
+
+test('private-address access retains protocol, credential and DNS syntax checks', async () => {
+  for (const url of ['file:///secret', 'ftp://localhost/', 'http://user:password@localhost/']) {
+    const f = fixture();
+    await rejectsCode(f.fetch(url, f.signal, { allowPrivateAddresses: true }), 'WEB_INVALID_URL');
+    expect(f.requests).toHaveLength(0);
+  }
+  for (const address of [
+    { address: 'not-an-IP', family: 4 },
+    { address: '10.0.0.1', family: 6 },
+  ]) {
+    const f = fixture([], { lookup: async () => [address] });
+    await rejectsCode(
+      f.fetch('https://example.com/', f.signal, { allowPrivateAddresses: true }),
+      'WEB_FORBIDDEN_ADDRESS',
+    );
+    expect(f.requests).toHaveLength(0);
+  }
+});
+
+test('Fake-IP DNS gets actionable guidance without allowing a connection', async () => {
+  for (const address of ['198.18.1.142', '198.19.0.4']) {
+    const f = fixture([], { lookup: async () => [{ address, family: 4 }] });
+    await expect(f.fetch('https://example.com', f.signal)).rejects.toThrow('redir-host');
+    expect(f.requests).toHaveLength(0);
+  }
+  const literal = fixture();
+  await expect(literal.fetch('http://198.18.0.4', literal.signal)).rejects.toThrow('Only public');
+  expect(literal.resolutions).toHaveLength(0);
+});
 
 describe('web fetch public internet boundary', () => {
   test.each([

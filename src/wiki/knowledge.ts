@@ -21,7 +21,30 @@ export const knowledgeSchema = z.object({
         issues: z.array(z.string().min(1).max(1000)).max(30),
       }),
     )
-    .max(300),
+    .max(300)
+    .superRefine((records, context) => {
+      const seen = new Set<string>();
+      for (const [index, record] of records.entries()) {
+        const identity = JSON.stringify([
+          record.title.trim(),
+          Object.entries(record.facts)
+            .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+            .map(([field, fact]) => [
+              field,
+              fact.value,
+              [...new Set(fact.citations.map((ref) => ref.line))].sort((a, b) => a - b),
+            ]),
+        ]);
+        if (seen.has(identity)) {
+          context.addIssue({
+            code: 'custom',
+            path: [index],
+            message: 'Duplicate record with the same title, facts and source lines',
+          });
+        }
+        seen.add(identity);
+      }
+    }),
   issues: z.array(z.string().min(1).max(1000)).max(100),
 });
 export type Knowledge = z.infer<typeof knowledgeSchema>;
@@ -40,7 +63,11 @@ export interface Source {
   text: string;
 }
 
-export function parseKnowledge(result: string, lines: string[]): Knowledge {
+export function parseKnowledge(
+  result: string,
+  lines: string[],
+  scope?: { start: number; end: number },
+): Knowledge {
   const fenced = /^\s*```(?:json)?\s*\n([\s\S]*?)\n```\s*$/i.exec(result);
   let value: unknown;
   try {
@@ -55,7 +82,10 @@ export function parseKnowledge(result: string, lines: string[]): Knowledge {
   if (!parsed.success) {
     const issues = parsed.error.issues
       .slice(0, 5)
-      .map((issue) => `${issue.path.join('.') || 'root'}: ${issue.code}`);
+      .map(
+        (issue) =>
+          `${issue.path.join('.') || 'root'}: ${issue.code === 'custom' ? issue.message : issue.code}`,
+      );
     throw new AppError(
       'wiki_generation',
       `Knowledge schema validation failed: ${issues.join('; ')}`,
@@ -64,6 +94,19 @@ export function parseKnowledge(result: string, lines: string[]): Knowledge {
   for (const [index, record] of parsed.data.records.entries()) {
     if (!Object.keys(record.facts).length)
       throw new AppError('wiki_generation', `records.${index}.facts: empty record`);
+    if (
+      scope &&
+      !Object.values(record.facts).some((fact) =>
+        fact.citations.some(
+          (ref) => ref.line >= scope.start && ref.line <= scope.end && ref.quote.trim().length > 0,
+        ),
+      )
+    ) {
+      throw new AppError(
+        'wiki_generation',
+        `records.${index}: no source citation in extraction scope ${scope.start}–${scope.end}`,
+      );
+    }
     for (const [field, fact] of Object.entries(record.facts)) {
       for (const [refIndex, ref] of fact.citations.entries()) {
         const line = lines[ref.line - 1];

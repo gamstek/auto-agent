@@ -4,7 +4,6 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
 import { Skills } from '../../src/skill';
-import { ScriptExecutor } from '../../src/execution';
 import { materializeBuiltins } from '../../src/shared/builtin';
 import { collectBuiltinAssets } from '../../src/shared/builtin';
 test('asset collection reads nested and hidden text files deterministically and rejects binary files', async () => {
@@ -25,33 +24,46 @@ test('asset collection reads nested and hidden text files deterministically and 
     await f.cleanup();
   }
 });
-// Temporarily skipped pending investigation of script execution timeouts in CI.
-test.skip('embedded built-ins discover without roots, load resources, execute and remain stable', async () => {
+test('formal built-in skill loads persistent simulation interfaces and preserves asset integrity', async () => {
   const f = await fixture();
   try {
     const assets = await collectBuiltinAssets('skills');
-    const config = { ...f.config, skillRoots: [], builtinSkills: true };
+    const config = { ...f.config, skillRoots: [], builtinSkills: true, resourceLimitBytes: 16384 };
     const skills = new Skills(config);
-    expect((await skills.discover()).map((s) => s.name)).toEqual(['device-automation']);
+    const catalog = await skills.discover();
+    expect(catalog.map((s) => s.name)).toEqual(['device-automation']);
+    expect(catalog[0]!.description).toContain('persistent instrument-interface simulation');
+    expect(catalog[0]!.metadata.compatibility).toContain('Requires Auto-Agent and Node.js');
+    expect(catalog[0]!.metadata.compatibility).not.toContain('builtin');
     expect(skills.source('device-automation')).toBe('built-in');
-    expect(await skills.load('device-automation')).toContain('virtual device simulator');
-    const result = await new ScriptExecutor(config, skills).execute(
-      { skill: 'device-automation', path: 'scripts/device.js', args: ['turn-on', 'desk-lamp'] },
-      new AbortController().signal,
-    );
-    expect(result.status).toBe('completed');
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      simulated: true,
-      device: { id: 'desk-lamp', powered: true, brightness: 50 },
-    });
+    const content = await skills.load('device-automation');
+    expect(content).toContain('Surface area and pore size analyzer workflows');
+    expect(content).toContain('wiki');
+    expect(content).toContain('references/interfaces.md');
+    expect(content).toContain('not an executable or validated instrument configuration');
+    expect(content).not.toContain('scripts/device.js');
+    const interfaces = await skills.read('device-automation', 'references/interfaces.md');
+    expect(interfaces).toContain('local simulation only');
+    expect(interfaces).toContain('AUTO_AGENT_SIMULATION_DIR');
+    expect(interfaces).toContain('Measurement submission');
+    expect(interfaces).toContain('Template saving');
+    expect(Object.hasOwn(assets, 'device-automation/scripts/instrument.js')).toBe(true);
+    expect(Object.hasOwn(assets, 'device-automation/scripts/device.js')).toBe(false);
+    expect(
+      (await skills.resolveScript('device-automation', 'scripts/instrument.js')).path,
+    ).toEndWith('instrument.js');
+    expect(
+      (await skills.files('device-automation')).map((path) => path.replaceAll('\\', '/')),
+    ).toContain(`${catalog[0]!.directory.replaceAll('\\', '/')}/references/interfaces.md`);
+    await expect(skills.resolveScript('device-automation', 'scripts/device.js')).rejects.toThrow();
     const first = await materializeBuiltins(config.dataDir, 'skills');
-    for (const [path, content] of Object.entries(assets))
-      expect(await readFile(join(first, ...path.split('/')), 'utf8')).toBe(content);
+    for (const [path, asset] of Object.entries(assets))
+      expect(await readFile(join(first, ...path.split('/')), 'utf8')).toBe(asset);
     expect(await materializeBuiltins(config.dataDir, 'skills')).toBe(first);
   } finally {
     await f.cleanup();
   }
-}, 30000);
+});
 test('built-ins disable cleanly, duplicate names fail, modified resources are not silently trusted', async () => {
   const f = await fixture();
   try {
@@ -70,7 +82,7 @@ test('built-ins disable cleanly, duplicate names fail, modified resources are no
       'Duplicate',
     );
     const root = await materializeBuiltins(f.config.dataDir, 'skills');
-    await writeFile(join(root, 'device-automation', 'scripts', 'device.js'), 'modified');
+    await writeFile(join(root, 'device-automation', 'references', 'interfaces.md'), 'modified');
     await expect(materializeBuiltins(f.config.dataDir, 'skills')).rejects.toThrow('modified');
   } finally {
     await f.cleanup();

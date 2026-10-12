@@ -179,6 +179,88 @@ test('knowledge parser accepts whole JSON fences and whitespace-only quote diffe
   );
 });
 
+test('focused extraction requires current-range evidence and allows inherited citations', () => {
+  const lines = [document, '硬碳\t300℃，6h'];
+  expect(() => parseKnowledge(JSON.stringify(knowledge()), lines, { start: 2, end: 2 })).toThrow(
+    'no source citation in extraction scope',
+  );
+  const whitespace = knowledge();
+  whitespace.records[0].facts.preprocessing.citations.push({ line: 2, quote: ' ' });
+  expect(() =>
+    parseKnowledge(JSON.stringify(whitespace), [document, '  '], { start: 2, end: 2 }),
+  ).toThrow('no source citation in extraction scope');
+  const inherited = knowledge();
+  inherited.records[0].facts.preprocessing.citations.push({ line: 2, quote: '300℃，6h' });
+  expect(
+    parseKnowledge(JSON.stringify(inherited), lines, { start: 2, end: 2 }).records[0].facts
+      .preprocessing.citations,
+  ).toEqual([
+    { line: 1, quote: '200-300℃，2h' },
+    { line: 2, quote: '300℃，6h' },
+  ]);
+});
+
+test('record identity rejects alias-only duplicates but preserves distinct source rows', () => {
+  const duplicate = knowledge();
+  duplicate.records.push({
+    ...structuredClone(duplicate.records[0]),
+    terms: ['graphite'],
+    issues: ['Different note'],
+  });
+  expect(() => parseKnowledge(JSON.stringify(duplicate), [document])).toThrow('Duplicate record');
+  duplicate.records[1].facts.preprocessing.citations[0].line = 2;
+  expect(parseKnowledge(JSON.stringify(duplicate), [document, document]).records).toHaveLength(2);
+});
+
+test('duplicate identity is independent of fact/citation order and quote choice', () => {
+  const fact = {
+    value: '200-300℃，2h',
+    citations: [
+      { line: 1, quote: '200-300℃，2h' },
+      { line: 2, quote: '200-300℃，2h' },
+    ],
+  };
+  const first = {
+    title: 'Same material',
+    terms: ['alias'],
+    facts: { a: fact, z: fact },
+    issues: [],
+  };
+  const reordered = {
+    ...first,
+    terms: ['another alias'],
+    facts: {
+      z: { ...fact, citations: [...fact.citations].reverse() },
+      a: {
+        ...fact,
+        citations: [
+          { line: 2, quote: '200-300℃' },
+          { line: 1, quote: '200-300℃' },
+        ],
+      },
+    },
+  };
+  expect(() =>
+    parseKnowledge(JSON.stringify({ summary: '', records: [first, reordered], issues: [] }), [
+      document,
+      document,
+    ]),
+  ).toThrow('Duplicate record');
+  expect(
+    parseKnowledge(
+      JSON.stringify({
+        summary: '',
+        records: [
+          { ...first, title: 'Co' },
+          { ...first, title: 'CO' },
+        ],
+        issues: [],
+      }),
+      [document, document],
+    ).records,
+  ).toHaveLength(2);
+});
+
 async function setup() {
   const f = await fixture();
   f.config.wikiRoots = [join(f.dir, 'wiki')];
@@ -225,6 +307,135 @@ test('explicit wiki builds validate citations, cache changes, preserve ranges an
       document + '\n补充说明',
     );
     await expect(wiki.query('石墨', 11)).rejects.toThrow();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('wiki searches compound titles and fact values and distinguishes missing matches from output limits', async () => {
+  const f = await setup();
+  const wiki = new Wiki(f.config);
+  const extracted = knowledge();
+  extracted.records[0].title = '负极 / 石墨 / 仅需测比表面积';
+  extracted.records[0].terms = ['石墨', '仅需测比表面积'];
+  const facts = extracted.records[0].facts as Record<
+    string,
+    { value: string; citations: { line: number; quote: string }[] }
+  >;
+  facts.template = { value: 'BET（0.05-0.3）', citations: [{ line: 1, quote: 'BET（0.05-0.3）' }] };
+  try {
+    await wiki.update(
+      {
+        async generate() {
+          throw new Error('unused');
+        },
+        async generateKnowledge() {
+          return JSON.stringify(extracted);
+        },
+      },
+      new AbortController().signal,
+    );
+    for (const query of [
+      '比表面积 BET 测试 推荐 材料 脱气条件',
+      'BET template recommendation material gas temperature preprocessing',
+    ]) {
+      const result = (await wiki.query(query)) as any;
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].facts.template.citations).toEqual(facts.template.citations);
+      expect(result.mode).toBe('keyword');
+      expect(result.matchedRecords).toBe(1);
+      expect(result.queryTruncated).toBe(false);
+      expect(result.results[0].match.snippet.lines).toEqual([1]);
+    }
+    const missing = (await wiki.query('未知材料')) as any;
+    expect(missing).toMatchObject({
+      status: 'no_match',
+      indexedRecords: 1,
+      availableTerms: ['石墨', '仅需测比表面积'],
+    });
+    f.config.resourceLimitBytes = 512;
+    const limited = await wiki.query('石墨');
+    expect(limited).toMatchObject({ status: 'output_limit', truncated: true, results: [] });
+    expect(Buffer.byteLength(JSON.stringify(limited))).toBeLessThanOrEqual(512);
+    f.config.resourceLimitBytes = Buffer.byteLength(document) + 1;
+    await expect(wiki.query('石墨')).rejects.toMatchObject({ code: 'wiki_output_limit' });
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('complete wiki responses include metadata, UTF-8 and diagnostics in their byte budget', async () => {
+  const f = await setup();
+  const wiki = new Wiki(f.config);
+  try {
+    await wiki.update(
+      {
+        async generate() {
+          throw new Error('unused');
+        },
+        async generateKnowledge() {
+          return JSON.stringify(knowledge());
+        },
+      },
+      new AbortController().signal,
+    );
+    const complete = (await wiki.query('石墨')) as any;
+    const bytes = Buffer.byteLength(JSON.stringify(complete));
+    f.config.resourceLimitBytes = bytes;
+    expect(await wiki.query('石墨')).toEqual(complete);
+    f.config.resourceLimitBytes = bytes - 1;
+    const limited = (await wiki.query('石墨')) as any;
+    expect(limited.results).toEqual([]);
+    expect(limited.status).toBe('output_limit');
+    expect(Buffer.byteLength(JSON.stringify(limited))).toBeLessThanOrEqual(bytes - 1);
+    f.config.resourceLimitBytes = 512;
+    const missing = (await wiki.query('unknown-material')) as any;
+    expect(missing.status).toBe('no_match');
+    expect(missing.truncated).toBe(true);
+    expect(missing.warning).toContain('not semantic truth');
+    expect(Buffer.byteLength(JSON.stringify(missing))).toBeLessThanOrEqual(512);
+    f.config.resourceLimitBytes = Buffer.byteLength(document) + 1;
+    for (const query of ['石墨', 'unknown-material']) {
+      await expect(wiki.query(query)).rejects.toMatchObject({ code: 'wiki_output_limit' });
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('keyword result limits report all matches and sort tied records deterministically', async () => {
+  const f = await setup();
+  const wiki = new Wiki(f.config);
+  const extracted = knowledge();
+  extracted.records[0].title = 'Z 石墨';
+  extracted.records.push({ ...extracted.records[0], title: 'A 石墨' });
+  try {
+    await wiki.update(
+      {
+        async generate() {
+          throw new Error('unused');
+        },
+        async generateKnowledge() {
+          return JSON.stringify(extracted);
+        },
+      },
+      new AbortController().signal,
+    );
+    const limited = (await wiki.query('石墨', 1)) as any;
+    expect(limited).toMatchObject({
+      mode: 'keyword',
+      matchedRecords: 2,
+      indexedRecords: 2,
+      truncated: true,
+    });
+    expect(limited.results).toHaveLength(1);
+    expect(limited.results[0].title).toBe('A 石墨');
+    const all = (await wiki.query('石墨', 2)) as any;
+    expect(all.results.map((result: any) => result.title)).toEqual(['A 石墨', 'Z 石墨']);
+    expect(all.truncated).toBe(false);
+    expect(all.results[0].facts.preprocessing.citations).toEqual(
+      extracted.records[0].facts.preprocessing.citations,
+    );
   } finally {
     await f.cleanup();
   }
@@ -354,7 +565,7 @@ test('wiki knowledge tool is gated by current generation skill loading and retur
         step === 1 || step === 3
           ? {
               id: String(step),
-              name: 'query_knowledge',
+              name: 'wiki',
               input: { skill: 'hello-world', query: '石墨 比表面积' },
             }
           : { id: String(step), name: 'skill', input: { name: 'hello-world' } };
@@ -539,6 +750,96 @@ test('output truncation splits extraction scope while preserving full context an
     expect(result.results[0].facts.preprocessing.citations[0].line).toBe(2);
     expect((await new Wiki(f.config).update(model, new AbortController().signal)).rebuilt).toBe(0);
     expect(calls).toBe(3);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('invalid split ranges and cross-range duplicates never replace the last snapshot', async () => {
+  for (const violation of ['scope', 'duplicate']) {
+    const f = await setup();
+    const wiki = new Wiki(f.config);
+    try {
+      await wiki.update(
+        {
+          async generate() {
+            throw new Error('unused');
+          },
+          async generateKnowledge() {
+            return JSON.stringify(knowledge());
+          },
+        },
+        new AbortController().signal,
+      );
+      const path = join(f.config.dataDir, 'wiki', 'snapshot.json');
+      const before = await readFile(path, 'utf8');
+      await writeFile(
+        join(f.config.wikiRoots[0]!, 'template.txt'),
+        document + '\n' + (violation === 'scope' ? '硬碳\t300℃，6h' : document),
+      );
+      let calls = 0;
+      const model: ModelAdapter = {
+        async generate() {
+          throw new Error('unused');
+        },
+        async generateKnowledge() {
+          if (++calls === 1) throw new AppError('wiki_output_limit', 'truncated');
+          const value = knowledge();
+          if (violation === 'duplicate') {
+            value.records[0].facts.preprocessing.citations.push({ line: 2, quote: '200-300℃，2h' });
+          } else if (calls === 3) {
+            value.records.push({
+              title: '硬碳',
+              terms: ['硬碳'],
+              facts: {
+                preprocessing: { value: '300℃，6h', citations: [{ line: 2, quote: '300℃，6h' }] },
+              },
+              issues: [],
+            });
+          }
+          return JSON.stringify(value);
+        },
+      };
+      await expect(wiki.update(model, new AbortController().signal)).rejects.toThrow(
+        violation === 'scope' ? 'no source citation in extraction scope' : 'duplicate records',
+      );
+      expect(calls).toBe(3);
+      expect(await readFile(path, 'utf8')).toBe(before);
+      await writeFile(join(f.config.wikiRoots[0]!, 'template.txt'), document);
+      expect(((await wiki.query('石墨')) as any).results).toHaveLength(1);
+    } finally {
+      await f.cleanup();
+    }
+  }
+});
+
+test('duplicate historical snapshots fail closed and explicit updates rebuild them', async () => {
+  const f = await setup();
+  const wiki = new Wiki(f.config);
+  let calls = 0;
+  const model: ModelAdapter = {
+    async generate() {
+      throw new Error('unused');
+    },
+    async generateKnowledge() {
+      calls++;
+      return JSON.stringify(knowledge());
+    },
+  };
+  try {
+    await wiki.update(model, new AbortController().signal);
+    const path = join(f.config.dataDir, 'wiki', 'snapshot.json');
+    const snapshot = JSON.parse(await readFile(path, 'utf8'));
+    snapshot.sources[0].knowledge.records.push(
+      structuredClone(snapshot.sources[0].knowledge.records[0]),
+    );
+    await writeFile(path, JSON.stringify(snapshot));
+    await expect(wiki.query('石墨')).rejects.toMatchObject({ code: 'wiki_snapshot' });
+    expect((await wiki.status()).state).toBe('invalid');
+    expect((await wiki.update(model, new AbortController().signal)).rebuilt).toBe(1);
+    expect(calls).toBe(2);
+    expect(((await wiki.query('石墨')) as any).results).toHaveLength(1);
+    expect((await wiki.update(model, new AbortController().signal)).rebuilt).toBe(0);
   } finally {
     await f.cleanup();
   }

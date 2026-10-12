@@ -6,7 +6,7 @@ import { loadConfig, ensureDefaultConfig } from '../../src/config';
 import { Skills } from '../../src/skill';
 import { DEFAULT_SYSTEM_PROMPT, systemInstructions } from '../../src/agent/prompt';
 import { skillGuidance } from '../../src/skill/prompt';
-test('repository config discovers example skills and the built-in simulator', async () => {
+test('repository config discovers example skills and the formal built-in analyzer workflow', async () => {
   const config = await loadConfig(resolve('examples', 'config.json'), false, true);
   expect(config.skillRoots).toEqual([resolve('examples', 'skills')]);
   expect(config.dataDir).toBe(resolve('.auto-agent'));
@@ -33,7 +33,7 @@ test('repository config discovers example skills and the built-in simulator', as
   expect(prompt).not.toContain('<available_skills>');
   expect(prompt).not.toContain('only skill,');
   expect(prompt).not.toContain('skill tool description');
-  expect(prompt).not.toContain('read_skill_resource');
+  expect(prompt).not.toContain('Read a UTF-8 resource from a loaded skill');
   expect(prompt).not.toContain('execute_skill_script');
   expect(prompt).toContain('trusted local SKILL.md instructions');
   expect(prompt).toContain('Load a skill in the current generation');

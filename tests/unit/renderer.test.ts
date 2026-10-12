@@ -41,6 +41,24 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
   expect(r.output()).not.toContain('[model]');
   expect(r.errors()).not.toContain('\x1b[2J');
 });
+test('renderer distinguishes cumulative run tokens from each model request and reports compaction', () => {
+  const r = renderer(false);
+  r.event('model.completed', {
+    step: 6,
+    totalTokens: 8050,
+    runTokens: 36596,
+    maxTokens: 128000,
+    durationMs: 1341,
+  });
+  r.event('context.compacted', {
+    removedMessages: 8,
+    estimatedTokens: 15000,
+    maxContextTokens: 16000,
+  });
+  expect(r.errors()).toContain('8050 tokens · run 36596/128000');
+  expect(r.errors()).toContain('omitted 8 earlier messages');
+});
+
 test('plain renderer omits ANSI for redirected output and closes text before tool lines', () => {
   const r = renderer(false);
   r.event('message.part.delta', { delta: 'answer' });

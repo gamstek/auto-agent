@@ -95,7 +95,7 @@ async function extractKnowledge(
     try {
       result = await model.generateKnowledge!(
         focused
-          ? `Extraction scope: original source lines ${start}–${end} ONLY. The complete numbered source below is context for headings and inherited table cells. Generate records only for rows or statements in the scope; cite original line numbers, including earlier lines when inheritance requires it. Do not regenerate records outside the scope. Keep summaries and issues concise.\n\n${numberedSource}`
+          ? `Extraction scope: original source lines ${start}–${end} ONLY. The complete numbered source below is context for headings and inherited table cells. Generate records only for rows or statements in the scope; each record must include at least one citation of non-whitespace source text in the scope. Cite original line numbers, including earlier lines when inheritance requires it. Do not regenerate records outside the scope. Keep summaries and issues concise.\n\n${numberedSource}`
           : numberedSource,
         AbortSignal.any([signal, AbortSignal.timeout(config.modelTimeoutMs)]),
       );
@@ -119,7 +119,7 @@ async function extractKnowledge(
       } catch {
         throw new AppError(
           'wiki_limit',
-          `Merged knowledge exceeds record limits for ${source.path}; previous snapshot retained`,
+          `Merged knowledge contains duplicate records or exceeds record limits for ${source.path}; previous snapshot retained`,
         );
       }
     }
@@ -127,7 +127,7 @@ async function extractKnowledge(
     try {
       for (const secret of [config.apiKey, config.token])
         if (secret) result = result.split(secret).join('[redacted]');
-      return parseKnowledge(result, redactedLines);
+      return parseKnowledge(result, redactedLines, focused ? { start, end } : undefined);
     } catch (error) {
       const detail = error instanceof AppError ? error.message : 'Invalid generated knowledge';
       throw new AppError(

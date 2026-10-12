@@ -1,5 +1,6 @@
 import { test, expect, spyOn } from 'bun:test';
-import { CloudModel, toolSchemas } from '../../src/llm';
+import { CloudModel } from '../../src/llm';
+import { toolSchemas } from '../../src/tool';
 import { skillGuidance } from '../../src/skill/prompt';
 import { fixture } from '../helpers';
 import { AgentService } from '../../src/agent';
@@ -19,18 +20,18 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
       const body = await request.json();
       expect(
         body.tools.map((entry: { function: { name: string } }) => entry.function.name),
-      ).toEqual([
-        'skill',
-        'read_skill_resource',
-        'execute_skill_script',
-        'query_knowledge',
-        'web_fetch',
-      ]);
+      ).toEqual(['skill', 'read', 'execute_skill_script', 'wiki', 'web_fetch', 'web_search']);
       const web = body.tools.find(
         (entry: { function: { name: string } }) => entry.function.name === 'web_fetch',
       ).function;
       expect(web.parameters.required).toEqual(['url']);
       expect(web.description).toContain('untrusted');
+      const search = body.tools.find(
+        (entry: { function: { name: string } }) => entry.function.name === 'web_search',
+      ).function;
+      expect(search.parameters.required).toEqual(['query']);
+      expect(search.parameters.properties.limit.default).toBe(5);
+      expect(search.description).toContain('Exa MCP');
       const definition = body.tools[0].function;
       expect(definition.parameters.required).toEqual(['name']);
       expect(definition.description).not.toContain('<available_skills>');
@@ -78,6 +79,8 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
     expect(result.text).toBe('Hello');
     expect(delta).toBe('Hello');
     expect(result.totalTokens).toBe(3);
+    expect(result.inputTokens).toBe(2);
+    expect(result.outputTokens).toBe(1);
     expect(requests).toBe(1);
   } finally {
     server.stop(true);
@@ -111,7 +114,7 @@ test('secrets split across deltas are redacted from events messages and checkpoi
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate(messages, _s, delta) {
       expect(JSON.stringify(messages)).not.toContain(secret);
-      expect(messages.filter((message) => message.role === 'system')).toHaveLength(2);
+      expect(messages.filter((message) => message.role === 'system')).toHaveLength(3);
       delta(secret.slice(0, 5));
       delta(secret.slice(5));
       return { text: secret, toolCalls: [], totalTokens: 1 };
@@ -130,6 +133,85 @@ test('secrets split across deltas are redacted from events messages and checkpoi
   } finally {
     await service.shutdown();
     store.close();
+    await f.cleanup();
+  }
+});
+
+test('streamed tool calls without usage stop the generation before tool execution', async () => {
+  const f = await fixture();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch() {
+      const base = {
+        id: 'missing-usage',
+        object: 'chat.completion.chunk',
+        created: 0,
+        model: 'test',
+      };
+      const tool = {
+        ...base,
+        choices: [
+          {
+            index: 0,
+            delta: {
+              role: 'assistant',
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'pending',
+                  type: 'function',
+                  function: { name: 'skill', arguments: JSON.stringify({ name: 'hello-world' }) },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      };
+      const end = { ...base, choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] };
+      return new Response(
+        `data: ${JSON.stringify(tool)}\n\ndata: ${JSON.stringify(end)}\n\ndata: [DONE]\n\n`,
+        { headers: { 'Content-Type': 'text/event-stream' } },
+      );
+    },
+  });
+  const config = { ...f.config, baseURL: `http://127.0.0.1:${server.port}/v1` };
+  const store = new Store(config.dataDir);
+  const skills = new Skills(config);
+  await skills.discover();
+  const load = spyOn(skills, 'load');
+  const model = new CloudModel(config);
+  const service = new AgentService(
+    config,
+    store,
+    skills,
+    new ScriptExecutor(config, skills),
+    model,
+  );
+  const events: string[] = [];
+  service.events.subscribe((event) => events.push(event.type));
+  try {
+    await expect(
+      model.generate(
+        [{ role: 'user', content: 'Load skill' }],
+        new AbortController().signal,
+        () => {},
+      ),
+    ).rejects.toMatchObject({ code: 'model_usage' });
+    await expect(service.submit(store.createSession().id, 'Load skill')).rejects.toThrow(
+      'valid token usage',
+    );
+    expect(load).not.toHaveBeenCalled();
+    expect(events).toContain('model.failed');
+    expect(events).not.toContain('tool.started');
+    expect(store.db.query('SELECT status FROM runs').get()).toEqual({ status: 'failed' });
+    expect(store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({ count: 0 });
+  } finally {
+    load.mockRestore();
+    await service.shutdown();
+    store.close();
+    server.stop(true);
     await f.cleanup();
   }
 });

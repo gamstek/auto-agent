@@ -44,6 +44,8 @@ export interface ModelTurn {
   text: string;
   toolCalls: ToolCall[];
   totalTokens: number;
+  inputTokens?: number;
+  outputTokens?: number;
 }
 export interface ModelAdapter {
   generateKnowledge?(source: string, signal: AbortSignal): Promise<string>;
@@ -63,6 +65,30 @@ export class AppError extends Error {
     super(message);
   }
 }
+export function requireTokenUsage(usage: {
+  totalTokens?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}): number {
+  const valid = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+  if (
+    !valid(usage.totalTokens) ||
+    (usage.inputTokens !== undefined && !valid(usage.inputTokens)) ||
+    (usage.outputTokens !== undefined && !valid(usage.outputTokens)) ||
+    (usage.inputTokens !== undefined &&
+      usage.outputTokens !== undefined &&
+      usage.totalTokens !== usage.inputTokens + usage.outputTokens)
+  ) {
+    throw new AppError(
+      'model_usage',
+      'Model did not return valid token usage. Check that the provider reports usage for streamed requests; this generation stopped and pending tools were not executed.',
+      502,
+    );
+  }
+  return usage.totalTokens;
+}
+
 export function errorText(error: unknown): string {
   return error instanceof AppError ? error.message : 'Internal operation failed';
 }

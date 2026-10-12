@@ -7,13 +7,17 @@ import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { Store } from '../../src/storage';
 import { AgentService } from '../../src/agent';
-import * as web from '../../src/llm/tools/web-fetch';
+import * as web from '../../src/tool/tools/web-fetch';
+import * as search from '../../src/tool/tools/web-search';
+import * as builtins from '../../src/agent/builtins';
+import { AppError } from '../../src/shared/types';
 import { serve, handler } from '../../src/api';
 import { Events } from '../../src/agent/events';
 import type { AgentEvent, ModelAdapter, ModelTurn } from '../../src/shared/types';
 import { cli, argumentsFor } from '../../src/cli';
-async function app(model: ModelAdapter) {
+async function app(model: ModelAdapter, webAllowPrivateAddresses = false) {
   const f = await fixture();
+  f.config.webAllowPrivateAddresses = webAllowPrivateAddresses;
   const skills = new Skills(f.config);
   await skills.discover();
   const store = new Store(f.config.dataDir);
@@ -51,6 +55,195 @@ const call = (name: string, input: unknown): ModelTurn => ({
   text: '',
   totalTokens: 1,
   toolCalls: [{ id: crypto.randomUUID(), name, input }],
+});
+
+test('each model request refreshes builtin facts without accumulating snapshots or replacing custom instructions', async () => {
+  let step = 0;
+  let snapshots = 0;
+  const builtin = spyOn(builtins, 'builtinInstructions').mockImplementation(
+    async () => `Runtime facts snapshot ${++snapshots}; test-model-secret; test-bearer-token-value`,
+  );
+  const observed: string[][] = [];
+  const a = await app({
+    async generate(messages) {
+      observed.push(
+        messages
+          .filter((message) => message.role === 'system')
+          .map((message) => String(message.content)),
+      );
+      return step++ === 0
+        ? call('skill', { name: 'sum-values' })
+        : { text: 'Finished', totalTokens: 1, toolCalls: [] };
+    },
+  });
+  a.config.systemPrompt = 'Custom environment test role';
+  try {
+    await a.service.submit(a.store.createSession().id, 'Run');
+    expect(builtin).toHaveBeenCalledTimes(2);
+    expect(observed).toHaveLength(2);
+    for (const [index, messages] of observed.entries()) {
+      const facts = messages.filter((message) => message.startsWith('Runtime facts snapshot'));
+      expect(facts).toEqual([`Runtime facts snapshot ${index + 1}; [redacted]; [redacted]`]);
+      expect(messages).toContain('Custom environment test role');
+      expect(messages.some((message) => message.includes('Runtime contract:'))).toBe(true);
+    }
+  } finally {
+    builtin.mockRestore();
+    await a.dispose();
+  }
+});
+
+test('unknown script outcomes stop dependent tools and require operator reconciliation', async () => {
+  for (const throws of [false, true]) {
+    const execution = spyOn(ScriptExecutor.prototype, 'execute').mockImplementation(async () => {
+      if (throws) throw new Error('Unexpected executor failure');
+      return { status: 'unknown', exitCode: null, stdout: '', stderr: '' };
+    });
+    const a = await app(
+      sequence([
+        call('skill', { name: 'sum-values' }),
+        {
+          text: '',
+          totalTokens: 1,
+          toolCalls: [
+            ...call('execute_skill_script', {
+              skill: 'sum-values',
+              path: 'scripts/main.js',
+              args: ['2', '3'],
+            }).toolCalls,
+            ...call('read', { skill: 'sum-values', path: 'reference.txt' }).toolCalls,
+          ],
+        },
+      ]),
+    );
+    const events: AgentEvent[] = [];
+    a.service.events.subscribe((event) => events.push(event));
+    try {
+      await expect(
+        a.service.submit(a.store.createSession().id, 'Run this workflow'),
+      ).rejects.toThrow('Manual reconciliation');
+      expect(execution).toHaveBeenCalledTimes(1);
+      expect(a.store.db.query('SELECT status FROM executions').all()).toEqual([
+        { status: 'unknown' },
+      ]);
+      expect(a.store.db.query('SELECT status FROM runs').all()).toEqual([
+        { status: 'waiting_for_operator' },
+      ]);
+      expect(
+        events.some(
+          (event) =>
+            event.type === 'tool.failed' &&
+            event.properties.name === 'execute_skill_script' &&
+            event.properties.status === 'unknown',
+        ),
+      ).toBe(true);
+      expect(
+        events.some((event) => event.type === 'tool.started' && event.properties.name === 'read'),
+      ).toBe(false);
+    } finally {
+      execution.mockRestore();
+      await a.dispose();
+    }
+  }
+});
+
+test('both web handlers and system context receive the operator address policy', async () => {
+  for (const enabled of [true, false]) {
+    const fetch = spyOn(web, 'fetchWeb').mockResolvedValue({
+      url: 'http://192.168.1.1/',
+      status: 200,
+      contentType: 'text/plain',
+      text: 'Fixture',
+      truncated: false,
+    });
+    const lookup = spyOn(search, 'searchWeb').mockResolvedValue({
+      query: 'public reference',
+      provider: 'exa',
+      results: [],
+      status: 'no_results',
+      truncated: false,
+    });
+    let step = 0;
+    const a = await app(
+      {
+        async generate(messages) {
+          expect(JSON.stringify(messages.filter((message) => message.role === 'system'))).toContain(
+            `webAllowPrivateAddresses=${enabled}`,
+          );
+          if (step++ === 0) return call('web_fetch', { url: 'http://192.168.1.1/' });
+          if (step === 2) return call('web_search', { query: 'public reference' });
+          return { text: 'Done.', totalTokens: 1, toolCalls: [] };
+        },
+      },
+      enabled,
+    );
+    try {
+      await a.service.submit(a.store.createSession().id, 'Use these web tools');
+      expect(fetch.mock.calls[0]?.[2]).toEqual({ allowPrivateAddresses: enabled });
+      expect(lookup.mock.calls[0]?.[3]).toEqual({ allowPrivateAddresses: enabled });
+    } finally {
+      fetch.mockRestore();
+      lookup.mockRestore();
+      await a.dispose();
+    }
+  }
+});
+
+test('web search routes results and failures without a skill or script execution', async () => {
+  for (const fails of [false, true]) {
+    const output = {
+      query: 'public reference',
+      provider: 'exa' as const,
+      status: 'results' as const,
+      results: [
+        { title: 'Public reference', url: 'https://example.com/', snippet: 'An unverified lead.' },
+      ],
+      truncated: false,
+    };
+    const lookup = spyOn(search, 'searchWeb').mockImplementation(async () => {
+      if (fails) throw new AppError('WEB_SEARCH_BLOCKED', 'Search provider returned a challenge');
+      return output;
+    });
+    let step = 0;
+    const a = await app({
+      async generate(messages) {
+        if (step++ === 0) return call('web_search', { query: 'public reference' });
+        const last = messages.at(-1)!;
+        if (last.role !== 'tool') throw new Error('Expected tool result');
+        const result = last.content[0]!;
+        if (result.type !== 'tool-result' || result.output.type !== 'json')
+          throw new Error('Expected JSON result');
+        if (fails) expect(result.output.value).toHaveProperty('error');
+        else expect(result.output.value).toEqual(output);
+        return {
+          text: fails ? 'Search unavailable.' : 'Search completed.',
+          totalTokens: 1,
+          toolCalls: [],
+        };
+      },
+    });
+    const events: AgentEvent[] = [];
+    a.service.events.subscribe((event) => events.push(event));
+    try {
+      await a.service.submit(a.store.createSession().id, 'Find a public reference');
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(lookup.mock.calls[0]?.slice(0, 2)).toEqual(['public reference', 5]);
+      expect(lookup.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal);
+      expect(
+        events.some(
+          (event) =>
+            event.type === (fails ? 'tool.failed' : 'tool.completed') &&
+            event.properties.name === 'web_search',
+        ),
+      ).toBe(true);
+      expect(a.store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({
+        count: 0,
+      });
+    } finally {
+      lookup.mockRestore();
+      await a.dispose();
+    }
+  }
 });
 
 test('web fetch results reach the model and emit completion without script execution', async () => {
@@ -137,7 +330,7 @@ test.skip('LangGraph selects one of two skills, loads resource, executes and ans
   const a = await app(
     sequence([
       call('skill', { name: 'sum-values' }),
-      call('read_skill_resource', { skill: 'sum-values', path: 'reference.txt' }),
+      call('read', { skill: 'sum-values', path: 'reference.txt' }),
       call('execute_skill_script', {
         skill: 'sum-values',
         path: 'scripts/main.js',
@@ -164,13 +357,13 @@ test.skip('LangGraph selects one of two skills, loads resource, executes and ans
 }, 60000);
 test('skill loads trusted guidance lazily and gates resources per generation', async () => {
   const turns = [
-    call('read_skill_resource', { skill: 'hello-world', path: 'reference.txt' }),
+    call('read', { skill: 'hello-world', path: 'reference.txt' }),
     call('skill', { skill: 'hello-world' }),
     call('skill', { name: 'missing' }),
     call('skill', { name: 'hello-world' }),
-    call('read_skill_resource', { skill: 'hello-world', path: 'reference.txt' }),
+    call('read', { skill: 'hello-world', path: 'reference.txt' }),
     { text: 'Loaded', totalTokens: 1, toolCalls: [] },
-    call('read_skill_resource', { skill: 'hello-world', path: 'reference.txt' }),
+    call('read', { skill: 'hello-world', path: 'reference.txt' }),
     call('load_skill', { skill: 'hello-world' }),
     call('list_skills', {}),
     { text: 'Fresh generation', totalTokens: 1, toolCalls: [] },
@@ -235,8 +428,9 @@ test('skill system context refreshes each model step without accumulating stale 
   const a = await app({
     async generate(messages) {
       const systems = messages.filter((message) => message.role === 'system');
-      expect(systems).toHaveLength(2);
-      const guidance = String(systems[1]!.content);
+      expect(systems).toHaveLength(3);
+      expect(String(systems[1]!.content)).toContain('Current runtime facts.');
+      const guidance = String(systems[2]!.content);
       if (step++ === 0) {
         expect(guidance).toContain('Greet a person');
         await writeFile(
@@ -508,11 +702,11 @@ test('HTTP SSE streams correlated model steps and resource tool outcomes without
   const a = await app(
     sequence([
       call('skill', { name: 'sum-values' }),
-      call('read_skill_resource', {
+      call('read', {
         skill: 'sum-values',
         path: 'reference.txt',
       }),
-      call('read_skill_resource', { skill: 'missing', path: 'reference.txt' }),
+      call('read', { skill: 'missing', path: 'reference.txt' }),
       { text: 'Done', totalTokens: 1, toolCalls: [] },
     ]),
   );
@@ -565,9 +759,7 @@ test('HTTP SSE streams correlated model steps and resource tool outcomes without
       expect(ends.length).toBe(1);
       expect(typeof ends[0].properties.durationMs).toBe('number');
     }
-    expect(
-      events.some((e) => e.type === 'tool.failed' && e.properties.name === 'read_skill_resource'),
-    ).toBe(true);
+    expect(events.some((e) => e.type === 'tool.failed' && e.properties.name === 'read')).toBe(true);
     expect(events.every((e) => e.sessionId === session.id)).toBe(true);
     expect(new Set(events.map((e) => e.messageId)).size).toBe(1);
     expect(JSON.stringify(events)).not.toContain(a.config.apiKey!);

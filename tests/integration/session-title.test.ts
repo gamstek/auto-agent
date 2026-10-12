@@ -44,7 +44,7 @@ test('model titles persist, preserve custom titles, and custom prompt augments p
     await service.submit(session.id, '介绍项目');
     await waitForTitle(store, session.id, '项目简介');
     expect(events).toContain('session.updated');
-    expect(observed.filter((m) => m.role === 'system').length).toBe(3);
+    expect(observed.filter((m) => m.role === 'system').length).toBe(4);
     expect(observed[0].content).toContain('You are Auto-Agent');
     expect(observed[1].content).toBe(f.config.systemPrompt!);
     await service.submit(session.id, '继续');

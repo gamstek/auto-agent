@@ -1,9 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
-import { extname } from 'node:path';
+import { extname, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { Config } from '../config';
 import { AppError, type ScriptRequest, type ScriptResult } from '../shared/types';
 import { Skills } from '../skill';
+import { ANCHOR_FLAG, SCRIPT_FLAG, runtimeCommand } from './runtime';
 
 interface Waiter {
   limit: number;
@@ -50,16 +51,6 @@ function acquire(limit: number, signal: AbortSignal): Promise<(() => void) | nul
     pump();
   });
 }
-
-// The Windows anchor remains alive until cleanup, even after the script exits.
-const anchorSource = `
-const {spawn}=require('node:child_process');
-process.on('message', options => {
-  const child=spawn(options.command, options.args, {cwd:options.cwd, env:process.env, shell:false, windowsHide:true, stdio:['ignore',1,2]});
-  child.on('error', () => process.send({exitCode:null}));
-  child.on('exit', code => process.send({exitCode:code}));
-});
-`;
 
 // Only identities observed below this execution's anchor may be terminated.
 // CreationDate protects against PID reuse; no process-name matching is used.
@@ -151,13 +142,18 @@ export class ScriptExecutor {
       if (signal.aborted) return empty('cancelled');
       // Revalidate after waiting for the global slot, immediately before spawning.
       await this.skills.resolveScript(request.skill, request.path);
-      return await this.run(
-        command,
-        [resolved.path, ...(request.args ?? [])],
-        resolved.skill.directory,
-        env,
-        signal,
-      );
+      const scriptArgs = [resolved.path, ...(request.args ?? [])];
+      // Only bare Node names get a pre-launch fallback; explicit executable paths stay external.
+      // Never retry a script failure: trusted scripts may already have performed side effects.
+      const bareNode = command === 'node' || command === 'node.exe';
+      const node = bareNode
+        ? Bun.which(command, { PATH: env.PATH ?? '', cwd: resolved.skill.directory })
+        : null;
+      const [executable, args] =
+        command === 'builtin' || (bareNode && !node)
+          ? runtimeCommand(SCRIPT_FLAG, scriptArgs)
+          : [node ?? command, scriptArgs];
+      return await this.run(executable, args, resolved.skill.directory, env, signal);
     } finally {
       release();
     }
@@ -207,13 +203,14 @@ export class ScriptExecutor {
     signal: AbortSignal,
   ): Promise<ScriptResult> {
     const windows = process.platform === 'win32';
-    const child = spawn(windows ? 'node' : command, windows ? ['-e', anchorSource] : args, {
+    const [anchorCommand, anchorArgs] = runtimeCommand(ANCHOR_FLAG);
+    const child = spawn(windows ? anchorCommand : command, windows ? anchorArgs : args, {
       cwd,
       env,
       shell: false,
       windowsHide: true,
       detached: !windows,
-      stdio: windows ? ['ignore', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
+      stdio: windows ? ['pipe', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
     });
     let status: ScriptResult['status'] | undefined;
     let stdout = '',
@@ -265,7 +262,13 @@ export class ScriptExecutor {
     let tracked: Promise<boolean> | undefined;
     if (windows && child.pid) {
       tracker = spawn(
-        'powershell.exe',
+        join(
+          env.SystemRoot ?? 'C:\\Windows',
+          'System32',
+          'WindowsPowerShell',
+          'v1.0',
+          'powershell.exe',
+        ),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', trackerSource],
         {
           env,

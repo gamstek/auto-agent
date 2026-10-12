@@ -115,6 +115,52 @@ test('wiki API authenticates, reports status, updates incrementally and bounds q
   }
 });
 
+test('wiki API bounds complete successful responses and rejects an impossible metadata budget', async () => {
+  const s = await setup({
+    async generate() {
+      throw new Error('unused');
+    },
+    async generateKnowledge() {
+      return generated;
+    },
+  });
+  try {
+    expect((await s.request('/wiki/update', 'POST')).status).toBe(200);
+    const complete = await (await s.request('/wiki/query?query=石墨')).text();
+    const bytes = Buffer.byteLength(complete);
+    s.f.config.resourceLimitBytes = bytes;
+    expect(await (await s.request('/wiki/query?query=石墨')).text()).toBe(complete);
+    s.f.config.resourceLimitBytes = bytes - 1;
+    const limited = await s.request('/wiki/query?query=石墨');
+    const text = await limited.text();
+    expect(limited.status).toBe(200);
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(bytes - 1);
+    expect(JSON.parse(text)).toMatchObject({
+      status: 'output_limit',
+      results: [],
+      truncated: true,
+    });
+    s.f.config.resourceLimitBytes = 512;
+    const missing = await s.request('/wiki/query?query=unknown-material');
+    expect(missing.status).toBe(200);
+    const missingText = await missing.text();
+    expect(Buffer.byteLength(missingText)).toBeLessThanOrEqual(512);
+    expect(JSON.parse(missingText)).toMatchObject({
+      status: 'no_match',
+      results: [],
+      truncated: true,
+    });
+    s.f.config.resourceLimitBytes = Buffer.byteLength(content) + 1;
+    for (const query of ['石墨', 'unknown-material']) {
+      const failed = await s.request('/wiki/query?query=' + encodeURIComponent(query));
+      expect(failed.status).toBe(400);
+      expect(await failed.json()).toHaveProperty('error', 'wiki_output_limit');
+    }
+  } finally {
+    await s.cleanup();
+  }
+});
+
 test('wiki updates are mutually exclusive and shutdown cancels without publishing', async () => {
   let started: () => void = () => {};
   const ready = new Promise<void>((resolve) => {

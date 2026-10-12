@@ -6,6 +6,7 @@
   "builtinSkills": true,
   "host": "127.0.0.1",
   "port": 4096,
+  "webAllowPrivateAddresses": true,
   "model": "deepseek-flash",
   "baseURL": "https://api.deepseek.com",
   "interpreters": {
@@ -16,7 +17,8 @@
   "scriptTimeoutMs": 30000,
   "outputLimitBytes": 65536,
   "maxSteps": 12,
-  "maxTokens": 32000,
+  "maxTokens": 128000,
+  "maxContextTokens": 16000,
   "maxConcurrent": 4,
   "systemPrompt": ""
 }

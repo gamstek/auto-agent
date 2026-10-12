@@ -53,6 +53,11 @@ export class ReplRenderer {
       case 'session.status':
         if (p.status === 'busy') this.line('[agent] working…');
         break;
+      case 'context.compacted':
+        this.line(
+          `[context] omitted ${p.removedMessages} earlier messages · ${p.estimatedTokens}/${p.maxContextTokens} estimated tokens`,
+        );
+        break;
       case 'model.started':
         this.line(`[model] generating · step ${p.step}`);
         break;
@@ -61,7 +66,9 @@ export class ReplRenderer {
         break;
       case 'model.completed':
         this.closeText();
-        this.line(`[model] step ${p.step} · ${p.totalTokens} tokens · ${p.durationMs} ms`);
+        this.line(
+          `[model] step ${p.step} · ${p.totalTokens} tokens${typeof p.runTokens === 'number' ? ` · run ${p.runTokens}/${p.maxTokens}` : ''} · ${p.durationMs} ms`,
+        );
         break;
       case 'message.part.delta':
         if (!this.textOpen) {

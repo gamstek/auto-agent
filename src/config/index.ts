@@ -6,30 +6,58 @@ import { AppError } from '../shared/types';
 import { output } from '../shared/console';
 import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
+  // Persistent data; relative paths are resolved from the configuration file's directory.
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
+  // Additional trusted skill roots, relative to the configuration file.
   skillRoots: z.array(z.string()).default([]),
+  // Additional wiki source roots, relative to the configuration file.
   wikiRoots: z.array(z.string()).default([]),
+  // Include bundled wiki sources alongside configured roots.
   builtinWiki: z.boolean().default(true),
+  // Include bundled skills alongside configured roots.
   builtinSkills: z.boolean().default(true),
+  // HTTP listen address; non-loopback addresses require allowRemote.
   host: z.string().default('127.0.0.1'),
+  // HTTP listen port; 0 selects an available port.
   port: z.number().int().min(0).max(65535).default(4096),
+  // Permit authenticated HTTP binding outside loopback, never --no-token mode.
   allowRemote: z.boolean().default(false),
+  // Permit web tools to reach loopback, private and reserved addresses; trusted deployments only.
+  webAllowPrivateAddresses: z.boolean().default(true),
+  // HTTP bearer token; AUTO_AGENT_TOKEN takes precedence (minimum 16 characters).
   token: z.string(),
+  // Model identifier exposed by the OpenAI-compatible provider.
   model: z.string().default('deepseek-flash'),
+  // Replace the default role prompt; the runtime contract is always appended.
   systemPrompt: z.string().max(16000).default(DEFAULT_SYSTEM_PROMPT),
+  // OpenAI-compatible provider endpoint.
   baseURL: z.string().url().default('https://api.deepseek.com'),
+  // Loaded only from AUTO_AGENT_API_KEY, not from the JSON configuration.
   apiKey: z.string().optional(),
+  // Maximum model/tool-loop steps per generation (1–100).
   maxSteps: z.number().int().positive().max(100).default(12),
-  maxTokens: z.number().int().positive().default(32000),
+  // Cumulative reported input + output tokens per generation, excluding titles.
+  maxTokens: z.number().int().positive().default(128000),
+  // Estimated input-token budget per request, including tool definitions.
+  maxContextTokens: z.number().int().positive().default(16000),
+  // Model request timeout in milliseconds.
   modelTimeoutMs: z.number().int().positive().default(60000),
+  // Skill script execution timeout in milliseconds.
   scriptTimeoutMs: z.number().int().positive().default(30000),
+  // Combined stdout/stderr byte limit per script execution.
   outputLimitBytes: z.number().int().positive().default(65536),
+  // Byte limit for skill resources, individual wiki sources, and complete wiki query responses.
   resourceLimitBytes: z.number().int().positive().default(65536),
+  // Concurrent generations/scripts; background titles have a separate budget.
   maxConcurrent: z.number().int().positive().default(4),
+  // HTTP request-body and user-message byte limit.
   requestLimitBytes: z.number().int().positive().default(65536),
+  // Bare "node"/"node.exe" prefer installed Node, falling back to embedded Bun if absent.
+  // "builtin" always uses embedded Bun; other executable names/paths remain external.
   interpreters: z
     .record(z.string(), z.string())
     .default({ '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' }),
+  // Extra script environment entries; credential and runtime-control entries are rejected.
   scriptEnv: z.record(z.string(), z.string()).default({}),
 });
 export type Config = Omit<z.infer<typeof schema>, 'systemPrompt'> & {
@@ -43,18 +71,37 @@ export async function ensureDefaultConfig(
   const directory = join(home, '.auto-agent');
   const path = join(directory, 'config.json');
   await mkdir(directory, { recursive: true });
+  // Keep the generated file strict JSON; field descriptions live here and in README.
   const template = {
+    // Store persistent data next to config.json (~/.auto-agent by default).
     dataDir: '.',
+    // Additional trusted skill roots, relative to config.json.
     skillRoots: [],
+    // Load bundled skills even when no external roots are configured.
     builtinSkills: true,
+    // Additional wiki source roots, relative to config.json.
     wikiRoots: [],
+    // Load bundled wiki sources even when no external roots are configured.
     builtinWiki: true,
+    // Listen only on loopback unless explicitly configured otherwise.
     host: '127.0.0.1',
+    // HTTP listen port; 0 selects an available port.
     port: 4096,
+    // Non-loopback HTTP requires this opt-in and bearer authentication.
     allowRemote: false,
+    // Set false to restrict web tools to public internet addresses.
+    webAllowPrivateAddresses: true,
+    // Provider model identifier; credentials come from AUTO_AGENT_API_KEY.
     model: 'deepseek-flash',
+    // Cumulative input + output token budget for one generation.
+    maxTokens: 128000,
+    // Estimated input-token budget for each model request.
+    maxContextTokens: 16000,
+    // OpenAI-compatible endpoint for the selected model.
     baseURL: 'https://api.deepseek.com',
+    // Editable role prompt; mandatory runtime instructions remain appended.
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    // Script extension → executable; bare Node falls back to embedded Bun if absent.
     interpreters: { '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' },
   };
   try {

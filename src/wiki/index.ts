@@ -5,6 +5,7 @@ import { loadSnapshot } from './snapshot';
 import type { Config } from '../config';
 import type { ModelAdapter } from '../shared/types';
 import { updateWiki } from './build';
+import { createKeywordSearch, compareSearchResults } from './search';
 
 export { KNOWLEDGE_PROMPT } from './prompt';
 export { parseKnowledge } from './knowledge';
@@ -62,41 +63,65 @@ async function queryWiki(config: Config, query: string, limit = 5): Promise<unkn
     JSON.stringify(snapshot.sources.map((s) => [s.path, s.hash]))
   )
     throw new AppError('wiki_stale', 'Sources changed; run --wiki-update before using knowledge');
-  const normalized = query.toLowerCase().normalize('NFKC');
-  const matches = snapshot.sources
-    .flatMap((source) =>
-      source.knowledge.records.map((record) => {
-        const terms = [
-          ...new Set(record.terms.map((term) => term.toLowerCase().normalize('NFKC'))),
-        ];
-        const score = terms.reduce(
-          (sum, term) => sum + (normalized.includes(term) ? term.length : 0),
-          0,
-        );
-        return {
-          ...record,
-          score,
-          source: source.path,
-          sourceHash: source.hash,
-          sourceIssues: source.knowledge.issues,
-        };
-      }),
-    )
+  const records = snapshot.sources.flatMap((source) =>
+    source.knowledge.records.map((record) => ({
+      ...record,
+      source: source.path,
+      sourceHash: source.hash,
+      sourceIssues: source.knowledge.issues,
+    })),
+  );
+  const search = createKeywordSearch(query);
+  const ranked = records
+    .map((record) => ({ ...record, score: search.score(record) }))
     .filter((record) => record.score > 0)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, limit);
-  const results: typeof matches = [];
-  for (const match of matches) {
-    if (Buffer.byteLength(JSON.stringify([...results, match])) > config.resourceLimitBytes) break;
-    results.push(match);
-  }
-  return {
+    .sort(compareSearchResults);
+  const matches = ranked
+    .slice(0, limit)
+    .map((record) => ({ ...record, match: search.match(record) }));
+  const responseFor = (results: typeof matches) => ({
     builtAt: snapshot.builtAt,
     revision,
     results,
-    truncated: results.length < matches.length,
-    status: results.length ? 'recommendations_only' : 'no_match',
+    truncated: results.length < ranked.length,
+    indexedRecords: records.length,
+    matchedRecords: ranked.length,
+    queryTruncated: search.queryTruncated,
+    mode: 'keyword',
+    status: results.length ? 'recommendations_only' : matches.length ? 'output_limit' : 'no_match',
+    ...(!results.length
+      ? {
+          availableTerms: [...new Set(records.flatMap((record) => record.terms))].slice(0, 24),
+          hint: matches.length
+            ? 'Matching records exceed resourceLimitBytes; request a smaller result or ask the operator to increase the resource limit. No record was returned.'
+            : 'No keyword match in record titles, terms, fact labels/values or source filenames. Choose a relevant material or method from availableTerms; do not invent missing recommendations.',
+        }
+      : {}),
     warning:
       'Source citations are checked for existence, not semantic truth. Preserve ranges; resolve missing or conflicting facts before executable configuration. No instrument was configured or started.',
-  };
+  });
+  const fits = (value: unknown) =>
+    Buffer.byteLength(JSON.stringify(value)) <= config.resourceLimitBytes;
+  const results: typeof matches = [];
+  for (const match of matches) {
+    if (!fits(responseFor([...results, match]))) break;
+    results.push(match);
+  }
+  const response = responseFor(results);
+  while (!fits(response) && response.availableTerms?.length) {
+    response.availableTerms.pop();
+    response.truncated = true;
+  }
+  if (!fits(response)) {
+    delete response.hint;
+    response.truncated = true;
+  }
+  if (!fits(response)) delete response.availableTerms;
+  if (!fits(response)) {
+    throw new AppError(
+      'wiki_output_limit',
+      'resourceLimitBytes is too small for wiki response metadata and its evidence warning; increase the resource limit. No record was returned.',
+    );
+  }
+  return response;
 }

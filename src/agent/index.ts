@@ -2,22 +2,24 @@ import { Annotation, StateGraph, START, END } from '@langchain/langgraph';
 import type { ModelMessage } from 'ai';
 import type { Config } from '../config';
 import { Skills } from '../skill';
-import { escapeXml, skillContent, skillGuidance } from '../skill/prompt';
+import { escapeXml, skillGuidance } from '../skill/prompt';
 import { ScriptExecutor } from '../execution';
 import { Store } from '../storage';
 import { SQLiteSaver } from '../storage/checkpointer';
-import { BuiltinToolRegistry } from '../llm/tools';
-import { fetchWeb } from '../llm/tools/web-fetch';
+import { BuiltinToolRegistry, UncertainToolError, type ToolContext } from '../tool';
 import { Wiki } from '../wiki';
 import {
   AppError,
   errorText,
+  requireTokenUsage,
   type ModelAdapter,
   type ModelTurn,
   type Message,
 } from '../shared/types';
 import { Events } from './events';
 import { DEFAULT_SYSTEM_PROMPT, systemInstructions } from './prompt';
+import { builtinInstructions } from './builtins';
+import { fitModelContext } from './context';
 const State = Annotation.Root({
   messages: Annotation<ModelMessage[]>(),
   turn: Annotation<ModelTurn>(),
@@ -197,8 +199,16 @@ export class AgentService {
     const graph = new StateGraph(State)
       .addNode('model', async (state) => {
         check();
-        if (state.steps >= this.config.maxSteps || state.tokens >= this.config.maxTokens)
-          throw new AppError('budget', 'Agent step or token budget exhausted');
+        if (state.steps >= this.config.maxSteps)
+          throw new AppError(
+            'budget',
+            `Agent step budget exhausted (${state.steps}/${this.config.maxSteps}). Split the workflow or increase maxSteps; no additional tools were executed.`,
+          );
+        if (state.tokens >= this.config.maxTokens)
+          throw new AppError(
+            'budget',
+            `Agent token budget exhausted (${state.tokens}/${this.config.maxTokens} cumulative input + output tokens). Increase maxTokens or split the workflow; no additional tools were executed.`,
+          );
         const modelSignal = AbortSignal.any([
           signal,
           AbortSignal.timeout(this.config.modelTimeoutMs),
@@ -226,18 +236,35 @@ export class AgentService {
         };
         let rawTurn: ModelTurn;
         try {
+          let builtins = await builtinInstructions({ signal: modelSignal });
           let guidance = skillGuidance(this.skills.list());
-          for (const secret of [this.config.apiKey, this.config.token])
-            if (secret) guidance = guidance.split(escapeXml(secret)).join('[redacted]');
+          for (const secret of [this.config.apiKey, this.config.token]) {
+            if (!secret) continue;
+            builtins = builtins.split(escapeXml(secret)).join('[redacted]');
+            guidance = guidance.split(escapeXml(secret)).join('[redacted]');
+          }
           const modelMessages: ModelMessage[] = [
             ...state.messages.filter((message) => message.role === 'system'),
+            { role: 'system', content: redact(builtins) },
             { role: 'system', content: redact(guidance) },
             ...state.messages.filter((message) => message.role !== 'system'),
           ];
-          rawTurn = await this.model.generate(modelMessages, modelSignal, (text) => {
+          const context = fitModelContext(
+            modelMessages,
+            this.config.maxContextTokens,
+            this.toolRegistry.contextTokenEstimate(),
+          );
+          if (context.removedMessages)
+            emit('context.compacted', {
+              removedMessages: context.removedMessages,
+              estimatedTokens: context.estimatedTokens,
+              maxContextTokens: this.config.maxContextTokens,
+            });
+          rawTurn = await this.model.generate(context.messages, modelSignal, (text) => {
             pendingDelta = redact(pendingDelta + text);
             flush();
           });
+          requireTokenUsage(rawTurn);
         } catch (error) {
           emit('model.failed', {
             step: state.steps + 1,
@@ -254,11 +281,18 @@ export class AgentService {
         emit('model.completed', {
           step: state.steps + 1,
           totalTokens: turn.totalTokens,
+          inputTokens: turn.inputTokens,
+          outputTokens: turn.outputTokens,
+          runTokens: state.tokens + turn.totalTokens,
+          maxTokens: this.config.maxTokens,
           durationMs: Date.now() - modelStarted,
         });
         check();
         if (state.tokens + turn.totalTokens > this.config.maxTokens)
-          throw new AppError('budget', 'Agent token budget exhausted');
+          throw new AppError(
+            'budget',
+            `Agent token budget exhausted (${state.tokens + turn.totalTokens}/${this.config.maxTokens} cumulative input + output tokens). Increase maxTokens or split the workflow; this model turn's tools were not executed.`,
+          );
         const assistant: ModelMessage = {
           role: 'assistant',
           content: [
@@ -281,6 +315,17 @@ export class AgentService {
       .addNode('tools', async (state) => {
         const messages = [...state.messages];
         const loaded = new Set(state.loaded);
+        const context: ToolContext = {
+          skills: this.skills,
+          wiki: { query: (query, limit) => this.wiki.query(query, limit) },
+          executor: { execute: (input, caller) => this.executor.execute(input, caller) },
+          audit: {
+            beginExecution: this.store.beginExecution.bind(this.store),
+            finishExecution: this.store.finishExecution.bind(this.store),
+          },
+          network: { allowPrivateAddresses: this.config.webAllowPrivateAddresses },
+          run: { id: runId, signal, loadedSkills: loaded, failedScripts },
+        };
         if (state.turn.toolCalls.length > 16)
           throw new AppError('budget', 'Too many tool calls in one model turn');
         for (const call of state.turn.toolCalls) {
@@ -304,6 +349,7 @@ export class AgentService {
               : {}),
           });
           let output: unknown;
+          let modelText: string | undefined;
           let status = 'completed';
           let terminalEmitted = false;
           const fail = (message: string) => {
@@ -316,66 +362,12 @@ export class AgentService {
             });
           };
           try {
-            output = await this.toolRegistry.execute(call.name, call.input, loaded, {
-              skill: async ({ name }) => {
-                const content = await this.skills.load(name);
-                const skill = this.skills.list().find((entry) => entry.name === name)!;
-                const body = content.replace(/^\uFEFF?---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '');
-                const result = {
-                  name: skill.name,
-                  directory: skill.directory,
-                  output: skillContent(
-                    skill.name,
-                    skill.directory,
-                    body,
-                    await this.skills.files(skill.name),
-                  ),
-                };
-                loaded.add(skill.name);
-                return result;
-              },
-              query_knowledge: async ({ query, limit }) => this.wiki.query(query, limit),
-              read_skill_resource: async ({ skill, path }) => this.skills.read(skill, path),
-              web_fetch: async ({ url }) => fetchWeb(url, signal),
-              execute_skill_script: async (input) => {
-                const entry = await this.skills.resolveScript(input.skill, input.path);
-                const signature = JSON.stringify([input.skill, entry.path, input.args]);
-                if (failedScripts.has(signature))
-                  throw new AppError(
-                    'replay_blocked',
-                    'A failed script cannot be automatically retried in this generation',
-                  );
-                const executionId = this.store.beginExecution(runId, input.skill, entry.path);
-                try {
-                  const result = await this.executor.execute(input, signal);
-                  this.store.finishExecution(executionId, result);
-                  output = result;
-                  status = result.status;
-                  if (result.status !== 'completed') failedScripts.add(signature);
-                  if (result.status === 'unknown') {
-                    uncertain = true;
-                    throw new AppError(
-                      'uncertain_execution',
-                      'Script termination is unconfirmed; manual reconciliation required',
-                    );
-                  }
-                  return result;
-                } catch (error) {
-                  if (!output) {
-                    uncertain = !(error instanceof AppError);
-                    failedScripts.add(signature);
-                    this.store.finishExecution(executionId, {
-                      status: uncertain ? 'unknown' : 'failed',
-                      exitCode: null,
-                      stdout: '',
-                      stderr: '',
-                    });
-                  }
-                  throw error;
-                }
-              },
-            });
+            const result = await this.toolRegistry.execute(call.name, call.input, context);
+            output = result.output;
+            status = result.status;
+            modelText = result.modelText;
           } catch (error) {
+            if (error instanceof UncertainToolError) uncertain = true;
             if (status === 'completed')
               status = uncertain ? 'unknown' : signal.aborted ? 'cancelled' : 'failed';
             fail(errorText(error));
@@ -394,8 +386,8 @@ export class AgentService {
                 toolCallId: call.id,
                 toolName: call.name,
                 output:
-                  call.name === 'skill' && status === 'completed'
-                    ? { type: 'text', value: (output as { output: string }).output }
+                  modelText !== undefined && status === 'completed'
+                    ? { type: 'text', value: redact(modelText) }
                     : { type: 'json', value: output as never },
               },
             ],
@@ -419,7 +411,7 @@ export class AgentService {
         .map((message) => ({ role: message.role, content: message.content }));
       const system: ModelMessage = {
         role: 'system',
-        content: redact(systemInstructions()),
+        content: redact(systemInstructions(undefined, this.config.webAllowPrivateAddresses)),
       };
       const customSystem: ModelMessage[] =
         this.config.systemPrompt?.trim() && this.config.systemPrompt !== DEFAULT_SYSTEM_PROMPT
