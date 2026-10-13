@@ -59,7 +59,7 @@ $ErrorActionPreference = 'Stop'
 $rootId = [int][Console]::In.ReadLine()
 $tracked = @{}
 function ProcessById([int]$id) {
-  Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id) | Select-Object -First 1
+  Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id) | Select-Object -First 1
 }
 function Capture {
   do {
@@ -67,7 +67,7 @@ function Capture {
     foreach ($parentId in @($tracked.Keys)) {
       $parent = ProcessById $parentId
       if (-not $parent -or $parent.CreationDate -ne $tracked[$parentId].CreationDate) { continue }
-      $children = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId=' + $parentId))
+      $children = @(Get-WmiObject -Class Win32_Process -Filter ('ParentProcessId=' + $parentId))
       foreach ($item in $children) {
         $id = [int]$item.ProcessId
         if (-not $tracked.ContainsKey($id) -and $item.CreationDate -ge $parent.CreationDate) {
@@ -89,7 +89,7 @@ try {
     Capture
     $ids = @($tracked.Keys | Where-Object { $_ -ne $rootId }) + @($rootId)
     foreach ($id in $ids) {
-      $current = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id)
+      $current = Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id)
       if ($current -and $current.CreationDate -eq $tracked[$id].CreationDate) {
         Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
       }
@@ -97,7 +97,7 @@ try {
     Start-Sleep -Milliseconds 50
     $alive = @()
     foreach ($id in $tracked.Keys) {
-      $current = Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id)
+      $current = Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id)
       if ($current -and $current.CreationDate -eq $tracked[$id].CreationDate) { $alive += $id }
     }
     if ($alive.Count -eq 0) { [Console]::Out.WriteLine('CLEAN'); exit 0 }
