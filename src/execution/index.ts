@@ -56,21 +56,60 @@ function acquire(limit: number, signal: AbortSignal): Promise<(() => void) | nul
 // CreationDate protects against PID reuse; no process-name matching is used.
 const trackerSource = `
 $ErrorActionPreference = 'Stop'
+Add-Type -TypeDefinition @'
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+public static class ProcessSnapshot {
+  const uint TH32CS_SNAPPROCESS = 2;
+  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+  struct PROCESSENTRY32 {
+    public uint dwSize, cntUsage, th32ProcessID;
+    public IntPtr th32DefaultHeapID;
+    public uint th32ModuleID, cntThreads, th32ParentProcessID;
+    public int pcPriClassBase;
+    public uint dwFlags;
+    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
+  }
+  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snapshot, ref PROCESSENTRY32 entry);
+  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr snapshot, ref PROCESSENTRY32 entry);
+  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
+  public static Dictionary<int, int> Parents() {
+    var result = new Dictionary<int, int>();
+    var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snapshot == new IntPtr(-1)) throw new System.ComponentModel.Win32Exception();
+    try {
+      var entry = new PROCESSENTRY32();
+      entry.dwSize = (uint)Marshal.SizeOf(entry);
+      if (Process32FirstW(snapshot, ref entry)) do {
+        result[(int)entry.th32ProcessID] = (int)entry.th32ParentProcessID;
+        entry.dwSize = (uint)Marshal.SizeOf(entry);
+      } while (Process32NextW(snapshot, ref entry));
+      return result;
+    } finally { CloseHandle(snapshot); }
+  }
+}
+'@
 $rootId = [int][Console]::In.ReadLine()
 $tracked = @{}
 function ProcessById([int]$id) {
-  Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id) | Select-Object -First 1
+  try {
+    $process = Get-Process -Id $id -ErrorAction Stop
+    [PSCustomObject]@{ ProcessId = [int]$process.Id; CreationDate = [long]$process.StartTime.ToUniversalTime().Ticks }
+  } catch { $null }
 }
 function Capture {
+  $parents = [ProcessSnapshot]::Parents()
   do {
     $changed = $false
-    foreach ($parentId in @($tracked.Keys)) {
-      $parent = ProcessById $parentId
-      if (-not $parent -or $parent.CreationDate -ne $tracked[$parentId].CreationDate) { continue }
-      $children = @(Get-WmiObject -Class Win32_Process -Filter ('ParentProcessId=' + $parentId))
-      foreach ($item in $children) {
-        $id = [int]$item.ProcessId
-        if (-not $tracked.ContainsKey($id) -and $item.CreationDate -ge $parent.CreationDate) {
+    foreach ($entry in $parents.GetEnumerator()) {
+      $id = [int]$entry.Key
+      $parentId = [int]$entry.Value
+      if (-not $tracked.ContainsKey($id) -and $tracked.ContainsKey($parentId)) {
+        $parent = ProcessById $parentId
+        $item = ProcessById $id
+        if ($parent -and $item -and $parent.CreationDate -eq $tracked[$parentId].CreationDate -and $item.CreationDate -ge $parent.CreationDate) {
           $tracked[$id] = $item
           $changed = $true
         }
@@ -89,7 +128,7 @@ try {
     Capture
     $ids = @($tracked.Keys | Where-Object { $_ -ne $rootId }) + @($rootId)
     foreach ($id in $ids) {
-      $current = Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id)
+      $current = ProcessById $id
       if ($current -and $current.CreationDate -eq $tracked[$id].CreationDate) {
         Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
       }
@@ -97,7 +136,7 @@ try {
     Start-Sleep -Milliseconds 50
     $alive = @()
     foreach ($id in $tracked.Keys) {
-      $current = Get-WmiObject -Class Win32_Process -Filter ('ProcessId=' + $id)
+      $current = ProcessById $id
       if ($current -and $current.CreationDate -eq $tracked[$id].CreationDate) { $alive += $id }
     }
     if ($alive.Count -eq 0) { [Console]::Out.WriteLine('CLEAN'); exit 0 }
