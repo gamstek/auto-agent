@@ -47,6 +47,7 @@ function runAnchor(): void {
     )
       return;
     launched = true;
+    process.send?.({ launchReceived: true });
     child = spawn(options.command, options.args, {
       cwd: options.cwd,
       env: process.env,
@@ -57,6 +58,7 @@ function runAnchor(): void {
     child.on('error', () => process.send?.({ exitCode: null }));
     child.on('exit', (exitCode) => process.send?.({ exitCode }));
   });
+  process.send({ anchorReady: true });
 }
 
 export async function dispatchInternalRuntime(args = process.argv.slice(2)): Promise<boolean> {

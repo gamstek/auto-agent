@@ -56,6 +56,7 @@ function acquire(limit: number, signal: AbortSignal): Promise<(() => void) | nul
 // CreationDate protects against PID reuse; no process-name matching is used.
 const trackerSource = `
 $ErrorActionPreference = 'Stop'
+[Console]::Error.WriteLine('TRACKER_START')
 Add-Type -TypeDefinition @'
 using System;
 using System.Collections.Generic;
@@ -91,6 +92,7 @@ public static class ProcessSnapshot {
   }
 }
 '@
+[Console]::Error.WriteLine('TRACKER_TYPES_READY')
 $rootId = [int]$env:AUTO_AGENT_ANCHOR_PID
 if ($rootId -le 0) { throw 'Execution anchor identifier missing' }
 $tracked = @{}
@@ -252,6 +254,12 @@ export class ScriptExecutor {
       detached: !windows,
       stdio: windows ? ['pipe', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
     });
+    const started = Date.now();
+    const stages: string[] = [];
+    const record = (stage: string) => {
+      if (stages.length < 16) stages.push(`${stage}@${Date.now() - started}ms`);
+    };
+    record('spawn');
     let status: ScriptResult['status'] | undefined;
     let stdout = '',
       stderr = '',
@@ -279,7 +287,10 @@ export class ScriptExecutor {
     };
     child.stdout!.on('data', (chunk: Buffer) => collect('stdout', chunk));
     child.stderr!.on('data', (chunk: Buffer) => collect('stderr', chunk));
-    child.on('error', () => stop('failed'));
+    child.on('error', () => {
+      record('anchor_error');
+      stop('failed');
+    });
     child.on('exit', (code) => {
       if (!windows) {
         exitCode = code;
@@ -287,7 +298,22 @@ export class ScriptExecutor {
       } else if (!status) stop('unknown');
     });
     child.on('message', (message: unknown) => {
+      if (
+        message &&
+        typeof message === 'object' &&
+        'anchorReady' in message &&
+        (message as { anchorReady: unknown }).anchorReady === true
+      )
+        record('anchor_ready');
+      if (
+        message &&
+        typeof message === 'object' &&
+        'launchReceived' in message &&
+        (message as { launchReceived: unknown }).launchReceived === true
+      )
+        record('launch_received');
       if (message && typeof message === 'object' && 'exitCode' in message) {
+        record('script_exit');
         const code = (message as { exitCode: unknown }).exitCode;
         exitCode = typeof code === 'number' ? code : null;
         stop(code === 0 ? 'completed' : 'failed');
@@ -314,9 +340,17 @@ export class ScriptExecutor {
           env: { ...env, AUTO_AGENT_ANCHOR_PID: String(child.pid) },
           shell: false,
           windowsHide: true,
-          stdio: ['pipe', 'pipe', 'ignore'],
+          stdio: ['pipe', 'pipe', 'pipe'],
         },
       );
+      let trackerDiagnostics = '';
+      tracker.stderr!.on('data', (chunk: Buffer) => {
+        trackerDiagnostics = (trackerDiagnostics + chunk.toString()).slice(-4096);
+        for (const stage of ['TRACKER_START', 'TRACKER_TYPES_READY']) {
+          if (trackerDiagnostics.includes(stage) && !stages.some((item) => item.startsWith(stage)))
+            record(stage);
+        }
+      });
       let ready!: (value: boolean) => void;
       tracked = new Promise((resolve) => {
         ready = resolve;
@@ -324,25 +358,32 @@ export class ScriptExecutor {
       let output = '';
       tracker.stdout!.on('data', (chunk: Buffer) => {
         output = (output + chunk.toString()).slice(-4096);
-        if (output.includes('TRACKED')) ready(true);
+        if (output.includes('TRACKED')) {
+          if (!stages.some((item) => item.startsWith('tracker_ready'))) record('tracker_ready');
+          ready(true);
+        }
       });
       trackerDone = new Promise((resolve) => {
         tracker!.on('error', () => {
+          record('tracker_error');
           ready(false);
           resolve(false);
         });
         tracker!.on('close', (code) => {
+          record(`tracker_close_${code}`);
           ready(false);
           resolve(code === 0 && output.includes('CLEAN'));
         });
       });
       tracker.stdin!.on('error', () => stop('unknown'));
       const isReady = await Promise.race([tracked, done.then(() => false)]);
-      if (isReady && !status)
+      if (isReady && !status) {
+        record('launch_send');
         child.send({ command, args, cwd }, (error) => {
+          record(error ? 'launch_send_error' : 'launch_sent');
           if (error) stop('failed');
         });
-      else if (!status) stop('unknown');
+      } else if (!status) stop('unknown');
     }
     await done;
     clearTimeout(timer);
@@ -368,6 +409,10 @@ export class ScriptExecutor {
       );
     else await new Promise((resolve) => setImmediate(resolve));
     if (!clean) status = 'unknown';
+    if (windows && (status === 'timeout' || status === 'unknown')) {
+      const diagnostic = `\n[execution] ${stages.join(', ')}\n`;
+      collect('stderr', Buffer.from(diagnostic));
+    }
     return { status: status ?? 'unknown', stdout, stderr, exitCode };
   }
 

@@ -81,7 +81,7 @@ test('bare node automatically falls back with empty PATH, preserving argv, cwd, 
     const result = await withoutRuntimePath(() =>
       new ScriptExecutor(f.config, f.skills).execute(request('main.js', args), signal()),
     );
-    expect(result.status).toBe('completed');
+    expect(result.status, result.stderr).toBe('completed');
     expect(result.stderr).toBe('');
     const data = JSON.parse(result.stdout);
     expect(data.argv).toEqual([process.execPath, join(f.scripts, 'main.js'), ...args]);
@@ -130,7 +130,7 @@ test.skipIf(!Bun.which('node'))(
       );
       const executor = new ScriptExecutor(f.config, f.skills);
       const preferred = await executor.execute(request('main.js'), signal());
-      expect(preferred.status).toBe('completed');
+      expect(preferred.status, preferred.stderr).toBe('completed');
       expect(JSON.parse(preferred.stdout).bun).toBe(false);
       await writeFile(
         join(f.scripts, 'failure.js'),
@@ -172,7 +172,7 @@ test('automatic fallback bounds output and cleans anchored descendants on timeou
         signal(),
       ),
     );
-    expect(large.status).toBe('output_limit');
+    expect(large.status, large.stderr).toBe('output_limit');
     expect(Buffer.byteLength(large.stdout) + Buffer.byteLength(large.stderr)).toBeLessThanOrEqual(
       512,
     );
@@ -194,6 +194,18 @@ test('automatic fallback bounds output and cleans anchored descendants on timeou
       );
       clearTimeout(timer);
       expect(result.status).toBe(mode);
+      if (process.platform === 'win32' && mode === 'timeout') {
+        expect(result.stderr).toContain('[execution]');
+        expect(result.stderr).toContain('anchor_ready@');
+        expect(result.stderr).toContain('tracker_ready@');
+        expect(result.stderr).toContain('launch_sent@');
+        expect(result.stderr).toContain('launch_received@');
+        expect(result.stderr).not.toContain(f.skill);
+        expect(result.stderr).not.toContain('FIXTURE_VALUE');
+        expect(
+          Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
+        ).toBeLessThanOrEqual(f.config.outputLimitBytes);
+      }
       const pids = JSON.parse(await readFile(join(f.skill, 'pids.json'), 'utf8')) as number[];
       expect(pids.length).toBe(2);
       for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
@@ -219,7 +231,7 @@ test('automatic fallback keeps the global concurrency slot and queued cancellati
       controller.abort();
       expect(await queued).toEqual({ status: 'cancelled', stdout: '', stderr: '', exitCode: null });
       const result = await first;
-      expect(result.status).toBe('completed');
+      expect(result.status, result.stderr).toBe('completed');
       expect(result.stdout.trim()).toBe('first-only');
     });
   } finally {
@@ -248,7 +260,7 @@ test('external interpreter mappings also use the embedded Windows anchor', async
     const result = await withoutRuntimePath(() =>
       executor.execute(request(filename, ['literal-value']), signal()),
     );
-    expect(result.status).toBe('completed');
+    expect(result.status, result.stderr).toBe('completed');
     expect(result.stderr).toBe('');
     expect(result.stdout.trim()).toBe('external:literal-value');
   } finally {
@@ -313,10 +325,18 @@ for (const [name, [executable, prefix]] of entries) {
       });
       const closed = new Promise<void>((resolve) => anchor.once('close', () => resolve()));
       try {
+        const ready = new Promise<unknown>((resolve, reject) => {
+          anchor.once('message', resolve);
+          anchor.once('error', reject);
+          anchor.once('exit', () => reject(new Error('Anchor exited before ready: ' + stderr)));
+        });
+        expect(await ready).toEqual({ anchorReady: true });
         const script = join(f.scripts, 'main.js');
         await writeFile(script, `console.log('script-only');`);
         const message = new Promise<unknown>((resolve, reject) => {
-          anchor.once('message', resolve);
+          anchor.on('message', (value: unknown) => {
+            if (value && typeof value === 'object' && 'exitCode' in value) resolve(value);
+          });
           anchor.once('error', reject);
           anchor.once('exit', () =>
             reject(new Error('Anchor exited before reporting script exit: ' + stderr)),

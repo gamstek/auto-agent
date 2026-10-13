@@ -8,7 +8,7 @@ A local-first automation assistant for specific surface area and pore size analy
 
 - Bun **1.4.2**, installed as a system runtime (CI uses `oven-sh/setup-bun`); do not install the npm `bun` package in this project because its shim shadows the runtime in package scripts. Native SQLite requires Bun; Node.js cannot run the application directly.
 - JavaScript skills retain their normal Node.js requirement. Auto-Agent prefers installed Node.js and automatically uses its embedded runtime when the bare `node`/`node.exe` command is unavailable; standalone users need not install it. Source runs still require Bun.
-- PowerShell/CIM on Windows for owned-process tracking.
+- Windows PowerShell and native process snapshots on Windows for owned-process tracking. Timeout or uncertain cleanup results include bounded startup-stage diagnostics in stderr (no command arguments or environment values).
 - Other skill languages require configured interpreters.
 
 ## Quick start
