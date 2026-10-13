@@ -538,6 +538,111 @@ test('bad generated citations and cancellation retain the last snapshot without 
   }
 });
 
+test('model timeouts retain the snapshot, reject late output and release the update slot', async () => {
+  const f = await setup();
+  const wiki = new Wiki(f.config);
+  const model: ModelAdapter = {
+    async generate() {
+      throw new Error('unused');
+    },
+    async generateKnowledge() {
+      return JSON.stringify(knowledge());
+    },
+  };
+  try {
+    await wiki.update(model, new AbortController().signal);
+    const path = join(f.config.dataDir, 'wiki', 'snapshot.json');
+    const previous = await readFile(path, 'utf8');
+    await writeFile(join(f.config.wikiRoots[0]!, 'template.txt'), document + '\n新版');
+    f.config.modelTimeoutMs = 10;
+    for (const lateOutput of [false, true]) {
+      let calls = 0;
+      const slow: ModelAdapter = {
+        ...model,
+        async generateKnowledge(_source, signal) {
+          calls++;
+          if (lateOutput) {
+            await Bun.sleep(30);
+            return JSON.stringify(knowledge());
+          }
+          return new Promise<string>((_, reject) => {
+            if (signal.aborted) reject(signal.reason);
+            else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+          });
+        },
+      };
+      await expect(wiki.update(slow, new AbortController().signal)).rejects.toMatchObject({
+        code: 'wiki_timeout',
+        status: 504,
+      });
+      expect(calls).toBe(1);
+      expect(await readFile(path, 'utf8')).toBe(previous);
+      expect((await readdir(join(f.config.dataDir, 'wiki'))).sort()).toEqual([
+        'revisions',
+        'snapshot.json',
+      ]);
+    }
+    expect((await wiki.update(model, new AbortController().signal)).rebuilt).toBe(1);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('development wiki update reports actionable model timeouts instead of internal errors', async () => {
+  const f = await setup();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch: async () => {
+      await Bun.sleep(400);
+      return new Response('Delayed response');
+    },
+  });
+  try {
+    const configPath = join(f.dir, 'config.json');
+    await writeFile(
+      configPath,
+      JSON.stringify({
+        ...f.config,
+        baseURL: `http://127.0.0.1:${server.port}/v1`,
+        modelTimeoutMs: 80,
+      }),
+    );
+    const child = Bun.spawn(
+      [
+        process.execPath,
+        join(import.meta.dir, '..', '..', 'scripts', 'dev.ts'),
+        '--config',
+        configPath,
+        '--wiki-update',
+      ],
+      {
+        env: { ...process.env, AUTO_AGENT_API_KEY: f.config.apiKey! },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    );
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ]);
+    expect(code).toBe(1);
+    expect(stdout).toBe('');
+    expect(stderr).toContain('timed out after 80 ms');
+    expect(stderr).toContain('modelTimeoutMs');
+    expect(stderr).toContain('template.txt');
+    expect(stderr).toContain('previous snapshot retained');
+    expect(stderr).not.toContain('Internal operation failed');
+    expect(stderr).not.toContain(f.config.apiKey!);
+    expect(stderr).not.toContain(document);
+    expect((await new Wiki(f.config).status()).state).toBe('unbuilt');
+  } finally {
+    server.stop(true);
+    await f.cleanup();
+  }
+});
+
 test('wiki knowledge tool is gated by current generation skill loading and returns source data', async () => {
   const f = await setup();
   const wiki = new Wiki(f.config);
@@ -572,7 +677,9 @@ test('wiki knowledge tool is gated by current generation skill loading and retur
       return {
         text: step === 4 ? '有来源的推荐草稿，尚未配置仪器' : '',
         toolCalls: step === 4 ? [] : [call],
-        totalTokens: 1,
+        usage: {
+          totalTokens: 1,
+        },
       };
     },
   });

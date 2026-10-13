@@ -6,7 +6,7 @@ import { ScriptExecutor } from '../../src/execution';
 import { fixture } from '../helpers';
 import { requireTokenUsage } from '../../src/shared/types';
 
-test('reported usage rejects missing, invalid and inconsistent counts without estimating', () => {
+test('SDK-reported usage rejects missing, invalid and inconsistent counts without estimating', () => {
   for (const usage of [
     {},
     { totalTokens: NaN },
@@ -34,7 +34,9 @@ test('an adapter with invalid usage cannot execute pending tools', async () => {
     async generate() {
       return {
         text: '',
-        totalTokens: NaN,
+        usage: {
+          totalTokens: NaN,
+        },
         toolCalls: [{ id: 'pending', name: 'skill', input: { name: 'hello-world' } }],
       };
     },
@@ -58,9 +60,8 @@ test('an adapter with invalid usage cannot execute pending tools', async () => {
   }
 });
 
-test('long workflows count repeated input accurately and can finish under the larger run budget', async () => {
+test('long workflows report repeated SDK input usage without a cumulative run limit', async () => {
   const f = await fixture();
-  f.config.maxTokens = 128000;
   const store = new Store(f.config.dataDir);
   const skills = new Skills(f.config);
   await skills.discover();
@@ -72,9 +73,11 @@ test('long workflows count repeated input accurately and can finish under the la
       const current = step++;
       return {
         text: current === totals.length - 1 ? 'Finished workflow' : '',
-        totalTokens: totals[current]!,
-        inputTokens: totals[current]! - 50,
-        outputTokens: 50,
+        usage: {
+          totalTokens: totals[current]!,
+          inputTokens: totals[current]! - 50,
+          outputTokens: 50,
+        },
         toolCalls:
           current === totals.length - 1
             ? []
@@ -100,7 +103,7 @@ test('long workflows count repeated input accurately and can finish under the la
     expect(completed.at(-1).properties.runTokens).toBe(
       totals.reduce((sum, value) => sum + value, 0),
     );
-    expect(completed.at(-1).properties.maxTokens).toBe(128000);
+    expect(completed.at(-1).properties).not.toHaveProperty('maxTokens');
     expect(completed[1].properties.inputTokens).toBe(4302);
   } finally {
     await service.shutdown();
@@ -109,36 +112,23 @@ test('long workflows count repeated input accurately and can finish under the la
   }
 });
 
-test('exceeding cumulative tokens explains the limit and does not execute pending mutations', async () => {
+test('high cumulative SDK usage does not impose an unrelated per-run token limit', async () => {
   const f = await fixture();
   const store = new Store(f.config.dataDir);
   const skills = new Skills(f.config);
   await skills.discover();
-  const executor = new ScriptExecutor(f.config, skills);
-  const execution = spyOn(executor, 'execute');
-  const service = new AgentService(f.config, store, skills, executor, {
+  const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate() {
       return {
-        text: '',
-        totalTokens: 33000,
-        toolCalls: [
-          {
-            id: 'pending',
-            name: 'execute_script',
-            input: { skill: 'hello-world', path: 'scripts/main.js' },
-          },
-        ],
+        text: 'Done',
+        usage: { totalTokens: 33000, inputTokens: 32000, outputTokens: 1000 },
+        toolCalls: [],
       };
     },
   });
   try {
-    await expect(service.submit(store.createSession().id, 'Run')).rejects.toThrow(
-      '33000/32000 cumulative input + output',
-    );
-    expect(execution).not.toHaveBeenCalled();
-    expect(store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({ count: 0 });
+    expect((await service.submit(store.createSession().id, 'Run')).content).toBe('Done');
   } finally {
-    execution.mockRestore();
     await service.shutdown();
     store.close();
     await f.cleanup();

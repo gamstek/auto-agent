@@ -15,7 +15,7 @@ test('bounded history, stable pagination and health version', async () => {
   const skills = new Skills(f.config);
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate() {
-      return { text: 'answer', toolCalls: [], totalTokens: 1 };
+      return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
   });
   try {

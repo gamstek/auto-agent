@@ -43,12 +43,25 @@ test('formal built-in skill loads host-independent interface guidance and preser
     expect(content).toContain('模板推荐草案——参数尚未确认，不可下发运行');
     expect(content).not.toContain('scripts/device.js');
     expect(content).not.toContain('validate-template');
-    expect(content).toContain('优先复用满足需求的已有模板');
+    expect(content).toContain('仅复用满足需求的已有模板');
+    expect(content).toContain('模板文件名从知识资料匹配结果或用户提供的信息取得');
+    expect(content).toContain('不查询、列举或读取设备模板目录');
+    expect(content).toContain('暂不支持生成、创建或修改模板');
+    expect(content).toContain('不调用任务控制操作');
     const interfaces = await skills.read('device-automation', 'references/interfaces.md');
     expect(interfaces).toContain('不绑定特定 Agent 或工具名称');
     expect(interfaces).toContain('由接口部署配置决定');
     expect(interfaces).toContain('测量提交');
-    expect(interfaces).toContain('模板保存');
+    expect(interfaces).toContain('templateFile');
+    expect(interfaces).toContain('文件名');
+    expect(interfaces).toContain('接口没有样品标识字段');
+    expect(content).toContain('不询问、生成或下发样品编号');
+    expect(content).not.toContain('sampleId');
+    expect(interfaces).not.toContain('sampleId');
+    for (const guidance of [content, interfaces])
+      expect(guidance).not.toMatch(
+        /save-template|control-measurement|templateId|list-templates|get-template/,
+      );
     expect(interfaces).not.toContain('validate-template');
     for (const guidance of [content, interfaces, catalog[0]!.metadata.compatibility]) {
       expect(guidance).not.toMatch(

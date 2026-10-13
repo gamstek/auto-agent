@@ -179,10 +179,9 @@ async function main() {
     }
   }
   const fresh = () => ({
-    schemaVersion: 1,
+    schemaVersion: 4,
     backend: 'simulation',
     sourceProvenance: provenance,
-    templates: [],
     measurements: [],
   });
   const templateId = (id) =>
@@ -207,7 +206,7 @@ async function main() {
     'completedAt',
   ];
   // 保留旧版英文来源描述的读取兼容性，避免中文化使已有状态失效。
-  function validState(state) {
+  function validLegacyState(state) {
     if (
       !exact(state, [
         'schemaVersion',
@@ -287,6 +286,79 @@ async function main() {
     }
     return true;
   }
+  const filename = (value) =>
+    text(value) &&
+    value === value.trim() &&
+    !/[<>:"/\\|?*]/.test(value) &&
+    !/^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(value) &&
+    value !== '.' &&
+    value !== '..' &&
+    !value.endsWith('.');
+  function validState(state) {
+    if (state?.schemaVersion === 1) return validLegacyState(state);
+    if (
+      !exact(state, ['schemaVersion', 'backend', 'sourceProvenance', 'measurements']) ||
+      ![2, 3, 4].includes(state.schemaVersion) ||
+      state.backend !== 'simulation' ||
+      !(
+        same(state.sourceProvenance, provenance) ||
+        same(state.sourceProvenance, {
+          ...provenance,
+          description:
+            'Synthetic fixture data; not real measurements or scientific sample calculations.',
+        })
+      ) ||
+      !Array.isArray(state.measurements) ||
+      state.measurements.length > MAX_RECORDS
+    )
+      return false;
+    const ids = new Set();
+    const active = new Set();
+    for (const task of state.measurements) {
+      if (
+        !exact(
+          task,
+          measurementKeys
+            .filter((key) => state.schemaVersion !== 4 || key !== 'sampleId')
+            .map((key) => (key === 'templateId' ? 'templateFile' : key)),
+        ) ||
+        !measurementId(task.id) ||
+        ids.has(task.id) ||
+        (state.schemaVersion !== 4 && !text(task.sampleId)) ||
+        !filename(task.templateFile) ||
+        (state.schemaVersion === 2
+          ? !exact(task.templateSnapshot, ['fileName', ...templateKeys]) ||
+            templateErrors(fields(task.templateSnapshot)).length ||
+            task.deviceId !== task.templateSnapshot.deviceId
+          : !exact(task.templateSnapshot, ['fileName']) ||
+            !devices.some((device) => device.id === task.deviceId)) ||
+        task.templateSnapshot.fileName !== task.templateFile ||
+        !['running', 'completed'].includes(task.state) ||
+        !timestamp(task.createdAt) ||
+        !Number.isSafeInteger(task.durationMs) ||
+        task.durationMs < 1 ||
+        task.durationMs > 600000 ||
+        !timestamp(task.elapsedMs) ||
+        task.elapsedMs > task.durationMs ||
+        (task.state === 'running'
+          ? !timestamp(task.runningSince) ||
+            task.runningSince < task.createdAt ||
+            task.elapsedMs >= task.durationMs ||
+            task.completedAt !== null
+          : task.runningSince !== null ||
+            !timestamp(task.completedAt) ||
+            task.completedAt < task.createdAt ||
+            task.elapsedMs !== task.durationMs)
+      )
+        return false;
+      ids.add(task.id);
+      if (task.state === 'running') {
+        if (active.has(task.deviceId)) return false;
+        active.add(task.deviceId);
+      }
+    }
+    return true;
+  }
   function load() {
     const contents = readFile(statePath);
     if (contents === null) return fresh();
@@ -340,10 +412,12 @@ async function main() {
     return {
       measurementId: task.id,
       deviceId: task.deviceId,
-      templateId: task.templateId,
-      sampleId: task.sampleId,
+      ...(task.templateFile
+        ? { templateFile: task.templateFile }
+        : { templateId: task.templateId }),
+      ...(task.sampleId !== undefined ? { sampleId: task.sampleId } : {}),
       templateSnapshot: task.templateSnapshot,
-      method: task.templateSnapshot.method,
+      ...(task.templateSnapshot.method ? { method: task.templateSnapshot.method } : {}),
       provenance: { ...sourceProvenance, fixtureId: task.deviceId },
       units: {
         relativePressure: '1',
@@ -431,43 +505,29 @@ async function main() {
   const arities = {
     list: 0,
     status: 1,
-    'save-template': 1,
-    'list-templates': 0,
-    'get-template': 1,
     'submit-measurement': 1,
     measurement: 1,
-    'control-measurement': 2,
     results: 1,
     'export-report': 1,
   };
   if (!Object.hasOwn(arities, command ?? '') || args.length !== arities[command])
     fail('INVALID_COMMAND', '请使用文档规定的命令及准确的参数数量。');
   let response;
-  if (command === 'save-template') {
-    const input = parse(args[0]);
-    if (templateErrors(input).length)
-      fail('INVALID_TEMPLATE', '模板字段或设备能力不符合接口输入要求。');
-    response = mutate((state) => {
-      if (state.templates.length >= MAX_RECORDS)
-        fail('CAPACITY_EXCEEDED', '模板数量已达到容量上限。');
-      const template = { id: 't-' + randomUUID(), ...input };
-      state.templates.push(template);
-      return { template };
-    });
-  } else if (command === 'submit-measurement') {
+  if (command === 'submit-measurement') {
     const input = parse(args[0]);
     if (
-      !exact(input, ['deviceId', 'templateId', 'sampleId']) ||
+      !exact(input, ['deviceId', 'templateFile']) ||
       !devices.some((item) => item.id === input.deviceId) ||
-      !templateId(input.templateId) ||
-      !text(input.sampleId)
+      !filename(input.templateFile)
     )
-      fail('INVALID_SUBMISSION', '提交数据必须且只能包含有效的 deviceId、templateId 和 sampleId。');
+      fail('INVALID_SUBMISSION', '提交数据必须且只能包含有效的 deviceId 和 templateFile。');
     response = mutate((state, now) => {
-      const template = state.templates.find((item) => item.id === input.templateId);
-      if (!template) fail('NOT_FOUND', '未找到模板。');
-      if (template.deviceId !== input.deviceId)
-        fail('DEVICE_MISMATCH', '模板所属设备必须与下发设备一致。');
+      if (state.schemaVersion !== 4)
+        fail(
+          'LEGACY_STATE',
+          '旧版状态仅支持历史任务查询和报告导出；请由操作者配置新的模拟数据目录。',
+        );
+
       if (
         state.measurements.some(
           (task) => task.deviceId === input.deviceId && ['running', 'paused'].includes(task.state),
@@ -479,7 +539,7 @@ async function main() {
       const task = {
         id: 'm-' + randomUUID(),
         ...input,
-        templateSnapshot: structuredClone(template),
+        templateSnapshot: { fileName: input.templateFile },
         state: 'running',
         createdAt: now,
         durationMs,
@@ -490,24 +550,8 @@ async function main() {
       state.measurements.push(task);
       return { measurement: measurement(task, now) };
     });
-  } else if (command === 'control-measurement') {
-    if (!['pause', 'resume', 'cancel'].includes(args[1]))
-      fail('INVALID_ACTION', '控制操作必须为 pause（暂停）、resume（恢复）或 cancel（取消）。');
-    response = mutate((state, now) => {
-      const task = findTask(state, args[0]);
-      const action = args[1];
-      if (!(
-        (action === 'pause' && task.state === 'running') ||
-        (action === 'resume' && task.state === 'paused') ||
-        (action === 'cancel' && ['running', 'paused'].includes(task.state))
-      ))
-        fail('INVALID_TRANSITION', '当前测量状态不允许该控制操作。');
-      task.elapsedMs = elapsed(task, now);
-      task.state = action === 'pause' ? 'paused' : action === 'resume' ? 'running' : 'cancelled';
-      task.runningSince = action === 'resume' ? now : null;
-      return { measurement: measurement(task, now) };
-    });
   } else if (command === 'export-report') {
+    if (!measurementId(args[0])) fail('INVALID_IDENTIFIER', '必须提供有效的测量任务标识。');
     response = mutate((state) => {
       const task = findTask(state, args[0]);
       const data = result(task, state.sourceProvenance);
@@ -541,12 +585,6 @@ async function main() {
       const device = devices.find((item) => item.id === args[0]);
       if (!device) fail('NOT_FOUND', '未找到设备。');
       response = { device: deviceStatus(state, device, now) };
-    } else if (command === 'list-templates') response = { templates: state.templates };
-    else if (command === 'get-template') {
-      if (!templateId(args[0])) fail('INVALID_IDENTIFIER', '必须提供有效的模板标识。');
-      const template = state.templates.find((item) => item.id === args[0]);
-      if (!template) fail('NOT_FOUND', '未找到模板。');
-      response = { template };
     } else {
       const task = effective(findTask(state, args[0]), now);
       response =

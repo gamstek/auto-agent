@@ -1,4 +1,8 @@
-import type { ModelMessage } from 'ai';
+import type { LanguageModelUsage, ModelMessage } from 'ai';
+
+export type ModelTokenUsage = Partial<
+  Pick<LanguageModelUsage, 'inputTokens' | 'outputTokens' | 'totalTokens'>
+>;
 export interface Session {
   id: string;
   title: string;
@@ -43,11 +47,13 @@ export interface ToolCall {
 export interface ModelTurn {
   text: string;
   toolCalls: ToolCall[];
-  totalTokens: number;
-  inputTokens?: number;
-  outputTokens?: number;
+  usage: ModelTokenUsage;
 }
 export interface ModelAdapter {
+  summarize?(
+    messages: ModelMessage[],
+    signal: AbortSignal,
+  ): Promise<{ text: string; usage: ModelTokenUsage }>;
   generateKnowledge?(source: string, signal: AbortSignal): Promise<string>;
   generateTitle?(messages: ModelMessage[], signal: AbortSignal): Promise<string>;
   generate(
@@ -65,14 +71,12 @@ export class AppError extends Error {
     super(message);
   }
 }
-export function requireTokenUsage(usage: {
-  totalTokens?: number;
-  inputTokens?: number;
-  outputTokens?: number;
-}): number {
+export function requireTokenUsage(usage: ModelTokenUsage): number {
   const valid = (value: unknown): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
   if (
+    !usage ||
+    typeof usage !== 'object' ||
     !valid(usage.totalTokens) ||
     (usage.inputTokens !== undefined && !valid(usage.inputTokens)) ||
     (usage.outputTokens !== undefined && !valid(usage.outputTokens)) ||

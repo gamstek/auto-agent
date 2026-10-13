@@ -204,12 +204,7 @@ export class AgentService {
             'budget',
             `Agent step budget exhausted (${state.steps}/${this.config.maxSteps}). Split the workflow or increase maxSteps; no additional tools were executed.`,
           );
-        if (state.tokens >= this.config.maxTokens)
-          throw new AppError(
-            'budget',
-            `Agent token budget exhausted (${state.tokens}/${this.config.maxTokens} cumulative input + output tokens). Increase maxTokens or split the workflow; no additional tools were executed.`,
-          );
-        const modelSignal = AbortSignal.any([
+        let modelSignal = AbortSignal.any([
           signal,
           AbortSignal.timeout(this.config.modelTimeoutMs),
         ]);
@@ -235,6 +230,8 @@ export class AgentService {
           }
         };
         let rawTurn: ModelTurn;
+        let preparedMessages = state.messages;
+        let summaryTokens = 0;
         try {
           let builtins = await builtinInstructions({ signal: modelSignal });
           let guidance = skillGuidance(this.skills.list());
@@ -249,22 +246,58 @@ export class AgentService {
             { role: 'system', content: redact(guidance) },
             ...state.messages.filter((message) => message.role !== 'system'),
           ];
-          const context = fitModelContext(
+          const context = await fitModelContext(
             modelMessages,
-            this.config.maxContextTokens,
+            this.config.maxInputTokens,
             this.toolRegistry.contextTokenEstimate(),
+            {
+              signal,
+              summarize: this.model.summarize
+                ? async (messages, caller) => {
+                    const summarySignal = AbortSignal.any([
+                      caller,
+                      AbortSignal.timeout(this.config.modelTimeoutMs),
+                    ]);
+                    const safeMessages = JSON.parse(redact(JSON.stringify(messages)));
+                    try {
+                      const result = await this.model.summarize!(safeMessages, summarySignal);
+                      summarySignal.throwIfAborted();
+                      return { ...result, text: redact(result.text) };
+                    } catch (error) {
+                      if (!caller.aborted && summarySignal.aborted)
+                        throw new AppError(
+                          'context_timeout',
+                          'Context summary model request timed out; history was retained and dependent tools were not executed.',
+                        );
+                      throw error;
+                    }
+                  }
+                : undefined,
+              onSummary: (details) => {
+                summaryTokens += details.totalTokens;
+                emit('context.compressed', {
+                  ...details,
+                  inputTokenLimit: this.config.maxInputTokens,
+                  maxOutputTokens: this.config.maxOutputTokens,
+                  runTokens: state.tokens + summaryTokens,
+                });
+              },
+            },
           );
-          if (context.removedMessages)
-            emit('context.compacted', {
-              removedMessages: context.removedMessages,
-              estimatedTokens: context.estimatedTokens,
-              maxContextTokens: this.config.maxContextTokens,
-            });
+          preparedMessages = [
+            ...state.messages.filter((message) => message.role === 'system'),
+            ...context.messages.filter((message) => message.role !== 'system'),
+          ];
+          emit('context.prepared', {
+            estimatedInputTokens: context.estimatedTokens,
+            maxInputTokens: this.config.maxInputTokens,
+          });
+          modelSignal = AbortSignal.any([signal, AbortSignal.timeout(this.config.modelTimeoutMs)]);
           rawTurn = await this.model.generate(context.messages, modelSignal, (text) => {
             pendingDelta = redact(pendingDelta + text);
             flush();
           });
-          requireTokenUsage(rawTurn);
+          requireTokenUsage(rawTurn.usage);
         } catch (error) {
           emit('model.failed', {
             step: state.steps + 1,
@@ -278,21 +311,17 @@ export class AgentService {
         const turn: ModelTurn = JSON.parse(redact(JSON.stringify(rawTurn)));
         if (turn.text && !emittedText)
           emit('message.part.delta', { delta: turn.text, step: state.steps + 1 });
+        const totalTokens = requireTokenUsage(turn.usage);
         emit('model.completed', {
           step: state.steps + 1,
-          totalTokens: turn.totalTokens,
-          inputTokens: turn.inputTokens,
-          outputTokens: turn.outputTokens,
-          runTokens: state.tokens + turn.totalTokens,
-          maxTokens: this.config.maxTokens,
+          usage: turn.usage,
+          totalTokens,
+          inputTokens: turn.usage.inputTokens,
+          outputTokens: turn.usage.outputTokens,
+          runTokens: state.tokens + summaryTokens + totalTokens,
           durationMs: Date.now() - modelStarted,
         });
         check();
-        if (state.tokens + turn.totalTokens > this.config.maxTokens)
-          throw new AppError(
-            'budget',
-            `Agent token budget exhausted (${state.tokens + turn.totalTokens}/${this.config.maxTokens} cumulative input + output tokens). Increase maxTokens or split the workflow; this model turn's tools were not executed.`,
-          );
         const assistant: ModelMessage = {
           role: 'assistant',
           content: [
@@ -308,8 +337,8 @@ export class AgentService {
         return {
           turn: { ...turn, text: redact(turn.text) },
           steps: state.steps + 1,
-          tokens: state.tokens + turn.totalTokens,
-          messages: [...state.messages, assistant],
+          tokens: state.tokens + summaryTokens + totalTokens,
+          messages: [...preparedMessages, assistant],
         };
       })
       .addNode('tools', async (state) => {
@@ -407,7 +436,7 @@ export class AgentService {
     emit('session.status', { status: 'busy' });
     try {
       const history: ModelMessage[] = this.store
-        .contextMessages(sessionId, this.config.maxTokens * 3)
+        .contextMessages(sessionId, this.config.requestLimitBytes * this.config.maxSteps)
         .map((message) => ({ role: message.role, content: message.content }));
       const system: ModelMessage = {
         role: 'system',
@@ -423,7 +452,7 @@ export class AgentService {
           steps: 0,
           tokens: 0,
           loaded: [],
-          turn: { text: '', toolCalls: [], totalTokens: 0 },
+          turn: { text: '', toolCalls: [], usage: { totalTokens: 0 } },
         },
         {
           configurable: { thread_id: runId },

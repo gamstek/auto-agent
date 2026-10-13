@@ -53,9 +53,12 @@ export class ReplRenderer {
       case 'session.status':
         if (p.status === 'busy') this.line('[agent] working…');
         break;
-      case 'context.compacted':
+      case 'context.prepared':
+        this.line(`[context] estimated input ${p.estimatedInputTokens}/${p.maxInputTokens} tokens`);
+        break;
+      case 'context.compressed':
         this.line(
-          `[context] omitted ${p.removedMessages} earlier messages · ${p.estimatedTokens}/${p.maxContextTokens} estimated tokens`,
+          `[context] summarized ${p.removedMessages} earlier messages · ${p.estimatedInputTokens}/${p.inputTokenLimit} estimated input tokens · summary ${p.totalTokens ?? (p.usage as { totalTokens?: number } | undefined)?.totalTokens ?? 'unknown'} tokens`,
         );
         break;
       case 'model.started':
@@ -67,7 +70,7 @@ export class ReplRenderer {
       case 'model.completed':
         this.closeText();
         this.line(
-          `[model] step ${p.step} · ${p.totalTokens} tokens${typeof p.runTokens === 'number' ? ` · run ${p.runTokens}/${p.maxTokens}` : ''} · ${p.durationMs} ms`,
+          `[model] step ${p.step} · ${p.totalTokens} tokens · input ${p.inputTokens ?? 'unknown'} / output ${p.outputTokens ?? 'unknown'}${typeof p.runTokens === 'number' ? ` · run ${p.runTokens}` : ''} · ${p.durationMs} ms`,
         );
         break;
       case 'message.part.delta':

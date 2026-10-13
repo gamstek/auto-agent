@@ -92,14 +92,22 @@ async function extractKnowledge(
         `Knowledge extraction call budget exhausted for ${source.path}; previous snapshot retained`,
       );
     let result: string;
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(config.modelTimeoutMs)]);
     try {
       result = await model.generateKnowledge!(
         focused
           ? `Extraction scope: original source lines ${start}–${end} ONLY. The complete numbered source below is context for headings and inherited table cells. Generate records only for rows or statements in the scope; each record must include at least one citation of non-whitespace source text in the scope. Cite original line numbers, including earlier lines when inheritance requires it. Do not regenerate records outside the scope. Keep summaries and issues concise.\n\n${numberedSource}`
           : numberedSource,
-        AbortSignal.any([signal, AbortSignal.timeout(config.modelTimeoutMs)]),
+        requestSignal,
       );
+      requestSignal.throwIfAborted();
     } catch (error) {
+      if (!signal.aborted && requestSignal.aborted)
+        throw new AppError(
+          'wiki_timeout',
+          `Knowledge model request timed out after ${config.modelTimeoutMs} ms for ${source.path}. Increase modelTimeoutMs in configuration or reduce the source size, then run --wiki-update again; previous snapshot retained.`,
+          504,
+        );
       if (!(error instanceof AppError) || error.code !== 'wiki_output_limit') throw error;
       signal.throwIfAborted();
       if (start >= end)

@@ -137,24 +137,24 @@ test('no-token cannot be enabled by configuration and rejects remote binding', a
   }
 });
 
-test('config defaults prefer Node and use independent cumulative/context token limits', async () => {
+test('config defaults prefer Node and use per-request input/output token limits', async () => {
   const home = resolve(`.config-defaults-test-${randomUUID()}`);
   try {
     const created = await ensureDefaultConfig(home);
     const template = await Bun.file(created.path).json();
     expect(template.interpreters['.js']).toBe('node');
-    expect(template.maxTokens).toBe(128000);
-    expect(template.maxContextTokens).toBe(16000);
+    expect(template.maxOutputTokens).toBe(16000);
+    expect(template.maxInputTokens).toBe(1000000);
     expect(template.webAllowPrivateAddresses).toBe(true);
     const config = await loadConfig(created.path, true, true);
     expect(config.interpreters['.js']).toBe('node');
-    expect(config.maxTokens).toBe(128000);
-    expect(config.maxContextTokens).toBe(16000);
+    expect(config.maxOutputTokens).toBe(16000);
+    expect(config.maxInputTokens).toBe(1000000);
     await writeFile(created.path, '{}');
     const defaults = await loadConfig(created.path, true, true);
     expect(defaults.interpreters['.js']).toBe('node');
-    expect(defaults.maxTokens).toBe(128000);
-    expect(defaults.maxContextTokens).toBe(16000);
+    expect(defaults.maxOutputTokens).toBe(16000);
+    expect(defaults.maxInputTokens).toBe(1000000);
     expect(defaults.webAllowPrivateAddresses).toBe(true);
     await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: false }));
     expect((await loadConfig(created.path, true, true)).webAllowPrivateAddresses).toBe(false);
@@ -168,15 +168,42 @@ test('config defaults prefer Node and use independent cumulative/context token l
     }
     await writeFile(
       created.path,
-      JSON.stringify({ interpreters: { '.js': 'node' }, maxTokens: 5000, maxContextTokens: 1000 }),
+      JSON.stringify({
+        interpreters: { '.js': 'node' },
+        maxOutputTokens: 5000,
+        maxInputTokens: 1000,
+      }),
     );
     const explicit = await loadConfig(created.path, true, true);
     expect(explicit.interpreters['.js']).toBe('node');
-    expect(explicit.maxTokens).toBe(5000);
-    expect(explicit.maxContextTokens).toBe(1000);
-    for (const maxContextTokens of [0, -1, 1.5, '16000']) {
-      await writeFile(created.path, JSON.stringify({ maxContextTokens }));
-      await expect(loadConfig(created.path, true, true)).rejects.toThrow('maxContextTokens');
+    expect(explicit.maxOutputTokens).toBe(5000);
+    expect(explicit.maxInputTokens).toBe(1000);
+    await writeFile(created.path, JSON.stringify({ contextWindow: 12000, maxOutputTokens: 2000 }));
+    expect((await loadConfig(created.path, true, true)).maxInputTokens).toBe(10000);
+    await writeFile(
+      created.path,
+      JSON.stringify({ contextWindow: 12000, maxInputTokens: 9000, maxOutputTokens: 2000 }),
+    );
+    expect((await loadConfig(created.path, true, true)).maxInputTokens).toBe(9000);
+    for (const invalid of [
+      { contextWindow: 2000, maxOutputTokens: 2000 },
+      { contextWindow: 1000, maxOutputTokens: 2000 },
+      { contextWindow: 12000, maxInputTokens: 11000, maxOutputTokens: 2000 },
+      { contextWindow: 0 },
+      { contextWindow: '12000' },
+    ]) {
+      await writeFile(created.path, JSON.stringify(invalid));
+      await expect(loadConfig(created.path, true, true)).rejects.toThrow('contextWindow');
+    }
+    for (const field of ['maxTokens', 'maxContextTokens', 'contextWindowTokens']) {
+      await writeFile(created.path, JSON.stringify({ [field]: 1000 }));
+      await expect(loadConfig(created.path, true, true)).rejects.toThrow(
+        'replaced by maxInputTokens and maxOutputTokens',
+      );
+    }
+    for (const maxInputTokens of [0, -1, 1.5, '16000']) {
+      await writeFile(created.path, JSON.stringify({ maxInputTokens }));
+      await expect(loadConfig(created.path, true, true)).rejects.toThrow('maxInputTokens');
     }
   } finally {
     await rm(home, { recursive: true, force: true });

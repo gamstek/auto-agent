@@ -47,16 +47,21 @@ test('renderer distinguishes cumulative run tokens from each model request and r
     step: 6,
     totalTokens: 8050,
     runTokens: 36596,
-    maxTokens: 128000,
+    inputTokens: 8000,
+    outputTokens: 50,
     durationMs: 1341,
   });
-  r.event('context.compacted', {
+  r.event('context.prepared', { estimatedInputTokens: 15000, maxInputTokens: 16000 });
+  r.event('context.compressed', {
     removedMessages: 8,
-    estimatedTokens: 15000,
-    maxContextTokens: 16000,
+    estimatedInputTokens: 12000,
+    inputTokenLimit: 16000,
+    totalTokens: 350,
   });
-  expect(r.errors()).toContain('8050 tokens · run 36596/128000');
-  expect(r.errors()).toContain('omitted 8 earlier messages');
+  expect(r.errors()).toContain('8050 tokens · input 8000 / output 50 · run 36596');
+  expect(r.errors()).toContain('estimated input 15000/16000');
+  expect(r.errors()).toContain('summarized 8 earlier messages');
+  expect(r.errors()).toContain('summary 350 tokens');
 });
 
 test('plain renderer omits ANSI for redirected output and closes text before tool lines', () => {

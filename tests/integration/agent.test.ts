@@ -53,7 +53,7 @@ function sequence(turns: ModelTurn[]): ModelAdapter {
 }
 const call = (name: string, input: unknown): ModelTurn => ({
   text: '',
-  totalTokens: 1,
+  usage: { totalTokens: 1 },
   toolCalls: [{ id: crypto.randomUUID(), name, input }],
 });
 
@@ -73,7 +73,7 @@ test('each model request refreshes builtin facts without accumulating snapshots 
       );
       return step++ === 0
         ? call('skill', { name: 'sum-values' })
-        : { text: 'Finished', totalTokens: 1, toolCalls: [] };
+        : { text: 'Finished', usage: { totalTokens: 1 }, toolCalls: [] };
     },
   });
   a.config.systemPrompt = 'Custom environment test role';
@@ -104,7 +104,7 @@ test('unknown script outcomes stop dependent tools and require operator reconcil
         call('skill', { name: 'sum-values' }),
         {
           text: '',
-          totalTokens: 1,
+          usage: { totalTokens: 1 },
           toolCalls: [
             ...call('execute_script', {
               skill: 'sum-values',
@@ -172,7 +172,7 @@ test('both web handlers and system context receive the operator address policy',
           );
           if (step++ === 0) return call('web_fetch', { url: 'http://192.168.1.1/' });
           if (step === 2) return call('web_search', { query: 'public reference' });
-          return { text: 'Done.', totalTokens: 1, toolCalls: [] };
+          return { text: 'Done.', usage: { totalTokens: 1 }, toolCalls: [] };
         },
       },
       enabled,
@@ -217,7 +217,7 @@ test('web search routes results and failures without a skill or script execution
         else expect(result.output.value).toEqual(output);
         return {
           text: fails ? 'Search unavailable.' : 'Search completed.',
-          totalTokens: 1,
+          usage: { totalTokens: 1 },
           toolCalls: [],
         };
       },
@@ -265,7 +265,7 @@ test('web fetch results reach the model and emit completion without script execu
       if (result.type !== 'tool-result' || result.output.type !== 'json')
         throw new Error('Expected JSON result');
       expect(result.output.value).toEqual(page);
-      return { text: 'Page retrieved.', totalTokens: 1, toolCalls: [] };
+      return { text: 'Page retrieved.', usage: { totalTokens: 1 }, toolCalls: [] };
     },
   });
   const events: AgentEvent[] = [];
@@ -305,7 +305,7 @@ test('web fetch is routed without a skill and reports public-network denials as 
         throw new Error('Expected JSON result');
       expect(result.output.value).toHaveProperty('error');
       expect(result.output.value).not.toHaveProperty('error', 'skill_not_loaded');
-      return { text: 'Private network access denied.', totalTokens: 1, toolCalls: [] };
+      return { text: 'Private network access denied.', usage: { totalTokens: 1 }, toolCalls: [] };
     },
   });
   const events: AgentEvent[] = [];
@@ -336,8 +336,8 @@ test.skip('LangGraph selects one of two skills, loads resource, executes and ans
         path: 'scripts/main.js',
         args: ['2', '3'],
       }),
-      { text: 'The sum is 5', totalTokens: 1, toolCalls: [] },
-      { text: 'Hello without tools', totalTokens: 1, toolCalls: [] },
+      { text: 'The sum is 5', usage: { totalTokens: 1 }, toolCalls: [] },
+      { text: 'Hello without tools', usage: { totalTokens: 1 }, toolCalls: [] },
     ]),
   );
   try {
@@ -362,11 +362,11 @@ test('skill loads trusted guidance lazily and gates resources per generation', a
     call('skill', { name: 'missing' }),
     call('skill', { name: 'hello-world' }),
     call('read', { skill: 'hello-world', path: 'reference.txt' }),
-    { text: 'Loaded', totalTokens: 1, toolCalls: [] },
+    { text: 'Loaded', usage: { totalTokens: 1 }, toolCalls: [] },
     call('read', { skill: 'hello-world', path: 'reference.txt' }),
     call('load_skill', { skill: 'hello-world' }),
     call('list_skills', {}),
-    { text: 'Fresh generation', totalTokens: 1, toolCalls: [] },
+    { text: 'Fresh generation', usage: { totalTokens: 1 }, toolCalls: [] },
   ];
   let index = 0;
   const results: unknown[] = [];
@@ -445,7 +445,7 @@ test('skill system context refreshes each model step without accumulating stale 
       expect(guidance).not.toContain(a.config.apiKey!);
       const result = messages.at(-1)!;
       expect(JSON.stringify(result)).toContain('New guidance');
-      return { text: 'Updated', totalTokens: 1, toolCalls: [] };
+      return { text: 'Updated', usage: { totalTokens: 1 }, toolCalls: [] };
     },
   });
   try {
@@ -485,7 +485,7 @@ test('skill activation preserves script execution and failed replay checks', asy
         path: 'scripts/main.js',
         args: ['person'],
       }),
-      { text: 'No retry', totalTokens: 1, toolCalls: [] },
+      { text: 'No retry', usage: { totalTokens: 1 }, toolCalls: [] },
     ]),
   );
   try {
@@ -507,7 +507,7 @@ test('skill activation preserves script execution and failed replay checks', asy
 });
 
 test('API authentication routes CLI remote session history and SSE', async () => {
-  const a = await app(sequence([{ text: 'reply', totalTokens: 1, toolCalls: [] }]));
+  const a = await app(sequence([{ text: 'reply', usage: { totalTokens: 1 }, toolCalls: [] }]));
   const server = serve(a.service);
   const base = `http://127.0.0.1:${server.port}`;
   const headers = { Authorization: `Bearer ${a.config.token}`, 'Content-Type': 'application/json' };
@@ -601,7 +601,7 @@ test.skip('failed scripts cannot be replayed within a generation and event subsc
       call('skill', { name: 'hello-world' }),
       call('execute_script', { skill: 'hello-world', path: 'scripts/main.js' }),
       call('execute_script', { skill: 'hello-world', path: 'scripts/main.js' }),
-      { text: 'Interpreter unavailable', totalTokens: 1, toolCalls: [] },
+      { text: 'Interpreter unavailable', usage: { totalTokens: 1 }, toolCalls: [] },
     ]),
   );
   a.config.interpreters['.js'] = 'missing-interpreter-auto-agent';
@@ -650,7 +650,7 @@ test.skip('explicit no-token mode supports sessions messages events scripts and 
         path: 'scripts/main.js',
         args: ['2', '3'],
       }),
-      { text: '5', totalTokens: 1, toolCalls: [] },
+      { text: '5', usage: { totalTokens: 1 }, toolCalls: [] },
     ]),
   );
   a.config.noToken = true;
@@ -707,7 +707,7 @@ test('HTTP SSE streams correlated model steps and resource tool outcomes without
         path: 'reference.txt',
       }),
       call('read', { skill: 'missing', path: 'reference.txt' }),
-      { text: 'Done', totalTokens: 1, toolCalls: [] },
+      { text: 'Done', usage: { totalTokens: 1 }, toolCalls: [] },
     ]),
   );
   const server = serve(a.service);

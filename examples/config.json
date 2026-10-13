@@ -17,8 +17,8 @@
   "scriptTimeoutMs": 30000,
   "outputLimitBytes": 65536,
   "maxSteps": 12,
-  "maxTokens": 128000,
-  "maxContextTokens": 160000,
+  "maxInputTokens": 1000000,
+  "maxOutputTokens": 16000,
   "maxConcurrent": 4,
   "systemPrompt": ""
 }

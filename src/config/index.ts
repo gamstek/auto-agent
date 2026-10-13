@@ -36,10 +36,12 @@ const schema = z.object({
   apiKey: z.string().optional(),
   // Maximum model/tool-loop steps per generation (1–100).
   maxSteps: z.number().int().positive().max(100).default(12),
-  // Cumulative reported input + output tokens per generation, excluding titles.
-  maxTokens: z.number().int().positive().default(128000),
-  // Estimated input-token budget per request, including tool definitions.
-  maxContextTokens: z.number().int().positive().default(16000),
+  // Maximum input tokens supported by the model; derived from contextWindow minus maxOutputTokens when omitted.
+  maxInputTokens: z.number().int().positive().optional(),
+  // Maximum output tokens supported by the model.
+  maxOutputTokens: z.number().int().positive().default(16000),
+  // Model's combined input/output window; derives the input capacity when provided.
+  contextWindow: z.number().int().positive().optional(),
   // Model request timeout in milliseconds.
   modelTimeoutMs: z.number().int().positive().default(60000),
   // Skill script execution timeout in milliseconds.
@@ -60,7 +62,8 @@ const schema = z.object({
   // Extra script environment entries; credential and runtime-control entries are rejected.
   scriptEnv: z.record(z.string(), z.string()).default({}),
 });
-export type Config = Omit<z.infer<typeof schema>, 'systemPrompt'> & {
+export type Config = Omit<z.infer<typeof schema>, 'systemPrompt' | 'maxInputTokens'> & {
+  maxInputTokens: number;
   systemPrompt?: string;
   noToken?: boolean;
   configPath?: string;
@@ -93,10 +96,10 @@ export async function ensureDefaultConfig(
     webAllowPrivateAddresses: true,
     // Provider model identifier; credentials come from AUTO_AGENT_API_KEY.
     model: 'deepseek-flash',
-    // Cumulative input + output token budget for one generation.
-    maxTokens: 128000,
-    // Estimated input-token budget for each model request.
-    maxContextTokens: 16000,
+    // Maximum input tokens supported by the model; may be replaced by contextWindow minus maxOutputTokens.
+    maxInputTokens: 1000000,
+    // Maximum output tokens supported by the model; actual usage is reported by the SDK.
+    maxOutputTokens: 16000,
     // OpenAI-compatible endpoint for the selected model.
     baseURL: 'https://api.deepseek.com',
     // Editable role prompt; mandatory runtime instructions remain appended.
@@ -161,7 +164,25 @@ export async function loadConfig(file?: string, noToken = false, local = false):
       `Invalid configuration fields: ${fields.join(', ')}. Check --config PATH.`,
     );
   }
-  const config: Config = { ...parsed.data, noToken, configPath: path };
+  for (const field of ['maxTokens', 'maxContextTokens', 'contextWindowTokens'])
+    if (raw[field] !== undefined)
+      throw new AppError(
+        'invalid_config',
+        `${field} was replaced by maxInputTokens and maxOutputTokens. Set the per-request input and output limits explicitly.`,
+      );
+  const contextWindow = parsed.data.contextWindow;
+  const maxInputTokens =
+    parsed.data.maxInputTokens ??
+    (contextWindow === undefined ? 1000000 : contextWindow - parsed.data.maxOutputTokens);
+  if (
+    maxInputTokens <= 0 ||
+    (contextWindow !== undefined && maxInputTokens > contextWindow - parsed.data.maxOutputTokens)
+  )
+    throw new AppError(
+      'invalid_config',
+      'contextWindow must accommodate maxInputTokens plus maxOutputTokens, with a positive input capacity.',
+    );
+  const config: Config = { ...parsed.data, maxInputTokens, noToken, configPath: path };
   if (noToken && !['127.0.0.1', 'localhost', '::1'].includes(config.host)) {
     throw new AppError(
       'no_token_remote',

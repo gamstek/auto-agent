@@ -32,29 +32,18 @@ test('embedded runtime completes a persistent instrument workflow without Node o
   };
   try {
     expect((await run('list')).devices).toHaveLength(2);
-    const payload = {
-      name: 'Interface fixture',
-      deviceId: 'sim-analyzer-1',
-      method: 'BET',
-      gas: 'N2',
-      temperatureK: 77,
-      preprocessing: { temperatureC: 25, durationHours: 1 },
-      sampleMassG: 1,
-    };
-    const { template } = await run('save-template', JSON.stringify(payload));
-    expect((await run('get-template', template.id)).template.id).toBe(template.id);
     const { measurement } = await run(
       'submit-measurement',
       JSON.stringify({
-        deviceId: payload.deviceId,
-        templateId: template.id,
-        sampleId: 'fixture-sample',
+        deviceId: 'sim-analyzer-1',
+        templateFile: 'fixture.tpl',
       }),
     );
     await Bun.sleep(10);
     expect((await run('measurement', measurement.id)).measurement.state).toBe('completed');
     const { result } = await run('results', measurement.id);
-    expect(result.sampleId).toBe('fixture-sample');
+    expect(result.templateFile).toBe('fixture.tpl');
+    expect(result).not.toHaveProperty('sampleId');
     expect(result).not.toHaveProperty('simulated');
     const { report } = await run('export-report', measurement.id);
     expect(report.path.startsWith(directory)).toBe(true);

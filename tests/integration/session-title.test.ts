@@ -22,7 +22,7 @@ test('model titles persist, preserve custom titles, and custom prompt augments p
   const model = {
     async generate(messages: ModelMessage[]) {
       observed = messages;
-      return { text: '你好', toolCalls: [], totalTokens: 1 };
+      return { text: '你好', toolCalls: [], usage: { totalTokens: 1 } };
     },
     async generateTitle(messages: ModelMessage[]) {
       titles++;
@@ -77,7 +77,7 @@ test('pending titles do not block completion, abort or concurrency; shutdown can
   let titleCalls = 0;
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate() {
-      return { text: 'answer', toolCalls: [], totalTokens: 1 };
+      return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
     async generateTitle(_messages, signal) {
       titleSignal = signal;
@@ -124,7 +124,7 @@ test('title timeout ignores late results and permits a later retry', async () =>
   let attempts = 0;
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate() {
-      return { text: 'answer', toolCalls: [], totalTokens: 1 };
+      return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
     async generateTitle() {
       if (++attempts === 1)
@@ -158,7 +158,7 @@ test('title failure does not fail replies and is retried on subsequent messages'
   let attempts = 0;
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate() {
-      return { text: 'answer', toolCalls: [], totalTokens: 1 };
+      return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
     async generateTitle() {
       if (++attempts === 1) throw new Error('provider secret');

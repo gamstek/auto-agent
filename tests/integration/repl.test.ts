@@ -45,7 +45,7 @@ test('REPL serializes multiple messages in one session, handles errors and resum
       if (calls === 2) throw new Error('private error');
       const text = 'reply ' + messages.filter((m) => m.role === 'user').length;
       delta(text);
-      return { text, toolCalls: [], totalTokens: 1 };
+      return { text, toolCalls: [], usage: { totalTokens: 1 } };
     },
   };
   const service = new AgentService(
@@ -83,7 +83,7 @@ test('REPL JSON replies do not mix in process events or ANSI codes', async () =>
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
     async generate(_messages, _signal, delta) {
       delta('hello');
-      return { text: 'hello', totalTokens: 1, toolCalls: [] };
+      return { text: 'hello', usage: { totalTokens: 1 }, toolCalls: [] };
     },
   });
   try {
@@ -196,7 +196,7 @@ test('no command starts REPL and old command words are chat text rather than dis
     const service = new AgentService(config, store, skills, new ScriptExecutor(config, skills), {
       async generate(messages) {
         expect(messages.at(-1)?.content).toBe('session list');
-        return { text: 'chat response', toolCalls: [], totalTokens: 1 };
+        return { text: 'chat response', toolCalls: [], usage: { totalTokens: 1 } };
       },
     });
     try {

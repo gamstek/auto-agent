@@ -17,10 +17,16 @@ function pair(name: string, id: string, input: unknown, value: any, text = false
     },
   ];
 }
-test('context preserves current request, loaded guidance, resources, cited knowledge and newest results', () => {
+const summarize = async () => ({
+  text: 'Earlier conversation remains unresolved.',
+  usage: { totalTokens: 10, inputTokens: 8, outputTokens: 2 },
+});
+const options = () => ({ signal: new AbortController().signal, summarize });
+
+test('context preserves current request, loaded guidance, resources, cited knowledge and newest results', async () => {
   const messages: ModelMessage[] = [
     { role: 'system', content: 'System rules' },
-    { role: 'user', content: 'Old conversation '.repeat(2000) },
+    { role: 'user', content: 'Old conversation '.repeat(240) },
     { role: 'assistant', content: 'Old answer' },
     { role: 'user', content: 'Current instrument workflow' },
     ...pair('skill', 'skill-id', { name: 'example' }, 'Trusted skill guidance', true),
@@ -34,7 +40,7 @@ test('context preserves current request, loaded guidance, resources, cited knowl
     ...pair('execute_script', 'latest-id', { args: ['status'] }, { stdout: 'Current state' }),
   ];
   const before = JSON.stringify(messages);
-  const fitted = fitModelContext(messages, 2000, 100);
+  const fitted = await fitModelContext(messages, 2000, 100, options());
   expect(fitted.removedMessages).toBeGreaterThan(0);
   expect(fitted.estimatedTokens).toBeLessThanOrEqual(2000);
   for (const value of [
@@ -48,11 +54,11 @@ test('context preserves current request, loaded guidance, resources, cited knowl
   expect(JSON.stringify(fitted.messages)).not.toContain('Old conversation');
   expect(JSON.stringify(messages)).toBe(before);
 });
-test('compaction keeps tool calls and their complete result groups together', () => {
+test('compression keeps protected tool calls and their complete result groups together', async () => {
   const messages: ModelMessage[] = [{ role: 'user', content: 'Current request' }];
   for (let index = 0; index < 8; index++)
     messages.push(...pair('execute_script', String(index), {}, { data: 'payload'.repeat(180) }));
-  const fitted = fitModelContext(messages, 1900);
+  const fitted = await fitModelContext(messages, 1900, 0, options());
   const calls = fitted.messages.flatMap((message) =>
     message.role === 'assistant' && Array.isArray(message.content)
       ? message.content.filter((part) => part.type === 'tool-call').map((part) => part.toolCallId)
@@ -67,12 +73,12 @@ test('compaction keeps tool calls and their complete result groups together', ()
   expect(calls).toContain('7');
   expect(calls.length).toBeLessThan(8);
 });
-test('small contexts are unchanged and essential oversized inputs fail without truncating facts', () => {
+test('small contexts are unchanged and essential oversized inputs fail without truncating facts', async () => {
   const small: ModelMessage[] = [{ role: 'user', content: 'hello' }];
-  expect(fitModelContext(small, 100).messages).toBe(small);
-  expect(() =>
+  expect((await fitModelContext(small, 100)).messages).toBe(small);
+  await expect(
     fitModelContext([{ role: 'system', content: 'Critical rules'.repeat(1000) }, ...small], 100),
-  ).toThrow('Essential instructions');
-  expect(() => fitModelContext(small, 100, 200)).toThrow('maxContextTokens');
+  ).rejects.toThrow('Essential instructions');
+  await expect(fitModelContext(small, 100, 200)).rejects.toThrow('maxInputTokens');
   expect(estimatedTokens('中文')).toBeGreaterThan(estimatedTokens('ab'));
 });

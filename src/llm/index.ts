@@ -56,11 +56,51 @@ export class CloudModel implements ModelAdapter {
         messages: [{ role: 'user', content: source }],
         abortSignal: signal,
         maxRetries: 0,
-        maxOutputTokens: Math.min(16000, this.config.maxTokens),
+        maxOutputTokens: this.config.maxOutputTokens,
       });
       if (result.finishReason === 'length')
         throw new AppError('wiki_output_limit', 'Knowledge output exceeded the model output limit');
       return result.text;
+    } catch (error) {
+      if (signal.aborted || error instanceof AppError) throw error;
+      throw modelFailure(error);
+    }
+  }
+  async summarize(messages: ModelMessage[], signal: AbortSignal) {
+    if (!this.config.apiKey)
+      throw new AppError(
+        'model_configuration',
+        'AUTO_AGENT_API_KEY is required for context compression',
+        503,
+      );
+    const provider = createOpenAI({ apiKey: this.config.apiKey, baseURL: this.config.baseURL });
+    try {
+      const result = await generateText({
+        model: provider.chat(this.config.model),
+        instructions:
+          messages
+            .filter((message) => message.role === 'system')
+            .map((message) => message.content)
+            .join('\n\n') || undefined,
+        messages: messages.filter((message) => message.role !== 'system'),
+        abortSignal: signal,
+        maxRetries: 0,
+        maxOutputTokens: this.config.maxOutputTokens,
+      });
+      if (result.finishReason === 'length')
+        throw new AppError(
+          'context_summary_limit',
+          'Context summary exceeded maxOutputTokens; no partial summary was used. Increase maxOutputTokens or reduce the history.',
+        );
+      const usage = result.totalUsage;
+      return {
+        text: result.text,
+        usage: {
+          totalTokens: requireTokenUsage(usage),
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        },
+      };
     } catch (error) {
       if (signal.aborted || error instanceof AppError) throw error;
       throw modelFailure(error);
@@ -81,7 +121,7 @@ export class CloudModel implements ModelAdapter {
       messages: messages.filter((message) => message.role !== 'system'),
       abortSignal: signal,
       maxRetries: 0,
-      maxOutputTokens: 128,
+      maxOutputTokens: Math.min(128, this.config.maxOutputTokens),
     });
     return result.text;
   }
@@ -110,7 +150,7 @@ export class CloudModel implements ModelAdapter {
       onError: () => {},
       abortSignal: signal,
       maxRetries: 0,
-      maxOutputTokens: Math.min(4096, this.config.maxTokens),
+      maxOutputTokens: this.config.maxOutputTokens,
     });
     let text = '';
     for await (const part of result.fullStream) {
@@ -125,9 +165,11 @@ export class CloudModel implements ModelAdapter {
     return {
       text,
       toolCalls: calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input })),
-      totalTokens: requireTokenUsage(usage),
-      inputTokens: usage.inputTokens,
-      outputTokens: usage.outputTokens,
+      usage: {
+        totalTokens: requireTokenUsage(usage),
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+      },
     };
   }
 }
