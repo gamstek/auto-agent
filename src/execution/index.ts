@@ -91,7 +91,8 @@ public static class ProcessSnapshot {
   }
 }
 '@
-$rootId = [int][Console]::In.ReadLine()
+$rootId = [int]$env:AUTO_AGENT_ANCHOR_PID
+if ($rootId -le 0) { throw 'Execution anchor identifier missing' }
 $tracked = @{}
 function ProcessById([int]$id) {
   try {
@@ -310,7 +311,7 @@ export class ScriptExecutor {
         ),
         ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', trackerSource],
         {
-          env,
+          env: { ...env, AUTO_AGENT_ANCHOR_PID: String(child.pid) },
           shell: false,
           windowsHide: true,
           stdio: ['pipe', 'pipe', 'ignore'],
@@ -336,7 +337,6 @@ export class ScriptExecutor {
         });
       });
       tracker.stdin!.on('error', () => stop('unknown'));
-      tracker.stdin!.write(`${child.pid}\n`);
       const isReady = await Promise.race([tracked, done.then(() => false)]);
       if (isReady && !status)
         child.send({ command, args, cwd }, (error) => {
