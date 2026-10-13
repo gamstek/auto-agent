@@ -239,6 +239,37 @@ test('automatic fallback keeps the global concurrency slot and queued cancellati
   }
 }, 30000);
 
+test.skipIf(process.platform !== 'win32')(
+  'Windows tracker starts without a compiler temporary directory',
+  async () => {
+    const f = await setup();
+    const previous = { TEMP: process.env.TEMP, TMP: process.env.TMP };
+    try {
+      const script = join(f.scripts, 'main.js');
+      await writeFile(script, "console.log('compiler-free');");
+      // A file cannot hold the temporary C# source used by Windows PowerShell Add-Type.
+      process.env.TEMP = script;
+      process.env.TMP = script;
+      const result = await withoutRuntimePath(() =>
+        new ScriptExecutor(
+          { ...f.config, interpreters: { '.js': 'builtin' }, scriptTimeoutMs: 5000 },
+          f.skills,
+        ).execute(request('main.js'), signal()),
+      );
+      expect(result.status, result.stderr).toBe('completed');
+      expect(result.stdout.trim()).toBe('compiler-free');
+      expect(result.stderr).toBe('');
+    } finally {
+      for (const key of ['TEMP', 'TMP'] as const) {
+        if (previous[key] === undefined) delete process.env[key];
+        else process.env[key] = previous[key];
+      }
+      await f.cleanup();
+    }
+  },
+  25000,
+);
+
 test('external interpreter mappings also use the embedded Windows anchor', async () => {
   const f = await setup();
   try {

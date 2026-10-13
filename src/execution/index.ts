@@ -57,41 +57,47 @@ function acquire(limit: number, signal: AbortSignal): Promise<(() => void) | nul
 const trackerSource = `
 $ErrorActionPreference = 'Stop'
 [Console]::Error.WriteLine('TRACKER_START')
-Add-Type -TypeDefinition @'
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-public static class ProcessSnapshot {
-  const uint TH32CS_SNAPPROCESS = 2;
-  [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-  struct PROCESSENTRY32 {
-    public uint dwSize, cntUsage, th32ProcessID;
-    public IntPtr th32DefaultHeapID;
-    public uint th32ModuleID, cntThreads, th32ParentProcessID;
-    public int pcPriClassBase;
-    public uint dwFlags;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string szExeFile;
-  }
-  [DllImport("kernel32.dll", SetLastError = true)] static extern IntPtr CreateToolhelp32Snapshot(uint flags, uint processId);
-  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32FirstW(IntPtr snapshot, ref PROCESSENTRY32 entry);
-  [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] static extern bool Process32NextW(IntPtr snapshot, ref PROCESSENTRY32 entry);
-  [DllImport("kernel32.dll")] static extern bool CloseHandle(IntPtr handle);
-  public static Dictionary<int, int> Parents() {
-    var result = new Dictionary<int, int>();
-    var snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == new IntPtr(-1)) throw new System.ComponentModel.Win32Exception();
-    try {
-      var entry = new PROCESSENTRY32();
-      entry.dwSize = (uint)Marshal.SizeOf(entry);
-      if (Process32FirstW(snapshot, ref entry)) do {
-        result[(int)entry.th32ProcessID] = (int)entry.th32ParentProcessID;
-        entry.dwSize = (uint)Marshal.SizeOf(entry);
-      } while (Process32NextW(snapshot, ref entry));
-      return result;
-    } finally { CloseHandle(snapshot); }
+# Emit native signatures directly: Add-Type invokes a C# compiler on every execution.
+$assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
+  (New-Object Reflection.AssemblyName('AutoAgentProcessSnapshot')),
+  [Reflection.Emit.AssemblyBuilderAccess]::Run)
+$module = $assembly.DefineDynamicModule('Native')
+$builder = $module.DefineType('ProcessSnapshot', [Reflection.TypeAttributes]::Public)
+function NativeMethod([string]$name, [type]$result, [type[]]$parameters) {
+  $method = $builder.DefinePInvokeMethod($name, 'kernel32.dll',
+    ([Reflection.MethodAttributes]::Public -bor [Reflection.MethodAttributes]::Static -bor [Reflection.MethodAttributes]::PinvokeImpl),
+    [Reflection.CallingConventions]::Standard, $result, $parameters,
+    [Runtime.InteropServices.CallingConvention]::Winapi, [Runtime.InteropServices.CharSet]::Unicode)
+  $method.SetImplementationFlags([Reflection.MethodImplAttributes]::PreserveSig)
+}
+NativeMethod 'CreateToolhelp32Snapshot' ([IntPtr]) @([uint32], [uint32])
+NativeMethod 'Process32FirstW' ([bool]) @([IntPtr], [IntPtr])
+NativeMethod 'Process32NextW' ([bool]) @([IntPtr], [IntPtr])
+NativeMethod 'CloseHandle' ([bool]) @([IntPtr])
+$native = $builder.CreateType()
+function Parents {
+  $parents = @{}
+  $snapshot = $native::CreateToolhelp32Snapshot(2, 0)
+  if ($snapshot -eq [IntPtr](-1)) { throw 'Process snapshot failed' }
+  # PROCESSENTRY32W includes an aligned ULONG_PTR; offsets differ by pointer size.
+  $size = if ([IntPtr]::Size -eq 8) { 568 } else { 556 }
+  $parentOffset = if ([IntPtr]::Size -eq 8) { 32 } else { 24 }
+  $entry = [IntPtr]::Zero
+  try {
+    $entry = [Runtime.InteropServices.Marshal]::AllocHGlobal($size)
+    [Runtime.InteropServices.Marshal]::WriteInt32($entry, $size)
+    if (-not $native::Process32FirstW($snapshot, $entry)) { throw 'Process snapshot enumeration failed' }
+    do {
+      $id = [Runtime.InteropServices.Marshal]::ReadInt32($entry, 8)
+      $parents[$id] = [Runtime.InteropServices.Marshal]::ReadInt32($entry, $parentOffset)
+      [Runtime.InteropServices.Marshal]::WriteInt32($entry, $size)
+    } while ($native::Process32NextW($snapshot, $entry))
+    return $parents
+  } finally {
+    if ($entry -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::FreeHGlobal($entry) }
+    $null = $native::CloseHandle($snapshot)
   }
 }
-'@
 [Console]::Error.WriteLine('TRACKER_TYPES_READY')
 $rootId = [int]$env:AUTO_AGENT_ANCHOR_PID
 if ($rootId -le 0) { throw 'Execution anchor identifier missing' }
@@ -103,7 +109,7 @@ function ProcessById([int]$id) {
   } catch { $null }
 }
 function Capture {
-  $parents = [ProcessSnapshot]::Parents()
+  $parents = Parents
   do {
     $changed = $false
     foreach ($entry in $parents.GetEnumerator()) {
