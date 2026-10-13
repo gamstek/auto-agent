@@ -48,14 +48,15 @@ export const knowledgeSchema = z.object({
   issues: z.array(z.string().min(1).max(1000)).max(100),
 });
 export type Knowledge = z.infer<typeof knowledgeSchema>;
-export const snapshotSchema = z.object({
+const snapshotSources = z
+  .array(z.object({ path: z.string(), hash: z.string(), knowledge: knowledgeSchema }))
+  .max(100);
+export const bundledSnapshotSchema = z.object({
   revision: z.literal(revision),
   builtAt: z.number(),
-  root: z.string(),
-  sources: z
-    .array(z.object({ path: z.string(), hash: z.string(), knowledge: knowledgeSchema }))
-    .max(100),
+  sources: snapshotSources,
 });
+export const snapshotSchema = bundledSnapshotSchema.extend({ root: z.string() });
 export type Snapshot = z.infer<typeof snapshotSchema>;
 export interface Source {
   path: string;

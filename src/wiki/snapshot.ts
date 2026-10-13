@@ -3,14 +3,16 @@ import { lstat, readFile, mkdir, rename, writeFile, unlink } from 'node:fs/promi
 import { join } from 'node:path';
 import type { Config } from '../config';
 import { AppError } from '../shared/types';
-import { snapshotSchema, type Snapshot } from './knowledge';
+import { collectBuiltinWikiSnapshot } from '../shared/builtin';
+import { bundledSnapshotSchema, snapshotSchema, type Snapshot } from './knowledge';
 import { hashText as hash } from '../shared/assets';
+import { sourceRoot } from './sources';
 
 export function snapshotPath(config: Config): string {
   return join(config.dataDir, 'wiki', 'snapshot.json');
 }
 
-export async function loadSnapshot(config: Config): Promise<Snapshot | undefined> {
+export async function loadStoredSnapshot(config: Config): Promise<Snapshot | undefined> {
   try {
     const path = snapshotPath(config);
     if ((await lstat(path)).size > 8 * 1024 * 1024)
@@ -23,6 +25,22 @@ export async function loadSnapshot(config: Config): Promise<Snapshot | undefined
       'Wiki snapshot is invalid; run an explicit knowledge update',
     );
   }
+}
+
+export async function loadBundledSnapshot(config: Config): Promise<Snapshot | undefined> {
+  if (!config.builtinWiki) return undefined;
+  try {
+    const snapshot = bundledSnapshotSchema.parse(JSON.parse(await collectBuiltinWikiSnapshot()));
+    return { ...snapshot, root: sourceRoot(config) };
+  } catch {
+    throw new AppError('wiki_snapshot', 'Built-in wiki knowledge snapshot is invalid');
+  }
+}
+
+export async function loadSnapshot(config: Config): Promise<Snapshot | undefined> {
+  const stored = await loadStoredSnapshot(config);
+  if (stored || config.wikiRoots.length) return stored;
+  return loadBundledSnapshot(config);
 }
 
 export async function saveSnapshot(

@@ -1,6 +1,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { collectBuiltinAssets } from '../src/shared/builtin';
+import { hashText } from '../src/shared/assets';
+import { bundledSnapshotSchema } from '../src/wiki/knowledge';
 
 const platform = process.argv[2];
 if (platform !== 'windows' && platform !== 'linux')
@@ -8,6 +10,21 @@ if (platform !== 'windows' && platform !== 'linux')
 
 const root = resolve(import.meta.dir, '..');
 const assetsModule = resolve(root, 'src', 'shared', 'builtin.ts');
+function validateBuiltinWiki(assets: Record<string, string>): void {
+  const text = assets['_knowledge.json'];
+  if (text === undefined) throw new Error('Built-in wiki knowledge snapshot is missing');
+  const snapshot = bundledSnapshotSchema.parse(JSON.parse(text));
+  const sources = Object.entries(assets)
+    .filter(
+      ([path]) =>
+        /\.(md|txt)$/i.test(path) && !path.split('/').some((part) => part.startsWith('.')),
+    )
+    .map(([path, content]) => [`builtin/${path}`, hashText(content)] as const);
+  const analyzed = snapshot.sources.map((source) => [source.path, source.hash] as const);
+  if (JSON.stringify(analyzed) !== JSON.stringify(sources))
+    throw new Error('Built-in wiki knowledge snapshot is stale; regenerate wiki/_knowledge.json');
+}
+
 await mkdir(resolve(root, 'dist'), { recursive: true });
 const result = await Bun.build({
   entrypoints: [resolve(root, 'src', 'index.ts')],
@@ -30,6 +47,7 @@ const result = await Bun.build({
             collectBuiltinAssets('skills'),
             collectBuiltinAssets('wiki'),
           ]);
+          validateBuiltinWiki(wiki);
           const source = await readFile(args.path, 'utf8');
           const collector = /export function collectBuiltinAssets\([\s\S]*?\n\}/;
           if (!collector.test(source))

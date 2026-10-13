@@ -10,7 +10,7 @@ test('repository config discovers example skills and the formal built-in analyze
   const config = await loadConfig(resolve('examples', 'config.json'), false, true);
   expect(config.skillRoots).toEqual([resolve('examples', 'skills')]);
   expect(config.dataDir).toBe(resolve('.auto-agent'));
-  expect(config.wikiRoots).toEqual([resolve('examples', 'wiki')]);
+  expect(config.wikiRoots).toEqual([]);
   expect(config.builtinWiki).toBe(true);
   const skills = new Skills(config);
   const catalog = await skills.discover();

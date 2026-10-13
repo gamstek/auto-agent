@@ -32,46 +32,13 @@ const knowledge = () => ({
   issues: ['此表只包含推荐条件，并非完整软件配置'],
 });
 test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
-  'compiled binary embeds wiki outside the repository without external roots',
+  'compiled binary embeds analyzed wiki outside the repository without external roots',
   async () => {
     const f = await fixture();
     f.config.resourceLimitBytes = 65536;
-    const server = Bun.serve({
-      hostname: '127.0.0.1',
-      port: 0,
-      fetch: async (request) => {
-        const body = await request.json();
-        const source = body.messages
-          .map((message: { content: string }) => message.content)
-          .join('\n');
-        const k = knowledge();
-        k.records[0].facts.preprocessing.citations[0].line = preprocessingLine(source);
-        return Response.json({
-          id: 'wiki',
-          object: 'chat.completion',
-          created: 1,
-          model: 'test',
-          choices: [
-            {
-              index: 0,
-              message: { role: 'assistant', content: JSON.stringify(k) },
-              finish_reason: 'stop',
-            },
-          ],
-          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-        });
-      },
-    });
     try {
       const configPath = join(f.dir, 'config.json');
-      await writeFile(
-        configPath,
-        JSON.stringify({
-          ...f.config,
-          builtinWiki: true,
-          baseURL: `http://127.0.0.1:${server.port}/v1`,
-        }),
-      );
+      await writeFile(configPath, JSON.stringify({ ...f.config, builtinWiki: true }));
       const child = Bun.spawn(
         [
           resolve(process.env.AUTO_AGENT_TEST_BINARY_PATH ?? join('dist', 'auto-agent.exe')),
@@ -93,17 +60,39 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
       ]);
       expect(stderr).not.toContain('[error]');
       expect(code).toBe(0);
-      expect(JSON.parse(stdout).sources).toBe(1);
+      expect(JSON.parse(stdout)).toMatchObject({ sources: 1, rebuilt: 0 });
       const snapshot = JSON.parse(
         await readFile(join(f.config.dataDir, 'wiki', 'snapshot.json'), 'utf8'),
       );
       expect(snapshot.sources[0].path).toBe(`builtin/${builtinTemplate}`);
+      expect(snapshot.sources[0].knowledge.records).toHaveLength(15);
     } finally {
-      server.stop(true);
       await f.cleanup();
     }
   },
 );
+
+test('built-in wiki is query-ready from bundled analyzed knowledge', async () => {
+  const f = await fixture();
+  f.config.resourceLimitBytes = 65536;
+  f.config.builtinWiki = true;
+  try {
+    const wiki = new Wiki(f.config);
+    expect(await wiki.status()).toMatchObject({ state: 'ready', records: 15 });
+    const response = (await wiki.query('硬碳 二氧化碳273K')) as any;
+    expect(response.indexedRecords).toBe(15);
+    expect(response.results[0]).toMatchObject({
+      source: `builtin/${builtinTemplate}`,
+      facts: {
+        material: { value: '硬碳' },
+        gasTemperature: { value: '二氧化碳273K（配循环水浴）' },
+      },
+    });
+    await expect(readFile(join(f.config.dataDir, 'wiki', 'snapshot.json'))).rejects.toThrow();
+  } finally {
+    await f.cleanup();
+  }
+});
 
 test('built-in wiki and external roots coexist, disable cleanly and detect modified extracted sources', async () => {
   const f = await fixture();
@@ -135,7 +124,7 @@ test('built-in wiki and external roots coexist, disable cleanly and detect modif
     expect(results.map((r: any) => r.source).some((p: string) => p.startsWith('external-'))).toBe(
       true,
     );
-    expect(calls).toBe(2);
+    expect(calls).toBe(1);
     f.config.builtinWiki = false;
     await expect(wiki.query('石墨')).rejects.toThrow('Run --wiki-update');
     expect((await wiki.update(model, new AbortController().signal)).sources).toBe(1);

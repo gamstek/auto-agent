@@ -4,7 +4,7 @@ import { AppError, type ModelAdapter } from '../shared/types';
 import { revision, type Snapshot } from './knowledge';
 import { knowledgeSchema, type Knowledge, type Source, parseKnowledge } from './knowledge';
 import { readSources, sourceRoot } from './sources';
-import { loadSnapshot, saveSnapshot, snapshotPath } from './snapshot';
+import { loadBundledSnapshot, loadStoredSnapshot, saveSnapshot, snapshotPath } from './snapshot';
 
 const activeUpdates = new Set<string>();
 
@@ -30,18 +30,20 @@ async function build(
 ): Promise<{ sources: number; rebuilt: number; builtAt: number }> {
   const sources = await readSources(config);
   if (!sources.length) throw new AppError('wiki_empty', 'No Markdown or text sources found');
-  const previous = await loadSnapshot(config).catch((error) => {
+  const previous = await loadStoredSnapshot(config).catch((error) => {
     if (error instanceof AppError && error.code === 'wiki_snapshot') return undefined;
     throw error;
   });
+  const bundled = await loadBundledSnapshot(config);
   let rebuilt = 0;
   const entries: Snapshot['sources'] = [];
   for (const source of sources) {
     signal.throwIfAborted();
     const cached =
-      previous?.root === sourceRoot(config)
+      (previous?.root === sourceRoot(config)
         ? previous.sources.find((s) => s.path === source.path && s.hash === source.hash)
-        : undefined;
+        : undefined) ??
+      bundled?.sources.find((s) => s.path === source.path && s.hash === source.hash);
     if (cached) {
       entries.push(cached);
       continue;

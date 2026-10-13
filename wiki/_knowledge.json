@@ -1,0 +1,1171 @@
+{
+  "revision": "wiki-v1",
+  "builtAt": 1791874612277,
+  "sources": [
+    {
+      "path": "builtin/比表面积及孔径分析仪自动化模板.md",
+      "hash": "4e50d22c16e6b48a768d1bedf428d41f6e4309384900c9ead5215826e12c9e92",
+      "knowledge": {
+        "summary": "按材料、测试需求、气体温度给出比表面积及孔径分析仪、预处理条件和测试模板建议。",
+        "records": [
+          {
+            "title": "石墨 · 仅需测比表面积",
+            "terms": [
+              "负极",
+              "石墨",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "石墨",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "石墨"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "200-300℃，2h",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "200-300℃，2h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 9,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "硬碳 · 比表面积+全孔分析",
+            "terms": [
+              "负极",
+              "硬碳",
+              "比表面积+全孔分析",
+              "氮气77K",
+              "全孔系列（2800 TP/Sicope）",
+              "微孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "硬碳",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "硬碳"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "比表面积+全孔分析",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "比表面积+全孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "全孔系列（2800 TP/Sicope）",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "全孔系列（2800 TP/Sicope）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "300℃，6h",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "300℃，6h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）",
+                "citations": [
+                  {
+                    "line": 10,
+                    "quote": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "硬碳 · 微孔分析",
+            "terms": [
+              "负极",
+              "硬碳",
+              "微孔分析",
+              "二氧化碳273K（配循环水浴）",
+              "全孔系列（2800 TP/Sicope）",
+              "介孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "硬碳",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "硬碳"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "微孔分析",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "微孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "二氧化碳273K（配循环水浴）",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "二氧化碳273K（配循环水浴）"
+                  }
+                ]
+              },
+              "device": {
+                "value": "全孔系列（2800 TP/Sicope）",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "全孔系列（2800 TP/Sicope）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "300℃，6h",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "300℃，6h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "介孔测试模板（绝对压力注气，20 mm Hg/压力点，平衡时间间隔10s）",
+                "citations": [
+                  {
+                    "line": 11,
+                    "quote": "介孔测试模板（绝对压力注气，20 mm Hg/压力点，平衡时间间隔10s）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "软碳 · 比表面积+全孔分析",
+            "terms": [
+              "负极",
+              "软碳",
+              "比表面积+全孔分析",
+              "氮气77K",
+              "全孔系列（2800 TP/Sicope）",
+              "微孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "软碳",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "软碳"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "比表面积+全孔分析",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "比表面积+全孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "全孔系列（2800 TP/Sicope）",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "全孔系列（2800 TP/Sicope）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "300℃，6h",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "300℃，6h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）",
+                "citations": [
+                  {
+                    "line": 12,
+                    "quote": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "硅碳 · 比表面积+全孔分析",
+            "terms": [
+              "负极",
+              "硅碳",
+              "比表面积+全孔分析",
+              "氮气77K",
+              "全孔系列（2800 TP/Sicope）",
+              "微孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "硅碳",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "硅碳"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "比表面积+全孔分析",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "比表面积+全孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "全孔系列（2800 TP/Sicope）",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "全孔系列（2800 TP/Sicope）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "150-250℃，2-4h",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "150-250℃，2-4h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）",
+                "citations": [
+                  {
+                    "line": 13,
+                    "quote": "微孔测试模板（低压注气5 mL/g，平衡时间间隔30s；目标压力注气，平衡时间间隔10s）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "钛酸锂（LTO） · 比表面积+介孔分析",
+            "terms": [
+              "负极",
+              "钛酸锂（LTO）",
+              "比表面积+介孔分析",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET+介孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "负极",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "钛酸锂（LTO）",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "钛酸锂（LTO）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "比表面积+介孔分析",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "比表面积+介孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "120℃，3h",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "120℃，3h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET+介孔测试模板",
+                "citations": [
+                  {
+                    "line": 14,
+                    "quote": "BET+介孔测试模板"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "锌粉 · 仅需测比表面积",
+            "terms": [
+              "锌系电池负极",
+              "锌粉",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "锌系电池负极",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "锌系电池负极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "锌粉",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "锌粉"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "80℃，2h（避免氧化）",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "80℃，2h（避免氧化）"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 15,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "磷酸铁锂 · 比表面积+介孔分析",
+            "terms": [
+              "锂电正极",
+              "磷酸铁锂",
+              "比表面积+介孔分析",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET+介孔"
+            ],
+            "facts": {
+              "category": {
+                "value": "锂电正极",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "锂电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "磷酸铁锂",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "磷酸铁锂"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "比表面积+介孔分析",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "比表面积+介孔分析"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "200℃，2h",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "200℃，2h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET+介孔测试模板",
+                "citations": [
+                  {
+                    "line": 16,
+                    "quote": "BET+介孔测试模板"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "三元材料（NCM） · 仅需测比表面积",
+            "terms": [
+              "锂电正极",
+              "三元材料（NCM）",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "锂电正极",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "锂电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "三元材料（NCM）",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "三元材料（NCM）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "120℃，3h",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "120℃，3h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 17,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "锰酸锂（LMO） · 仅需测比表面积",
+            "terms": [
+              "锂电正极",
+              "锰酸锂（LMO）",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "锂电正极",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "锂电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "锰酸锂（LMO）",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "锰酸锂（LMO）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "200℃，2h",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "200℃，2h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 18,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "富锂正极 · 仅需测比表面积",
+            "terms": [
+              "锂电正极",
+              "富锂正极",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "锂电正极",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "锂电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "富锂正极",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "富锂正极"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "120℃，3h",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "120℃，3h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 19,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "钴酸锂（LCO） · 仅需测比表面积",
+            "terms": [
+              "锂电正极",
+              "钴酸锂（LCO）",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "锂电正极",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "锂电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "钴酸锂（LCO）",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "钴酸锂（LCO）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "200℃，2h",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "200℃，2h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 20,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "PBA（普鲁士蓝-普鲁士白） · 仅需测比表面积",
+            "terms": [
+              "钠电正极",
+              "PBA（普鲁士蓝-普鲁士白）",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "钠电正极",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "钠电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "PBA（普鲁士蓝-普鲁士白）",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "PBA（普鲁士蓝-普鲁士白）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "120℃，3h（易吸水，含水量较高）",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "120℃，3h（易吸水，含水量较高）"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 21,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "层状过渡金属氧化物（层氧） · 仅需测比表面积",
+            "terms": [
+              "钠电正极",
+              "层状过渡金属氧化物（层氧）",
+              "仅需测比表面积",
+              "氮气77K（建议3/8样品管）",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "钠电正极",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "钠电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "层状过渡金属氧化物（层氧）",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "层状过渡金属氧化物（层氧）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K（建议3/8样品管）",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "氮气77K（建议3/8样品管）"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "120℃，3h",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "120℃，3h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 22,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          },
+          {
+            "title": "聚阴离子（NFPP，NVPF，NVP） · 仅需测比表面积",
+            "terms": [
+              "钠电正极",
+              "聚阴离子（NFPP，NVPF，NVP）",
+              "仅需测比表面积",
+              "氮气77K",
+              "介孔系列（2800/Climber）",
+              "BET"
+            ],
+            "facts": {
+              "category": {
+                "value": "钠电正极",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "钠电正极"
+                  }
+                ]
+              },
+              "material": {
+                "value": "聚阴离子（NFPP，NVPF，NVP）",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "聚阴离子（NFPP，NVPF，NVP）"
+                  }
+                ]
+              },
+              "requirement": {
+                "value": "仅需测比表面积",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "仅需测比表面积"
+                  }
+                ]
+              },
+              "gasTemperature": {
+                "value": "氮气77K",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "氮气77K"
+                  }
+                ]
+              },
+              "device": {
+                "value": "介孔系列（2800/Climber）",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "介孔系列（2800/Climber）"
+                  }
+                ]
+              },
+              "preprocessing": {
+                "value": "180℃，2h",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "180℃，2h"
+                  }
+                ]
+              },
+              "template": {
+                "value": "BET测试模板（0.05-0.3）",
+                "citations": [
+                  {
+                    "line": 23,
+                    "quote": "BET测试模板（0.05-0.3）"
+                  }
+                ]
+              }
+            },
+            "issues": ["来源仅提供建议条件；执行前需确认样品量、仪器兼容性及安全要求。"]
+          }
+        ],
+        "issues": ["内嵌内容是来源表格的结构化建议，不是已批准的可执行仪器配置。"]
+      }
+    }
+  ]
+}
