@@ -4,8 +4,8 @@ import { join, relative, resolve, sep } from 'node:path';
 import type { Config } from '../config';
 import { AppError } from '../shared/types';
 import { materializeBuiltins } from '../shared/builtin';
-import { hashText as hash } from '../shared/assets';
-import type { Source } from './knowledge';
+import { hashText } from '../shared/assets';
+import { sourceHash, type Source } from './knowledge';
 
 export function sourceRoot(config: Config): string {
   return JSON.stringify({
@@ -22,7 +22,10 @@ export async function readSources(config: Config): Promise<Source[]> {
       prefix: 'builtin',
     });
   for (const path of config.wikiRoots)
-    roots.push({ path: resolve(path), prefix: `external-${hash(resolve(path)).slice(0, 16)}` });
+    roots.push({
+      path: resolve(path),
+      prefix: `external-${hashText(resolve(path)).slice(0, 16)}`,
+    });
   const sources: Source[] = [];
   let bytes = 0;
   for (const configured of roots) {
@@ -89,7 +92,7 @@ export async function readSources(config: Config): Promise<Source[]> {
         bytes += buffer.length;
         sources.push({
           path: `${configured.prefix}/${relative(root, path).split(sep).join('/')}`,
-          hash: hash(text),
+          hash: sourceHash(text),
           text,
         });
       }

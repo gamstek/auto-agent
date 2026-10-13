@@ -9,6 +9,7 @@ import { ScriptExecutor } from '../../src/execution';
 import { AgentService } from '../../src/agent';
 import { AppError, type ModelAdapter } from '../../src/shared/types';
 import { CloudModel } from '../../src/llm';
+import { sourceHash } from '../../src/wiki/knowledge';
 
 const document = '石墨\t仅需测比表面积\t氮气77K\t200-300℃，2h\tBET（0.05-0.3）';
 const builtinTemplate = '比表面积及孔径分析仪自动化模板.md';
@@ -71,6 +72,10 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
     }
   },
 );
+
+test('wiki source hashes are stable across checkout line endings', () => {
+  expect(sourceHash('first\r\nsecond\r\n')).toBe(sourceHash('first\nsecond\n'));
+});
 
 test('built-in wiki is query-ready from bundled analyzed knowledge', async () => {
   const f = await fixture();

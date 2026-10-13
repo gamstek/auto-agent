@@ -1,7 +1,9 @@
 import { AppError } from '../shared/types';
+import { hashText } from '../shared/assets';
 import { z } from 'zod';
 
 export const revision = 'wiki-v1';
+export const sourceHash = (text: string) => hashText(text.replace(/\r\n/g, '\n'));
 const citation = z.object({
   line: z.number().int().positive(),
   quote: z.string().min(1).max(4000),

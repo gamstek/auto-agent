@@ -1,8 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { collectBuiltinAssets } from '../src/shared/builtin';
-import { hashText } from '../src/shared/assets';
-import { bundledSnapshotSchema } from '../src/wiki/knowledge';
+import { bundledSnapshotSchema, sourceHash } from '../src/wiki/knowledge';
 
 const platform = process.argv[2];
 if (platform !== 'windows' && platform !== 'linux')
@@ -19,7 +18,7 @@ function validateBuiltinWiki(assets: Record<string, string>): void {
       ([path]) =>
         /\.(md|txt)$/i.test(path) && !path.split('/').some((part) => part.startsWith('.')),
     )
-    .map(([path, content]) => [`builtin/${path}`, hashText(content)] as const);
+    .map(([path, content]) => [`builtin/${path}`, sourceHash(content)] as const);
   const analyzed = snapshot.sources.map((source) => [source.path, source.hash] as const);
   if (JSON.stringify(analyzed) !== JSON.stringify(sources))
     throw new Error('Built-in wiki knowledge snapshot is stale; regenerate wiki/_knowledge.json');

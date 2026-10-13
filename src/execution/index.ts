@@ -58,21 +58,19 @@ const trackerSource = `
 $ErrorActionPreference = 'Stop'
 $rootId = [int][Console]::In.ReadLine()
 $tracked = @{}
+function ProcessById([int]$id) {
+  Get-CimInstance Win32_Process -Filter ('ProcessId=' + $id) | Select-Object -First 1
+}
 function Capture {
-  $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, CreationDate)
-  if ($tracked.Count -eq 0) {
-    $root = $all | Where-Object { $_.ProcessId -eq $rootId } | Select-Object -First 1
-    if (-not $root) { throw 'Execution anchor missing' }
-    $tracked[$rootId] = $root
-  }
   do {
     $changed = $false
-    foreach ($item in $all) {
-      $id = [int]$item.ProcessId
-      $parentId = [int]$item.ParentProcessId
-      if (-not $tracked.ContainsKey($id) -and $tracked.ContainsKey($parentId)) {
-        $parent = $all | Where-Object { $_.ProcessId -eq $parentId } | Select-Object -First 1
-        if ($parent -and $parent.CreationDate -eq $tracked[$parentId].CreationDate -and $item.CreationDate -ge $parent.CreationDate) {
+    foreach ($parentId in @($tracked.Keys)) {
+      $parent = ProcessById $parentId
+      if (-not $parent -or $parent.CreationDate -ne $tracked[$parentId].CreationDate) { continue }
+      $children = @(Get-CimInstance Win32_Process -Filter ('ParentProcessId=' + $parentId))
+      foreach ($item in $children) {
+        $id = [int]$item.ProcessId
+        if (-not $tracked.ContainsKey($id) -and $item.CreationDate -ge $parent.CreationDate) {
           $tracked[$id] = $item
           $changed = $true
         }
@@ -81,7 +79,9 @@ function Capture {
   } while ($changed)
 }
 try {
-  Capture
+  $root = ProcessById $rootId
+  if (-not $root) { throw 'Execution anchor missing' }
+  $tracked[$rootId] = $root
   [Console]::Out.WriteLine('TRACKED')
   $stop = [Console]::In.ReadLineAsync()
   while (-not $stop.IsCompleted) { Capture; Start-Sleep -Milliseconds 50 }
