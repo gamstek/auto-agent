@@ -19,13 +19,17 @@ test('bounded history, stable pagination and health version', async () => {
     },
   });
   try {
-    const sessions = Array.from({ length: 105 }, () => store.createSession());
-    store.db.query('UPDATE sessions SET updatedAt = 1').run();
-    const session = sessions[0];
-    const messages = Array.from({ length: 105 }, (_, i) =>
-      store.addMessage(session.id, 'user', `${i}中文`),
-    );
-    store.db.query('UPDATE messages SET createdAt = 1').run();
+    // Batch fixture writes; pagination is not a per-commit disk durability benchmark.
+    const { sessions, session, messages } = store.db.transaction(() => {
+      const sessions = Array.from({ length: 105 }, () => store.createSession());
+      store.db.query('UPDATE sessions SET updatedAt = 1').run();
+      const session = sessions[0];
+      const messages = Array.from({ length: 105 }, (_, i) =>
+        store.addMessage(session.id, 'user', `${i}中文`),
+      );
+      store.db.query('UPDATE messages SET createdAt = 1').run();
+      return { sessions, session, messages };
+    })();
     expect(store.messages(session.id).map((m) => m.id)).toEqual(
       messages.slice(-100).map((m) => m.id),
     );
