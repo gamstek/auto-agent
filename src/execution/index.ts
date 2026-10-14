@@ -56,10 +56,11 @@ function acquire(limit: number, signal: AbortSignal): Promise<(() => void) | nul
 // CreationDate protects against PID reuse; no process-name matching is used.
 const trackerSource = `
 $ErrorActionPreference = 'Stop'
+$PSModuleAutoLoadingPreference = 'None'
 [Console]::Error.WriteLine('TRACKER_START')
-# Emit native signatures directly: Add-Type invokes a C# compiler on every execution.
+# Use only .NET APIs: cmdlet module discovery can stall in a sanitized environment.
 $assembly = [AppDomain]::CurrentDomain.DefineDynamicAssembly(
-  (New-Object Reflection.AssemblyName('AutoAgentProcessSnapshot')),
+  ([Reflection.AssemblyName]::new('AutoAgentProcessSnapshot')),
   [Reflection.Emit.AssemblyBuilderAccess]::Run)
 $module = $assembly.DefineDynamicModule('Native')
 $builder = $module.DefineType('ProcessSnapshot', [Reflection.TypeAttributes]::Public)
@@ -104,8 +105,10 @@ if ($rootId -le 0) { throw 'Execution anchor identifier missing' }
 $tracked = @{}
 function ProcessById([int]$id) {
   try {
-    $process = Get-Process -Id $id -ErrorAction Stop
-    [PSCustomObject]@{ ProcessId = [int]$process.Id; CreationDate = [long]$process.StartTime.ToUniversalTime().Ticks }
+    $process = [Diagnostics.Process]::GetProcessById($id)
+    try {
+      [PSCustomObject]@{ ProcessId = [int]$process.Id; CreationDate = [long]$process.StartTime.ToUniversalTime().Ticks }
+    } finally { $process.Dispose() }
   } catch { $null }
 }
 function Capture {
@@ -132,17 +135,23 @@ try {
   $tracked[$rootId] = $root
   [Console]::Out.WriteLine('TRACKED')
   $stop = [Console]::In.ReadLineAsync()
-  while (-not $stop.IsCompleted) { Capture; Start-Sleep -Milliseconds 50 }
+  while (-not $stop.IsCompleted) { Capture; [Threading.Thread]::Sleep(50) }
   for ($attempt = 0; $attempt -lt 5; $attempt++) {
     Capture
-    $ids = @($tracked.Keys | Where-Object { $_ -ne $rootId }) + @($rootId)
+    $ids = @()
+    foreach ($id in $tracked.Keys) { if ($id -ne $rootId) { $ids += $id } }
+    $ids += $rootId
     foreach ($id in $ids) {
-      $current = ProcessById $id
-      if ($current -and $current.CreationDate -eq $tracked[$id].CreationDate) {
-        Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
-      }
+      try {
+        $process = [Diagnostics.Process]::GetProcessById($id)
+        try {
+          if ($process.StartTime.ToUniversalTime().Ticks -eq $tracked[$id].CreationDate) {
+            $process.Kill()
+          }
+        } finally { $process.Dispose() }
+      } catch {}
     }
-    Start-Sleep -Milliseconds 50
+    [Threading.Thread]::Sleep(50)
     $alive = @()
     foreach ($id in $tracked.Keys) {
       $current = ProcessById $id

@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -240,6 +240,47 @@ test('automatic fallback keeps the global concurrency slot and queued cancellati
 }, 30000);
 
 test.skipIf(process.platform !== 'win32')(
+  'Windows tracker captures and cleans its anchor with module autoload disabled',
+  async () => {
+    const source = await readFile(resolve('src', 'execution', 'index.ts'), 'utf8');
+    const tracker = source.match(/const trackerSource = `([\s\S]*?)`;/)![1]!;
+    const anchor = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], {
+      stdio: 'ignore',
+    });
+    const closed = new Promise<void>((resolve) => anchor.once('close', () => resolve()));
+    try {
+      const result = spawnSync(
+        join(process.env.SystemRoot!, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        [
+          '-NoLogo',
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          "$PSModuleAutoLoadingPreference = 'None';\n" + tracker,
+        ],
+        {
+          env: {
+            SystemRoot: process.env.SystemRoot,
+            PATH: '',
+            AUTO_AGENT_ANCHOR_PID: String(anchor.pid),
+          },
+          input: 'STOP\n',
+          encoding: 'utf8',
+          timeout: 10000,
+        },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stdout).toContain('TRACKED');
+      expect(result.stdout).toContain('CLEAN');
+    } finally {
+      if (anchor.exitCode === null && anchor.signalCode === null) anchor.kill();
+      await closed;
+    }
+  },
+  15000,
+);
+
+test.skipIf(process.platform !== 'win32')(
   'Windows tracker starts without a compiler temporary directory',
   async () => {
     const f = await setup();
@@ -275,10 +316,11 @@ test('external interpreter mappings also use the embedded Windows anchor', async
   try {
     const windows = process.platform === 'win32';
     const filename = windows ? 'external.ps1' : 'external.js';
+    // Test external dispatch, not PowerShell module discovery with an empty PATH.
     await writeFile(
       join(f.scripts, filename),
       windows
-        ? "Write-Output ('external:' + $args[0])"
+        ? "$PSModuleAutoLoadingPreference = 'None'; [Console]::Out.WriteLine('external:' + $args[0])"
         : "console.log('external:' + process.argv[2]);",
     );
     const command = windows
