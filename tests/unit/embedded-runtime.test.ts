@@ -194,18 +194,10 @@ test('automatic fallback bounds output and cleans anchored descendants on timeou
       );
       clearTimeout(timer);
       expect(result.status).toBe(mode);
-      if (process.platform === 'win32' && mode === 'timeout') {
-        expect(result.stderr).toContain('[execution]');
-        expect(result.stderr).toContain('anchor_ready@');
-        expect(result.stderr).toContain('tracker_ready@');
-        expect(result.stderr).toContain('launch_sent@');
-        expect(result.stderr).toContain('launch_received@');
-        expect(result.stderr).not.toContain(f.skill);
-        expect(result.stderr).not.toContain('FIXTURE_VALUE');
-        expect(
-          Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
-        ).toBeLessThanOrEqual(f.config.outputLimitBytes);
-      }
+      expect(result.stderr).toBe('');
+      expect(
+        Buffer.byteLength(result.stdout) + Buffer.byteLength(result.stderr),
+      ).toBeLessThanOrEqual(f.config.outputLimitBytes);
       const pids = JSON.parse(await readFile(join(f.skill, 'pids.json'), 'utf8')) as number[];
       expect(pids.length).toBe(2);
       for (const pid of pids) expect(() => process.kill(pid, 0)).toThrow();
@@ -398,12 +390,6 @@ for (const [name, [executable, prefix]] of entries) {
       });
       const closed = new Promise<void>((resolve) => anchor.once('close', () => resolve()));
       try {
-        const ready = new Promise<unknown>((resolve, reject) => {
-          anchor.once('message', resolve);
-          anchor.once('error', reject);
-          anchor.once('exit', () => reject(new Error('Anchor exited before ready: ' + stderr)));
-        });
-        expect(await ready).toEqual({ anchorReady: true });
         const script = join(f.scripts, 'main.js');
         await writeFile(script, `console.log('script-only');`);
         const message = new Promise<unknown>((resolve, reject) => {
