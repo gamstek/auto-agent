@@ -4,3 +4,4 @@ dist/
 .env
 *.sqlite*
 coverage/
+docs/internal/
