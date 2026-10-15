@@ -32,52 +32,51 @@ test('formal built-in skill loads host-independent interface guidance and preser
     const skills = new Skills(config);
     const catalog = await skills.discover();
     expect(catalog.map((s) => s.name)).toEqual(['device-automation']);
-    expect(catalog[0]!.description).toContain('下发自动化设备并运行');
+    expect(catalog[0]!.description).toContain('预设自动化流程');
+    expect(catalog[0]!.description).toContain('单台仪器');
     expect(catalog[0]!.metadata.compatibility).toContain('需要可调用的设备接口');
     expect(catalog[0]!.metadata.compatibility).not.toContain('builtin');
     expect(skills.source('device-automation')).toBe('built-in');
     const content = await skills.load('device-automation');
-    expect(content).toContain('根据需求匹配模板并运行自动化设备');
+    expect(content).toContain('设备自动化与单仪器控制');
     expect(content).toContain('当前环境提供的');
-    expect(content).toContain('references/interfaces.md');
+    expect(content).toContain('references/automation.md');
     expect(content).toContain('模板推荐草案——参数尚未确认，不可下发运行');
-    expect(content).not.toContain('scripts/device.js');
-    expect(content).not.toContain('validate-template');
     expect(content).toContain('仅复用满足需求的已有模板');
-    expect(content).toContain('模板文件名从知识资料匹配结果或用户提供的信息取得');
     expect(content).toContain('不查询、列举或读取设备模板目录');
     expect(content).toContain('暂不支持生成、创建或修改模板');
-    expect(content).toContain('不调用任务控制操作');
-    const interfaces = await skills.read('device-automation', 'references/interfaces.md');
-    expect(interfaces).toContain('不绑定特定 Agent 或工具名称');
-    expect(interfaces).toContain('由接口部署配置决定');
-    expect(interfaces).toContain('测量提交');
-    expect(interfaces).toContain('templateFile');
-    expect(interfaces).toContain('文件名');
-    expect(interfaces).toContain('接口没有样品标识字段');
-    expect(content).toContain('不询问、生成或下发样品编号');
-    expect(content).not.toContain('sampleId');
-    expect(interfaces).not.toContain('sampleId');
-    for (const guidance of [content, interfaces])
+    expect(content).toContain('不要同时绕过流程直接启动其中的仪器');
+    const automation = await skills.read('device-automation', 'references/automation.md');
+    expect(automation).toContain('预先设置好的一系列流程');
+    expect(automation).toContain('submit-run');
+    expect(automation).toContain('templateFile');
+    expect(automation).toContain('模拟实现');
+    for (const guidance of [content, automation, catalog[0]!.metadata.compatibility]) {
       expect(guidance).not.toMatch(
-        /save-template|control-measurement|templateId|list-templates|get-template/,
-      );
-    expect(interfaces).not.toContain('validate-template');
-    for (const guidance of [content, interfaces, catalog[0]!.metadata.compatibility]) {
-      expect(guidance).not.toMatch(
-        /wiki|execute_script|`read`|\.auto-agent|AUTO_AGENT_|scriptEnv|模拟|合成|sim-analyzer/i,
+        /wiki|execute_script|`read`|\.auto-agent|AUTO_AGENT_|scriptEnv/i,
       );
     }
-    expect(content).toContain('契约描述操作和数据约定，不代表设备已经连接');
-    expect(Object.hasOwn(assets, 'device-automation/scripts/instrument.js')).toBe(true);
-    expect(Object.hasOwn(assets, 'device-automation/scripts/device.js')).toBe(false);
+    expect(Object.hasOwn(assets, 'device-automation/scripts/automation.js')).toBe(true);
+    expect(Object.hasOwn(assets, 'device-automation/scripts/climber.js')).toBe(true);
+    expect(content).toContain('references/climber.md');
+    const climber = await skills.read('device-automation', 'references/climber.md');
+    expect(climber).toContain('不需要提交自动化流程');
+    expect(climber).toContain('CLIMBER_ANALYZER_START');
+    expect(climber).toContain('OUTCOME_UNKNOWN');
+    expect((await skills.resolveScript('device-automation', 'scripts/climber.js')).path).toEndWith(
+      'climber.js',
+    );
     expect(
-      (await skills.resolveScript('device-automation', 'scripts/instrument.js')).path,
-    ).toEndWith('instrument.js');
+      Object.keys(assets)
+        .filter((path) => path.endsWith('.js'))
+        .sort(),
+    ).toEqual(['device-automation/scripts/automation.js', 'device-automation/scripts/climber.js']);
+    expect(
+      (await skills.resolveScript('device-automation', 'scripts/automation.js')).path,
+    ).toEndWith('automation.js');
     expect(
       (await skills.files('device-automation')).map((path) => path.replaceAll('\\', '/')),
-    ).toContain(`${catalog[0]!.directory.replaceAll('\\', '/')}/references/interfaces.md`);
-    await expect(skills.resolveScript('device-automation', 'scripts/device.js')).rejects.toThrow();
+    ).toContain(`${catalog[0]!.directory.replaceAll('\\', '/')}/references/automation.md`);
     const first = await materializeBuiltins(config.dataDir, 'skills');
     for (const [path, asset] of Object.entries(assets))
       expect(await readFile(join(first, ...path.split('/')), 'utf8')).toBe(asset);
@@ -104,7 +103,7 @@ test('built-ins disable cleanly, duplicate names fail, modified resources are no
       'Duplicate',
     );
     const root = await materializeBuiltins(f.config.dataDir, 'skills');
-    await writeFile(join(root, 'device-automation', 'references', 'interfaces.md'), 'modified');
+    await writeFile(join(root, 'device-automation', 'references', 'automation.md'), 'modified');
     await expect(materializeBuiltins(f.config.dataDir, 'skills')).rejects.toThrow('modified');
   } finally {
     await f.cleanup();

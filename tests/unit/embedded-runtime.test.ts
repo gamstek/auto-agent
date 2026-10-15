@@ -347,13 +347,13 @@ if (process.env.AUTO_AGENT_TEST_BINARY)
     ],
   ]);
 for (const [name, [executable, prefix]] of entries) {
-  test(`${name} internal dispatch runs an extracted instrument script without app startup`, async () => {
+  test(`${name} internal dispatch runs an extracted automation script without app startup`, async () => {
     const f = await setup();
     try {
-      const script = join(f.scripts, 'instrument.js');
+      const script = join(f.scripts, 'automation.js');
       await writeFile(
         script,
-        await readFile(resolve('skills', 'device-automation', 'scripts', 'instrument.js')),
+        await readFile(resolve('skills', 'device-automation', 'scripts', 'automation.js')),
       );
       const child = Bun.spawn([executable, ...prefix, script, 'list'], {
         cwd: f.skill,

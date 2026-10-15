@@ -15,6 +15,10 @@
     ".sh": "bash"
   },
   "scriptTimeoutMs": 30000,
+  "scriptEnv": {
+    "CLIMBER_SERVICE_URL": "http://127.0.0.1:19181",
+    "CLIMBER_TIMEOUT_MS": "5000"
+  },
   "outputLimitBytes": 65536,
   "maxSteps": 12,
   "maxInputTokens": 1000000,

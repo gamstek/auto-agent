@@ -106,6 +106,11 @@ export async function ensureDefaultConfig(
     systemPrompt: DEFAULT_SYSTEM_PROMPT,
     // Script extension → executable; bare Node falls back to embedded Bun if absent.
     interpreters: { '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' },
+    // Local Climber Python subservice connection for the device-automation skill.
+    scriptEnv: {
+      CLIMBER_SERVICE_URL: 'http://127.0.0.1:19181',
+      CLIMBER_TIMEOUT_MS: '5000',
+    },
   };
   try {
     await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx', mode: 0o600 });

@@ -146,7 +146,12 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(template.maxOutputTokens).toBe(16000);
     expect(template.maxInputTokens).toBe(1000000);
     expect(template.webAllowPrivateAddresses).toBe(true);
+    expect(template.scriptEnv).toEqual({
+      CLIMBER_SERVICE_URL: 'http://127.0.0.1:19181',
+      CLIMBER_TIMEOUT_MS: '5000',
+    });
     const config = await loadConfig(created.path, true, true);
+    expect(config.scriptEnv).toEqual(template.scriptEnv);
     expect(config.interpreters['.js']).toBe('node');
     expect(config.maxOutputTokens).toBe(16000);
     expect(config.maxInputTokens).toBe(1000000);

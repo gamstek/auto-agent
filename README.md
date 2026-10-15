@@ -257,11 +257,47 @@ Internally, `src/shared/builtin.ts` collects and releases both skill/wiki resour
 
 ## Built-in Skills
 
-The root [skills](skills) directory contains built-in packages; examples remain under [examples/skills](examples/skills), and external skills are configured through `skillRoots`. 内置 `device-automation` 技能采用中文说明，围绕“理解用户需求 → 根据知识来源匹配已有模板 → 下发模板文件名 → 运行任务 → 获取结果”组织比表面积与孔径分析流程。`references/interfaces.md` 描述通用设备接口契约：设备发现与状态查询、测量提交与状态查询、结果获取和报告导出。没有模板列举或读取接口；文件名从知识资料匹配结果或用户提供的信息取得，Agent 不查询、读取或配置设备模板目录。暂不支持生成、创建或修改模板，也不支持暂停、恢复或取消任务。提交使用 `templateFile` 文件名，设备自行在部署配置的模板目录查找对应文件，不下发模板参数对象或文件路径。技能不假定 `wiki`、`read`、`execute_script` 等工具存在，也不绑定宿主专用目录；资料读取、检索和接口调用使用宿主实际提供的能力。不提供独立模板校验命令；提交保留必要的接口输入约束。以下部署说明仅针对本项目随附的 `scripts/instrument.js` 当前实现，不是通用技能要求；接口契约本身不代表硬件已经连接。 The former desk-lamp/plug/thermostat demonstration and `scripts/device.js` have been removed.
+内置 `device-automation` 技能包含两条独立入口：
 
-The backend is explicitly simulation-only, although individual JSON responses omit a `simulated` flag to exercise interface-style schemas. IDs/models identify fixture instruments; generated results are not properties measured from a real sample. Submission accepts only `{deviceId, templateFile}`. The filename comes from cited knowledge matches or user-provided information, never from an invented device query. `list-templates` and `get-template` are not supported. The simulator records the filename without reading or listing a template directory, requires no template-directory setting, and accepts filenames with device-specific extensions. It does not prove the referenced file exists on a real device or that its parameters are suitable. Task snapshots contain the filename only; new results do not invent a method or template parameters. Real devices resolve the submitted filename themselves. Tasks persist under `<user-home>/.auto-agent/simulated-instruments` by default; operators can set an absolute `AUTO_AGENT_SIMULATION_DIR` through `scriptEnv`. State (`simulation-state.json`) and exported reports preserve backend provenance and stay separate from real experiment data and bundled skill directories. Tasks complete by elapsed simulation time (default 1,000 ms, configurable using `AUTO_AGENT_SIMULATION_DURATION_MS`, 1–600,000 ms), without background processes; reads do not modify state. Mutations are exclusively locked and atomically published; busy/corrupt state fails closed. No reset, arbitrary report path, or implicit overwrite is supported. Submission validates only device identifiers and filenames; there is no sample identifier field, but does not inspect template content or provide scientific/hardware approval. `save-template` and `control-measurement` are unsupported. New state uses schema version 4; legacy version 1, 2 and 3 tasks remain queryable and completed tasks can still export reports without replacing historical identifiers, template snapshots or provenance. New submissions against a legacy state are rejected: operators must configure a separate simulation data directory rather than deleting or silently migrating old data. Submission/export need authorized scope, and uncertain effects must not be retried automatically.
+| 入口       | 作用                                                                         | 契约与实现                                                                                                 |
+| ---------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 自动化流程 | 根据材料、样品及测试需求匹配已有模板，交给自动化控制系统运行预设的一系列流程 | [automation.md](skills/device-automation/references/automation.md)；`scripts/automation.js` 为开发模拟实现 |
+| 单仪器控制 | 直接查询或操作指定仪器，当前接入 Climber                                     | [climber.md](skills/device-automation/references/climber.md)；`scripts/climber.js` 连接 Python 子服务      |
 
-`builtinSkills` defaults to `true`. Source runs read every UTF-8 file under the root `skills` directory, relative to the source module rather than the launch directory. The `build:windows` and `build:linux` commands use a Bun build plugin to embed the same resources into standalone executables; no generated source files or `pre*` hooks are required. Both modes release a content-versioned copy under `dataDir/builtin-skills/<version>` before discovery. No `skillRoots` configuration is needed for `device-automation`; its interface script remains a standard Node.js skill script. Auto-Agent keeps `.js: "node"`, uses installed Node.js when available, and falls back to its embedded runtime only when that bare command is missing. No skill-specific execution branch or change to the skill's dependency declaration is required. Explicit `.js: "builtin"` remains available to operators; errors from a launched script are never retried using another runtime. Do not confuse the bundled simulation backend with a real instrument adapter. Built-ins use the same metadata/path validation, execution limits, audit, and cancellation as configured skills.
+技能先识别任务类型，再加载对应契约。自动化流程内的步骤与仪器调度由控制系统负责，Agent 不同时直接启动其中的仪器。单独操作 Climber 无需提交流程；状态和结果查询无需先匹配模板。需要模板时，依据知识来源或用户资料选择已有模板，保留适用条件及引用，不生成模板或猜测文件名、路径。
+
+### Climber 真实设备接入
+
+`scripts/climber.js` 通过 Python 子服务控制左站 1–3 口。启动使用批次、实验、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径。Agent 确认模板、必要字段和运行授权，查询目标站与厂家状态后提交批次，并跟踪实际状态及归档结果。
+
+程序首次启动自动生成的 `config.json` 已包含以下 `scriptEnv` 连接设置；使用自定义配置时可自行加入或修改（默认地址适用于同机部署）：
+
+```json
+{
+  "scriptEnv": {
+    "CLIMBER_SERVICE_URL": "http://127.0.0.1:19181",
+    "CLIMBER_TIMEOUT_MS": "5000"
+  }
+}
+```
+
+重启应用后生效。地址必须指向 Python 子服务源地址，不是厂家 `:18080/api/v1`。应用启动不会主动访问设备，执行技能命令时才调用配置的地址。脚本使用支持 fetch 的 Node.js（CI 为 Node.js 22）或应用兼容的内嵌运行时。按现行文档没有为子服务调用增加鉴权字段，凭据不得放入 `scriptEnv` 或 URL。部署若需要额外鉴权，需先对齐相应合同与凭据注入方式。
+
+调用参数：只读 `health`、`status`、`vendor-health`、`vendor-status`、`results`；写入 `start` 加一个包含 `commandId` 和 `payload` 的 JSON 参数，字段示例见控制契约。`resume`、`clear-error`、`status-poll` 对应子服务本地管理命令，不能解释为物理继续、仪器复位或强制新查询。所有写命令均不自动重试；超时或无效回执保留标识并返回 `OUTCOME_UNKNOWN`，需只读对账。
+
+启动受理不等于实际 RUNNING；归档 PENDING 不改变设备完成事实。脚本不直接调用厂家登记/启动，不提供物理暂停/停止/取消、窗口关闭、自动 PDF 或右站并行能力。通过本地 HTTP mock 验证接口合同；真实现场连通性与设备动作仍需在实际部署中核对。
+
+### 自动化流程与模拟脚本
+
+自动化设备是运行既定流程的系统。接口为 `list`、`status <deviceId>`、`submit-run <JSON>`、`run <runId>`、`results <runId>`、`export-report <runId>`。提交仅包含 `{deviceId, templateFile}`，设备在部署配置的目录中查找已有流程模板。AI 不读取或配置模板目录，不提交单仪器字段，不编辑流程；当前没有模板管理或流程暂停/继续/取消接口。报告能力属于流程后端，不代表 Climber 支持报告生成。
+
+`scripts/automation.js` 当前仅模拟自动化流程。设备以 `kind=preset-workflow` 标识，所有成功响应含 `backend=simulation`，合成结果和报告保留来源说明，不是真实测量。模拟器仅记录模板文件名，不验证文件存在或读取流程内容。运行按模拟时长完成，无后台进程；默认 1,000 ms，可通过 `scriptEnv.AUTO_AGENT_SIMULATION_DURATION_MS` 设置为 1–600,000 ms。
+
+模拟数据默认写入 `<user-home>/.auto-agent/simulated-automation`，也可通过 `scriptEnv.AUTO_AGENT_SIMULATION_DIR` 指定技能目录外的绝对路径。状态包含 `kind=preset-workflow` 和 `runs`，仅接受当前结构；没有历史状态读取、迁移、旧字段或命令别名。只读查询不写状态；写操作独占加锁并原子发布，损坏状态和已有锁不自动重置，已有报告不被静默覆盖。模拟数据与真实实验数据分别管理，写入效果未知时不自动重试。
+
+### 技能资源加载
+
+The root [skills](skills) directory contains built-in packages; examples remain under [examples/skills](examples/skills), and external skills are configured through `skillRoots`. `builtinSkills` defaults to `true`. Source runs read every UTF-8 file under the root `skills` directory, relative to the source module rather than the launch directory. The `build:windows` and `build:linux` commands embed the same resources into standalone executables. Both modes release a content-versioned copy under `dataDir/builtin-skills/<version>` before discovery. No `skillRoots` configuration is needed for `device-automation`. Auto-Agent keeps `.js: "node"`, uses installed Node.js when available, and falls back to its embedded runtime only when that bare command is missing. Explicit `.js: "builtin"` is also available; errors from a launched script are never retried using another runtime. Built-ins use the same metadata/path validation, execution limits, audit, and cancellation as configured skills.
 
 Set `builtinSkills: false` to disable extraction/loading. Extracted built-in files are verified against embedded content; modifications fail closed instead of being overwritten or executed. A configured skill with the same name produces a duplicate-name diagnostic, never silently overriding the built-in. Do not edit generated copies: change the source package and rebuild, or supply a separately named configured skill.
 
