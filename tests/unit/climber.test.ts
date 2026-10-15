@@ -204,7 +204,13 @@ test('Climber distinguishes rejection from uncertain effects without retrying wr
       expect(result.value.error.taskId).toBe('BATCH-001');
       if (value === 'rejected')
         expect(result.value.error.response.error.code).toBe('LOCAL_CONTROL_CONFLICT');
-      expect(requests - before).toBe(1);
+      if (value === 'timeout') {
+        // The deadline also covers connection setup: a slow CI runner may abort
+        // before the request reaches the server. Either outcome must not retry.
+        expect(requests - before).toBeLessThanOrEqual(1);
+      } else {
+        expect(requests - before).toBe(1);
+      }
     }
   } finally {
     server.stop(true);
