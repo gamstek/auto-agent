@@ -1,4 +1,4 @@
-import { safeTerminalText, TerminalMarkdown } from './markdown';
+import { safeTerminalText, TerminalMarkdown, TerminalText } from './markdown';
 import type { Writable } from 'node:stream';
 import type { AgentEvent, Message } from '../shared/types';
 import { ConsoleOutput } from '../shared/console';
@@ -6,12 +6,14 @@ const colors = { user: 36, assistant: 32, system: 90, tool: 33, error: 31 };
 export class ReplRenderer {
   private textOpen = false;
   private markdown?: TerminalMarkdown;
+  private reasoningOpen = false;
+  private reasoningText?: TerminalText;
   private readonly console: ConsoleOutput;
   constructor(
     private output: Writable,
-    error: Writable,
+    private error: Writable,
     private color: boolean,
-    diagnosticColor = color,
+    private diagnosticColor = color,
   ) {
     this.console = new ConsoleOutput(output, error, diagnosticColor);
   }
@@ -20,6 +22,12 @@ export class ReplRenderer {
     return this.color ? `\x1b[${colors[role]}m${safe}\x1b[0m` : safe;
   }
   private closeText(): void {
+    if (this.reasoningOpen) {
+      this.reasoningText?.finish();
+      this.reasoningText = undefined;
+      this.error.write('\n');
+      this.reasoningOpen = false;
+    }
     if (this.textOpen) {
       this.markdown?.finish();
       this.markdown = undefined;
@@ -75,11 +83,21 @@ export class ReplRenderer {
         break;
       case 'message.part.delta':
         if (!this.textOpen) {
+          this.closeText();
           this.output.write(this.style('assistant > ', 'assistant'));
           this.textOpen = true;
           this.markdown = new TerminalMarkdown((text) => this.output.write(text), this.color);
         }
         this.markdown?.append(String(p.delta));
+        break;
+      case 'message.reasoning.delta':
+        if (!this.reasoningOpen) {
+          this.closeText();
+          this.error.write(this.diagnosticColor ? '\x1b[90mthink > \x1b[0m' : 'think > ');
+          this.reasoningOpen = true;
+          this.reasoningText = new TerminalText((text) => this.error.write(text));
+        }
+        this.reasoningText?.append(String(p.delta));
         break;
       case 'tool.started':
         this.line(

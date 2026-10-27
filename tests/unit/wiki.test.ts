@@ -9,7 +9,7 @@ import { ScriptExecutor } from '../../src/execution';
 import { AgentService } from '../../src/agent';
 import { AppError, type ModelAdapter } from '../../src/shared/types';
 import { CloudModel } from '../../src/llm';
-import { sourceHash } from '../../src/wiki/knowledge';
+import { bundledSnapshotSchema, sourceHash } from '../../src/wiki/knowledge';
 
 const document = '石墨\t仅需测比表面积\t氮气77K\t200-300℃，2h\tBET（0.05-0.3）';
 const builtinTemplate = '比表面积及孔径分析仪自动化模板.md';
@@ -66,7 +66,7 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         await readFile(join(f.config.dataDir, 'wiki', 'snapshot.json'), 'utf8'),
       );
       expect(snapshot.sources[0].path).toBe(`builtin/${builtinTemplate}`);
-      expect(snapshot.sources[0].knowledge.records).toHaveLength(15);
+      expect(snapshot.sources[0].knowledge.records).toHaveLength(117);
     } finally {
       await f.cleanup();
     }
@@ -83,9 +83,9 @@ test('built-in wiki is query-ready from bundled analyzed knowledge', async () =>
   f.config.builtinWiki = true;
   try {
     const wiki = new Wiki(f.config);
-    expect(await wiki.status()).toMatchObject({ state: 'ready', records: 15 });
+    expect(await wiki.status()).toMatchObject({ state: 'ready', records: 117 });
     const response = (await wiki.query('硬碳 二氧化碳273K')) as any;
-    expect(response.indexedRecords).toBe(15);
+    expect(response.indexedRecords).toBe(117);
     expect(response.results[0]).toMatchObject({
       source: `builtin/${builtinTemplate}`,
       facts: {
@@ -94,6 +94,47 @@ test('built-in wiki is query-ready from bundled analyzed knowledge', async () =>
       },
     });
     await expect(readFile(join(f.config.dataDir, 'wiki', 'snapshot.json'))).rejects.toThrow();
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('expanded bundled recommendations retain source citations, template variants and material-specific prerequisites', async () => {
+  const text = await readFile(join('wiki', builtinTemplate), 'utf8');
+  const snapshot = bundledSnapshotSchema.parse(await Bun.file('wiki/_knowledge.json').json());
+  const source = snapshot.sources.find((source) => source.path === `builtin/${builtinTemplate}`)!;
+  expect(source.hash).toBe(sourceHash(text));
+  const knowledge = parseKnowledge(JSON.stringify(source.knowledge), text.split(/\r?\n/));
+  expect(knowledge.records.filter((record) => record.facts.material)).toHaveLength(106);
+  expect(knowledge.records.filter((record) => !record.facts.material)).toHaveLength(11);
+  const microDefault = knowledge.records.find(
+    (record) => record.title === '微孔测试需求与模板 · 默认模板',
+  )!;
+  expect(microDefault.facts.lowPressureProgram!.value).toContain('10-15 mL/g');
+  const adsorptionOnly = knowledge.records.find(
+    (record) => record.facts.requirement?.value === '仅进行吸附',
+  )!;
+  expect(adsorptionOnly.facts.pressureProgram!.value).toContain('删除脱附段点');
+  expect(adsorptionOnly.facts.sharedDesorptionProgram).toBeUndefined();
+  const hardCarbon = knowledge.records.find((record) => record.title === '硬碳 · 微孔分析')!;
+  expect(hardCarbon.facts.template!.value).toContain('平衡时间间隔10s');
+  expect(hardCarbon.issues.join(' ')).toContain('不自动合并');
+
+  const f = await fixture();
+  f.config.builtinWiki = true;
+  f.config.resourceLimitBytes = 65536;
+  try {
+    const wiki = new Wiki(f.config);
+    const sulfide = (await wiki.query('硫化物固态电解质')) as any;
+    expect(sulfide.results[0].facts).toMatchObject({
+      material: { value: '硫化物固态电解质' },
+      preprocessing: { value: '≤60℃，2–4h' },
+      notes: { value: '避免与水/氧接触' },
+    });
+    const nickel = (await wiki.query('骨架镍')) as any;
+    expect(nickel.results[0].facts.preprocessing.value).toBe('先确认是否钝化、是否带溶剂');
+    const ultra = (await wiki.query('分压比达到10^-7且关注超微孔占比')) as any;
+    expect(ultra.results[0].facts.lowPressureProgram.value).toContain('四次泄气');
   } finally {
     await f.cleanup();
   }

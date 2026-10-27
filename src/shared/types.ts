@@ -46,6 +46,7 @@ export interface ToolCall {
 }
 export interface ModelTurn {
   text: string;
+  reasoning?: string;
   toolCalls: ToolCall[];
   usage: ModelTokenUsage;
 }
@@ -60,6 +61,7 @@ export interface ModelAdapter {
     messages: ModelMessage[],
     signal: AbortSignal,
     onDelta: (text: string) => void,
+    onReasoningDelta?: (text: string) => void,
   ): Promise<ModelTurn>;
 }
 export class AppError extends Error {

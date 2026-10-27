@@ -97,6 +97,14 @@ export class Store {
         'store-4-session-list-index',
         'CREATE INDEX sessions_updated ON sessions(updatedAt);',
       );
+      migrate(
+        db,
+        'store-5-message-reasoning',
+        `CREATE TABLE message_reasoning (
+          messageId TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,
+          content TEXT NOT NULL
+        );`,
+      );
       this.recover();
     } catch (error) {
       db?.close();
@@ -206,18 +214,21 @@ export class Store {
       .reverse();
   }
 
-  contextMessages(id: string, maxBytes: number): Message[] {
+  contextMessages(id: string, maxBytes: number): (Message & { reasoning?: string })[] {
     this.getSession(id);
-    const history: Message[] = [];
+    const history: (Message & { reasoning?: string })[] = [];
     let bytes = 0;
-    const statement = this.db.prepare<Message, [string]>(
-      'SELECT * FROM messages WHERE sessionId = ? ORDER BY createdAt DESC, rowid DESC',
+    const statement = this.db.prepare<Message & { reasoning: string | null }, [string]>(
+      `SELECT m.*, r.content AS reasoning FROM messages m
+       LEFT JOIN message_reasoning r ON r.messageId = m.id
+       WHERE m.sessionId = ? ORDER BY m.createdAt DESC, m.rowid DESC`,
     );
     try {
       for (const message of statement.iterate(id)) {
-        bytes += Buffer.byteLength(message.content);
+        bytes += Buffer.byteLength(message.content) + Buffer.byteLength(message.reasoning ?? '');
         if (bytes > maxBytes) break;
-        history.push(message);
+        const { reasoning, ...publicMessage } = message;
+        history.push(reasoning ? { ...publicMessage, reasoning } : publicMessage);
       }
     } finally {
       statement.finalize();
@@ -240,6 +251,7 @@ export class Store {
     role: Message['role'],
     content: string,
     id: string = randomUUID(),
+    reasoning?: string,
   ): Message {
     return this.db
       .transaction(() => {
@@ -248,6 +260,8 @@ export class Store {
         this.db
           .query('INSERT INTO messages VALUES (?, ?, ?, ?, ?)')
           .run(id, sessionId, role, content, createdAt);
+        if (role === 'assistant' && reasoning)
+          this.db.query('INSERT INTO message_reasoning VALUES (?, ?)').run(id, reasoning);
         this.db.query('UPDATE sessions SET updatedAt = ? WHERE id = ?').run(createdAt, sessionId);
         return { id, sessionId, role, content, createdAt };
       })

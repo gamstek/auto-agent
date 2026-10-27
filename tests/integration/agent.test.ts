@@ -699,17 +699,21 @@ test.skip('explicit no-token mode supports sessions messages events scripts and 
 }, 30000);
 
 test('HTTP SSE streams correlated model steps and resource tool outcomes without executing scripts', async () => {
-  const a = await app(
-    sequence([
-      call('skill', { name: 'sum-values' }),
-      call('read', {
-        skill: 'sum-values',
-        path: 'reference.txt',
-      }),
-      call('read', { skill: 'missing', path: 'reference.txt' }),
-      { text: 'Done', usage: { totalTokens: 1 }, toolCalls: [] },
-    ]),
-  );
+  const model = sequence([
+    call('skill', { name: 'sum-values' }),
+    call('read', {
+      skill: 'sum-values',
+      path: 'reference.txt',
+    }),
+    call('read', { skill: 'missing', path: 'reference.txt' }),
+    { text: 'Done', usage: { totalTokens: 1 }, toolCalls: [] },
+  ]);
+  const a = await app({
+    async generate(messages, signal, delta, reasoning) {
+      reasoning?.('Inspect the next step.');
+      return model.generate(messages, signal, delta);
+    },
+  });
   const server = serve(a.service);
   const base = 'http://127.0.0.1:' + server.port;
   const headers = { Authorization: 'Bearer ' + a.config.token, 'Content-Type': 'application/json' };
@@ -762,6 +766,12 @@ test('HTTP SSE streams correlated model steps and resource tool outcomes without
     expect(events.some((e) => e.type === 'tool.failed' && e.properties.name === 'read')).toBe(true);
     expect(events.every((e) => e.sessionId === session.id)).toBe(true);
     expect(new Set(events.map((e) => e.messageId)).size).toBe(1);
+    const reasoning = events.filter((event) => event.type === 'message.reasoning.delta');
+    expect(reasoning.map((event) => event.properties.step)).toEqual([1, 2, 3, 4]);
+    expect(reasoning.every((event) => event.properties.delta === 'Inspect the next step.')).toBe(
+      true,
+    );
+    expect(a.store.messages(session.id).at(-1)?.content).toBe('Done');
     expect(JSON.stringify(events)).not.toContain(a.config.apiKey!);
   } finally {
     controller.abort();

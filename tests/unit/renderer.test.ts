@@ -75,3 +75,31 @@ test('plain renderer omits ANSI for redirected output and closes text before too
   expect(r.output()).not.toContain('\x1b');
   expect(r.errors()).not.toContain('\x1b');
 });
+
+test('reasoning is streamed separately and closes on answer, tool, failure and completion boundaries', () => {
+  for (const color of [false, true]) {
+    const r = renderer(color);
+    r.event('message.reasoning.delta', { delta: 'Check ' });
+    expect(r.errors()).toContain('think > ');
+    expect(r.errors()).toContain('Check ');
+    r.event('message.reasoning.delta', { delta: 'inputs\x1b[2J' });
+    expect(r.errors()).toContain('Check inputs');
+    expect(r.output()).toBe('');
+    r.event('message.part.delta', { delta: 'answer' });
+    r.event('message.reasoning.delta', { delta: 'Check result' });
+    r.event('tool.started', { name: 'read' });
+    r.event('message.reasoning.delta', { delta: 'Partial' });
+    r.event('model.failed', { status: 'cancelled', durationMs: 1 });
+    r.event('message.part.delta', { delta: 'next answer' });
+    r.event('message.completed', {});
+    expect(r.errors()).toContain('think > ');
+    expect(r.errors()).toContain('Check inputs');
+    expect(r.errors()).toContain('Check result\n');
+    expect(r.errors()).toContain('Partial\n');
+    expect(r.errors()).not.toContain('\x1b[2J');
+    expect(r.errors()).not.toContain('next answer');
+    expect(r.output()).toContain('answer\n');
+    expect(r.output()).not.toContain('Check inputs');
+    if (!color) expect(r.errors()).not.toContain('\x1b');
+  }
+});

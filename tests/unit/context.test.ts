@@ -82,3 +82,54 @@ test('small contexts are unchanged and essential oversized inputs fail without t
   await expect(fitModelContext(small, 100, 200)).rejects.toThrow('maxInputTokens');
   expect(estimatedTokens('中文')).toBeGreaterThan(estimatedTokens('ab'));
 });
+
+test('compression retains reasoning with protected tool groups and represents summaries as user data', async () => {
+  const messages: ModelMessage[] = [{ role: 'system', content: 'Rules' }];
+  for (let index = 0; index < 8; index++)
+    messages.push(
+      { role: 'user', content: `Old ${index}: ${'history '.repeat(100)}` },
+      {
+        role: 'assistant',
+        content: [
+          { type: 'reasoning', text: `Old reasoning ${index}` },
+          { type: 'text', text: 'Old answer' },
+        ],
+      },
+    );
+  messages.push(
+    { role: 'user', content: 'Current request' },
+    {
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: 'Protected reasoning for skill activation' },
+        { type: 'tool-call', toolCallId: 'load', toolName: 'skill', input: { name: 'example' } },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool-result',
+          toolCallId: 'load',
+          toolName: 'skill',
+          output: { type: 'text', value: 'Trusted skill guidance' },
+        },
+      ],
+    },
+  );
+  const fitted = await fitModelContext(messages, 1600, 0, options());
+  expect(fitted.removedMessages).toBeGreaterThan(0);
+  expect(fitted.messages).toContainEqual(messages.at(-2)!);
+  const summary = fitted.messages.find(
+    (message) =>
+      typeof message.content === 'string' && message.content.startsWith('[Historical summary'),
+  );
+  expect(summary?.role).toBe('user');
+  const next = await fitModelContext(
+    [...fitted.messages, { role: 'user', content: 'Next request' }],
+    1600,
+    0,
+    options(),
+  );
+  expect(JSON.stringify(next.messages)).toContain('Protected reasoning for skill activation');
+});

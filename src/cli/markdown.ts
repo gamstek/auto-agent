@@ -3,6 +3,57 @@ import { stripVTControlCharacters } from 'node:util';
 export function safeTerminalText(text: string): string {
   return stripVTControlCharacters(text).replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
 }
+
+// Plain streaming text: emit immediately while consuming terminal controls
+// across delta boundaries (including OSC/DCS strings split over many chunks).
+export class TerminalText {
+  private state: 'text' | 'escape' | 'intermediate' | 'csi' | 'string' | 'string-escape' = 'text';
+  private surrogate = '';
+  constructor(private write: (text: string) => void) {}
+  append(text: string): void {
+    let output = '';
+    for (const char of text) {
+      if (this.state === 'string' || this.state === 'string-escape') {
+        if (char === '\x07' || char === '\x9c' || (this.state === 'string-escape' && char === '\\'))
+          this.state = 'text';
+        else this.state = char === '\x1b' ? 'string-escape' : 'string';
+        continue;
+      }
+      if (this.state === 'csi') {
+        if (char === '\x1b') this.state = 'escape';
+        else if (/^[\x40-\x7e]$/.test(char)) this.state = 'text';
+        continue;
+      }
+      if (this.state === 'intermediate') {
+        if (char === '\x1b') this.state = 'escape';
+        else if (/^[\x30-\x7e]$/.test(char)) this.state = 'text';
+        continue;
+      }
+      if (this.state === 'escape') {
+        if (char === '[') this.state = 'csi';
+        else if (']P^_X'.includes(char)) this.state = 'string';
+        else if (/^[\x20-\x2f]$/.test(char)) this.state = 'intermediate';
+        else if (char !== '\x1b') this.state = 'text';
+        continue;
+      }
+      if (char === '\x1b') this.state = 'escape';
+      else if (char === '\x9b') this.state = 'csi';
+      else if (/[\x90\x98\x9d-\x9f]/.test(char)) this.state = 'string';
+      else if (char === '\n' || char === '\t' || !/[\x00-\x1f\x7f-\x9f]/.test(char)) output += char;
+    }
+    if (!output) return;
+    output = this.surrogate + output;
+    this.surrogate = /[\ud800-\udbff]$/.test(output) ? output.slice(-1) : '';
+    if (this.surrogate) output = output.slice(0, -1);
+    if (output) this.write(output);
+  }
+  finish(): void {
+    if (this.surrogate) this.write('\ufffd');
+    this.surrogate = '';
+    this.state = 'text';
+  }
+}
+
 function inline(tokens: Token[], color: boolean): string {
   const decorate = (text: string, code: number) => (color ? `\x1b[${code}m${text}\x1b[0m` : text);
   return tokens

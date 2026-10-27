@@ -226,7 +226,11 @@ console.log((await response.json()).content);
 
 Subscribe /event before submitting prompt_async. Correlate sessionId/messageId; toolCallId pairs tool lifecycle events. Use fetch streaming because native EventSource cannot attach bearer headers.
 
-Events include session.status, model.started/completed/failed, message.part.delta, tool.started/completed/failed, session.title.started/failed, session.updated, message.completed, and session.error. See [llm.txt](llm.txt) for fields. Events omit raw script output and full arguments.
+Events include session.status, model.started/completed/failed, message.part.delta, message.reasoning.delta, tool.started/completed/failed, session.title.started/failed, session.updated, message.completed, and session.error. See [llm.txt](llm.txt) for fields. Events omit raw script output and full arguments.
+
+模型请求使用官方 `@ai-sdk/openai-compatible` 适配器，其将 Chat Completions 的 `reasoning_content` 字段（如 DeepSeek）转换为 SDK 标准 reasoning 增量。模型返回的 reasoning 内容通过 `message.reasoning.delta` 独立流式展示。终端普通聊天模式用 stderr 上的 `think >` 区域逐片输出思考，无需等待换行，并过滤跨分片的终端控制序列；回答正文仍输出到 stdout。`--json` 保持消息 JSON 输出，不展示 reasoning。两条流分别进行凭据脱敏，取消后停止发送。
+
+Reasoning 作为独立的 SDK 协议内容保留在工具调用上下文和检查点中，完成回答的 reasoning 另存于 SQLite 私有元数据，后续对话及重启恢复时随对应 assistant 消息回传，以满足 DeepSeek thinking 工具调用合同。它计入上下文及历史读取预算，但不混入回答正文，也不出现在公开消息历史、同步最终回复或 `--json` 中。压缩保留的工具调用/结果组包含原 reasoning；合成的历史摘要使用标记为不可信数据的 user 消息，不冒充缺失 reasoning 的模型输出。是否有内容取决于模型及服务商实际返回，本功能不会额外开启服务商的 thinking 模式。
 
 No event replay exists. Each client has a 64-frame queue; subscriber capacity is maxConcurrent * 8. Disconnecting SSE does not cancel generation. Read history after reconnecting; **do not blindly resubmit ambiguous side-effecting tasks**. A synchronous response contains only the final reply. Client applications must render raw Markdown safely, not as trusted HTML.
 

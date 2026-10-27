@@ -81,7 +81,8 @@ test('REPL JSON replies do not mix in process events or ANSI codes', async () =>
   const skills = new Skills(f.config);
   await skills.discover();
   const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
-    async generate(_messages, _signal, delta) {
+    async generate(_messages, _signal, delta, reasoning) {
+      reasoning?.('private reasoning display');
       delta('hello');
       return { text: 'hello', usage: { totalTokens: 1 }, toolCalls: [] };
     },
@@ -104,6 +105,8 @@ test('REPL JSON replies do not mix in process events or ANSI codes', async () =>
     expect(replies).toHaveLength(1);
     expect(replies[0].content).toBe('hello');
     expect(c.errors()).toContain('Session:');
+    expect(c.output()).not.toContain('private reasoning display');
+    expect(c.errors()).not.toContain('private reasoning display');
     const resumed = capture(Readable.from(['/exit\n']));
     await cli(
       argumentsFor(['--json', '--session', store.listSessions()[0].id]),

@@ -210,25 +210,39 @@ export class AgentService {
         ]);
         const modelStarted = Date.now();
         emit('model.started', { step: state.steps + 1 });
-        let pendingDelta = '';
-        let emittedText = false;
         const secrets = [this.config.apiKey, this.config.token].filter((value): value is string =>
           Boolean(value),
         );
-        const flush = (final = false) => {
-          let retain = 0;
-          if (!final)
-            for (const secret of secrets)
-              for (let size = 1; size < secret.length; size++) {
-                if (pendingDelta.endsWith(secret.slice(0, size))) retain = Math.max(retain, size);
-              }
-          const safe = pendingDelta.slice(0, pendingDelta.length - retain);
-          pendingDelta = retain ? pendingDelta.slice(-retain) : '';
-          if (safe) {
-            emittedText = true;
-            emit('message.part.delta', { delta: safe, step: state.steps + 1 });
-          }
+        const deltaChannel = (event: string) => {
+          let pending = '';
+          let emitted = false;
+          const flush = (final = false) => {
+            if (modelSignal.aborted) return;
+            let retain = 0;
+            if (!final)
+              for (const secret of secrets)
+                for (let size = 1; size < secret.length; size++) {
+                  if (pending.endsWith(secret.slice(0, size))) retain = Math.max(retain, size);
+                }
+            const safe = pending.slice(0, pending.length - retain);
+            pending = retain ? pending.slice(-retain) : '';
+            if (safe) {
+              emitted = true;
+              emit(event, { delta: safe, step: state.steps + 1 });
+            }
+          };
+          return {
+            write: (text: string) => {
+              if (modelSignal.aborted) return;
+              pending = redact(pending + text);
+              flush();
+            },
+            flush,
+            hasEmitted: () => emitted,
+          };
         };
+        const textDeltas = deltaChannel('message.part.delta');
+        const reasoningDeltas = deltaChannel('message.reasoning.delta');
         let rawTurn: ModelTurn;
         let preparedMessages = state.messages;
         let summaryTokens = 0;
@@ -293,10 +307,13 @@ export class AgentService {
             maxInputTokens: this.config.maxInputTokens,
           });
           modelSignal = AbortSignal.any([signal, AbortSignal.timeout(this.config.modelTimeoutMs)]);
-          rawTurn = await this.model.generate(context.messages, modelSignal, (text) => {
-            pendingDelta = redact(pendingDelta + text);
-            flush();
-          });
+          rawTurn = await this.model.generate(
+            context.messages,
+            modelSignal,
+            textDeltas.write,
+            reasoningDeltas.write,
+          );
+          modelSignal.throwIfAborted();
           requireTokenUsage(rawTurn.usage);
         } catch (error) {
           emit('model.failed', {
@@ -307,9 +324,12 @@ export class AgentService {
           });
           throw error;
         }
-        flush(true);
+        reasoningDeltas.flush(true);
+        textDeltas.flush(true);
         const turn: ModelTurn = JSON.parse(redact(JSON.stringify(rawTurn)));
-        if (turn.text && !emittedText)
+        if (turn.reasoning && !reasoningDeltas.hasEmitted())
+          emit('message.reasoning.delta', { delta: redact(turn.reasoning), step: state.steps + 1 });
+        if (turn.text && !textDeltas.hasEmitted())
           emit('message.part.delta', { delta: turn.text, step: state.steps + 1 });
         const totalTokens = requireTokenUsage(turn.usage);
         emit('model.completed', {
@@ -325,6 +345,9 @@ export class AgentService {
         const assistant: ModelMessage = {
           role: 'assistant',
           content: [
+            ...(turn.reasoning
+              ? [{ type: 'reasoning' as const, text: redact(turn.reasoning) }]
+              : []),
             ...(turn.text ? [{ type: 'text' as const, text: redact(turn.text) }] : []),
             ...turn.toolCalls.map((c) => ({
               type: 'tool-call' as const,
@@ -437,7 +460,17 @@ export class AgentService {
     try {
       const history: ModelMessage[] = this.store
         .contextMessages(sessionId, this.config.requestLimitBytes * this.config.maxSteps)
-        .map((message) => ({ role: message.role, content: message.content }));
+        .map((message) =>
+          message.role === 'assistant' && message.reasoning
+            ? {
+                role: 'assistant',
+                content: [
+                  { type: 'reasoning', text: redact(message.reasoning) },
+                  { type: 'text', text: message.content },
+                ],
+              }
+            : { role: message.role, content: message.content },
+        );
       const system: ModelMessage = {
         role: 'system',
         content: redact(systemInstructions(undefined, this.config.webAllowPrivateAddresses)),
@@ -461,7 +494,13 @@ export class AgentService {
         },
       );
       check();
-      const reply = this.store.addMessage(sessionId, 'assistant', result.turn.text, messageId);
+      const reply = this.store.addMessage(
+        sessionId,
+        'assistant',
+        result.turn.text,
+        messageId,
+        result.turn.reasoning ? redact(result.turn.reasoning) : undefined,
+      );
       this.store.finishRun(runId, 'completed');
       const active = this.active.get(sessionId);
       if (active) active.completed = true;
