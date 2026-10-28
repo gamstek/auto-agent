@@ -37,6 +37,7 @@ async function fixture(duration = '600000') {
       child.exited,
     ]);
     expect(stderr).toBe('');
+    if (!stdout.trim()) throw new Error(`Automation helper returned no JSON (exit code ${code}).`);
     expect(stdout.trim().split('\n')).toHaveLength(1);
     return { code, value: JSON.parse(stdout) };
   }
@@ -242,7 +243,7 @@ test('only current workflow state is accepted; invalid data is never migrated or
   } finally {
     await f.cleanup();
   }
-});
+}, 15000);
 
 test('concurrent starts permit one active workflow and preserve existing locks', async () => {
   const f = await fixture();

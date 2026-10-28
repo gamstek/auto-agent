@@ -171,9 +171,9 @@ export class SourceIndex {
       const reuseAllowed = this.status().state === 'ready';
       const seen = new Set<string>();
       let skippedLinks = 0;
-      const scan = async (root: string, directory: string) => {
+      const scan = async (root: string, directory: string, canonicalRoot: string) => {
         signal.throwIfAborted();
-        if (!within(root, await realpath(directory)))
+        if (!within(canonicalRoot, await realpath(directory)))
           throw new AppError('wiki_index_path', 'Wiki source directory escapes its root');
         for (const child of (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
           a.name.localeCompare(b.name),
@@ -186,7 +186,7 @@ export class SourceIndex {
             skippedLinks++;
             continue;
           }
-          if (child.isDirectory()) await scan(root, path);
+          if (child.isDirectory()) await scan(root, path, canonicalRoot);
           else if (child.isFile() && /\.(sam|smp)$/i.test(child.name) && !seen.has(path)) {
             seen.add(path);
             entries.push({ root, path, relative: relative(root, path).replaceAll('\\', '/') });
@@ -211,7 +211,7 @@ export class SourceIndex {
             'Each Wiki source root must be a regular directory, not a symbolic link',
           );
         // Keep configured-root IDs stable while confinement uses the canonical path.
-        await scan(configured, configured);
+        await scan(configured, configured, await realpath(configured));
       }
       const previous = new Map(
         this.db

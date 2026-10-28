@@ -25,7 +25,7 @@ jobs:
         run: bun run build:windows
       - if: runner.os == 'Linux'
         run: bun run build:linux
-      - run: bun test tests/integration/binary.test.ts
+      - run: bun test tests/integration/binary.test.ts tests/integration/wiki-index.test.ts tests/unit/sam.test.ts
         env:
           AUTO_AGENT_TEST_BINARY: '1'
       - uses: actions/upload-artifact@v4

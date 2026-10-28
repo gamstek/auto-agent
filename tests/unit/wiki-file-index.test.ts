@@ -1,4 +1,5 @@
-import { expect, test } from 'bun:test';
+import { expect, test, spyOn } from 'bun:test';
+import * as fs from 'node:fs/promises';
 import { mkdir, writeFile, readFile, rm, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
@@ -65,6 +66,29 @@ test('template indexing skips reports, reuses unchanged templates and enforces s
       f.index.search({ filters: { temperatureMinK: 100, temperatureMaxK: 50 } }),
     ).toThrow('Invalid');
   } finally {
+    await f.dispose();
+  }
+});
+
+test('confinement compares canonical roots when filesystem aliases expand configured paths', async () => {
+  const f = await setup();
+  const original = fs.realpath;
+  const alias = (async (...args: Parameters<typeof original>) => {
+    const value = await original(...args);
+    const mapped = join(f.dir, 'canonical-view', value.toString());
+    return typeof value === 'string' ? mapped : Buffer.from(mapped);
+  }) as typeof original;
+  const canonical = spyOn(fs, 'realpath').mockImplementation(alias);
+  try {
+    expect(await f.index.update(new AbortController().signal)).toMatchObject({
+      records: 4,
+      errors: 0,
+    });
+    const result = f.index.search({ filters: { product: 'g5' } }).results[0];
+    expect((await f.index.read({ id: result.id })).sourceVerified).toBe(true);
+    expect(canonical).toHaveBeenCalled();
+  } finally {
+    canonical.mockRestore();
     await f.dispose();
   }
 });
