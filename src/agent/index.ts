@@ -7,6 +7,7 @@ import { ScriptExecutor } from '../execution';
 import { Store } from '../storage';
 import { SQLiteSaver } from '../storage/checkpointer';
 import { BuiltinToolRegistry, UncertainToolError, type ToolContext } from '../tool';
+import { toolGuidance } from '../tool/prompt';
 import { Wiki } from '../wiki';
 import {
   AppError,
@@ -17,7 +18,7 @@ import {
   type Message,
 } from '../shared/types';
 import { Events } from './events';
-import { systemInstructions } from './prompt';
+import { DEFAULT_SYSTEM_PROMPT } from './prompt';
 import { builtinInstructions } from './builtins';
 import { fitModelContext } from './context';
 const State = Annotation.Root({
@@ -507,7 +508,10 @@ export class AgentService {
       const system: ModelMessage = {
         role: 'system',
         content: redact(
-          systemInstructions(this.config.systemPrompt, this.config.webAllowPrivateAddresses),
+          [
+            this.config.systemPrompt?.trim() || DEFAULT_SYSTEM_PROMPT,
+            toolGuidance(this.config.webAllowPrivateAddresses),
+          ].join('\n\n'),
         ),
       };
       const result = await graph.invoke(

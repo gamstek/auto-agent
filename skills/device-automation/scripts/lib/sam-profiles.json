@@ -1,0 +1,1165 @@
+{
+  "revision": "sam-profiles-v1",
+  "profiles": [
+    {
+      "id": "g5-n2-2.1.26.0416",
+      "product": "g5",
+      "gas": "N2",
+      "origin": {
+        "path": "三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
+        "sha256": "77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33",
+        "status": 4160
+      },
+      "configuration": {
+        "softwareVersion": "2.1",
+        "clientVersion": "2.1.26.0416",
+        "sample tube": {
+          "ambient free space": 1,
+          "analysis free space": 1,
+          "name": "1/2 Tube",
+          "non-ideality factor": 0.000062,
+          "use air isolation plug": false,
+          "use filter rod": false,
+          "use isothermal jacket": true
+        },
+        "analysis conditions": {
+          "adsorptive properties": {
+            "Psat vs Temperature Table": [
+              {
+                "Psat": 600.193,
+                "temperature": -197.75
+              },
+              {
+                "Psat": 634.512,
+                "temperature": -197.3
+              },
+              {
+                "Psat": 674.383,
+                "temperature": -196.8
+              },
+              {
+                "Psat": 720.42,
+                "temperature": -196.25
+              },
+              {
+                "Psat": 742.119,
+                "temperature": -196
+              },
+              {
+                "Psat": 759.833,
+                "temperature": -195.8
+              },
+              {
+                "Psat": 777.867,
+                "temperature": -195.6
+              },
+              {
+                "Psat": 805.525,
+                "temperature": -195.3
+              },
+              {
+                "Psat": 853.268,
+                "temperature": -194.8
+              },
+              {
+                "Psat": 903.122,
+                "temperature": -194.3
+              }
+            ],
+            "adsorbate molecular weight": 28.01,
+            "adsorbate property factor ads": 9.53,
+            "adsorbate property factor des": 9.53,
+            "adsorbed-phase free-space correction": false,
+            "affinity coefficient": 0.33,
+            "analysis conditions": "",
+            "charge from inlet": false,
+            "density": 671000000000000,
+            "density conversion factor": 0.0015468,
+            "diameter": 3,
+            "diameterAtZeroEnergy": 2.574,
+            "dosing method": 0,
+            "gas type": 2,
+            "high resolution fluid": false,
+            "id": 1,
+            "ideal gas law with non-ideality correction": true,
+            "magneticSusceptibility": 3.6e-29,
+            "maximum manifold pressure": 925,
+            "mnemonic": "N2",
+            "molecular cross sectional area": 0.162,
+            "name": "N2 @ 77.35 K",
+            "non corrected mode": false,
+            "non-condensing adsorptive": false,
+            "non-ideality factor": 0.000062,
+            "polarizability": 1.76e-24,
+            "purify adsorptive": false,
+            "therm tran hard sphere diameter": 3.86,
+            "vapor source temperature": 35
+          },
+          "analysis type": 0,
+          "charge template": "",
+          "free space options": {
+            "ambient free space": 0,
+            "analysis free space": 0,
+            "enter ambient free space": 0,
+            "enter analysis free space": 0,
+            "evacuation time": 0.1,
+            "free space option type": 0,
+            "lower dewar for evacuation": false,
+            "outgas test": false,
+            "outgas test duration": 180
+          },
+          "p0 and temperature options": {
+            "Psat vs Temperature Table": [
+              {
+                "Psat": 600.193,
+                "temperature": -197.75
+              },
+              {
+                "Psat": 634.512,
+                "temperature": -197.3
+              },
+              {
+                "Psat": 674.383,
+                "temperature": -196.8
+              },
+              {
+                "Psat": 720.42,
+                "temperature": -196.25
+              },
+              {
+                "Psat": 742.119,
+                "temperature": -196
+              },
+              {
+                "Psat": 759.833,
+                "temperature": -195.8
+              },
+              {
+                "Psat": 777.867,
+                "temperature": -195.6
+              },
+              {
+                "Psat": 805.525,
+                "temperature": -195.3
+              },
+              {
+                "Psat": 853.268,
+                "temperature": -194.8
+              },
+              {
+                "Psat": 903.122,
+                "temperature": -194.3
+              }
+            ],
+            "choose one option": 0,
+            "p0": 760,
+            "p0 and temp adsorptive id": 1,
+            "p0 and temp adsorptive mnemonic": "N2",
+            "p0 and temp adsorptive name": "N2 @ 77.35K",
+            "p0 and temp dose gas": 2,
+            "temperature": -195.85
+          },
+          "preparation options": {
+            "UseTranSeal": false,
+            "evacuation rate": 3,
+            "evacuation time": 0.1,
+            "fast evacuation": false,
+            "leak test": false,
+            "leak test duration": 120,
+            "unresticted evac. from": 5
+          },
+          "sample backfill options": {
+            "backfill gas": 2,
+            "backfill sample at end of analysis": true,
+            "backfill sample at start of analysis": true
+          }
+        },
+        "labType": 1,
+        "originalVolume": true,
+        "thermalCorrection": false,
+        "enableReferenceTube": false,
+        "systemVolume": 15.220000267028809,
+        "mass": {
+          "density": 1,
+          "isEnter": true
+        }
+      }
+    },
+    {
+      "id": "g12-n2-2.1.26.0416",
+      "product": "g12",
+      "gas": "N2",
+      "origin": {
+        "path": "多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
+        "status": 8208
+      },
+      "configuration": {
+        "softwareVersion": "2.1",
+        "clientVersion": "2.1.26.0416",
+        "sample tube": {
+          "ambient free space": 1,
+          "analysis free space": 1,
+          "name": "1/2 Tube",
+          "non-ideality factor": 0.000062,
+          "use air isolation plug": false,
+          "use filter rod": false,
+          "use isothermal jacket": true
+        },
+        "analysis conditions": {
+          "adsorptive properties": {
+            "Psat vs Temperature Table": [
+              {
+                "Psat": 600.193,
+                "temperature": -197.75
+              },
+              {
+                "Psat": 634.512,
+                "temperature": -197.3
+              },
+              {
+                "Psat": 674.383,
+                "temperature": -196.8
+              },
+              {
+                "Psat": 720.42,
+                "temperature": -196.25
+              },
+              {
+                "Psat": 742.119,
+                "temperature": -196
+              },
+              {
+                "Psat": 759.833,
+                "temperature": -195.8
+              },
+              {
+                "Psat": 777.867,
+                "temperature": -195.6
+              },
+              {
+                "Psat": 805.525,
+                "temperature": -195.3
+              },
+              {
+                "Psat": 853.268,
+                "temperature": -194.8
+              },
+              {
+                "Psat": 903.122,
+                "temperature": -194.3
+              }
+            ],
+            "adsorbate molecular weight": 28.01,
+            "adsorbate property factor ads": 9.53,
+            "adsorbate property factor des": 9.53,
+            "adsorbed-phase free-space correction": false,
+            "affinity coefficient": 0.33,
+            "analysis conditions": "",
+            "charge from inlet": false,
+            "density": 671000000000000,
+            "density conversion factor": 0.0015468,
+            "diameter": 3,
+            "diameterAtZeroEnergy": 2.574,
+            "dosing method": 0,
+            "gas type": 2,
+            "high resolution fluid": false,
+            "id": 1,
+            "ideal gas law with non-ideality correction": true,
+            "magneticSusceptibility": 3.6e-29,
+            "maximum manifold pressure": 925,
+            "mnemonic": "N2",
+            "molecular cross sectional area": 0.162,
+            "name": "N2 @ 77.35K",
+            "non corrected mode": false,
+            "non-condensing adsorptive": false,
+            "non-ideality factor": 0.000062,
+            "polarizability": 1.76e-24,
+            "purify adsorptive": false,
+            "therm tran hard sphere diameter": 3.86,
+            "vapor source temperature": 35
+          },
+          "analysis type": 10,
+          "charge template": "Default",
+          "free space options": {
+            "ambient free space": 0,
+            "ambient free space after": 0,
+            "analysis free space": 0,
+            "analysis free space after": 0,
+            "enter ambient free space": 0,
+            "enter analysis free space": 0,
+            "evacuation time": 0.1,
+            "evacuation time after": 1,
+            "free space option type": 0,
+            "lower dewar for evacuation": true,
+            "outgas test": false,
+            "outgas test duration": 180
+          },
+          "p0 and temperature options": {
+            "Psat vs Temperature Table": [
+              {
+                "Psat": 600.193,
+                "temperature": -197.75
+              },
+              {
+                "Psat": 634.512,
+                "temperature": -197.3
+              },
+              {
+                "Psat": 674.383,
+                "temperature": -196.8
+              },
+              {
+                "Psat": 720.42,
+                "temperature": -196.25
+              },
+              {
+                "Psat": 742.119,
+                "temperature": -196
+              },
+              {
+                "Psat": 759.833,
+                "temperature": -195.8
+              },
+              {
+                "Psat": 777.867,
+                "temperature": -195.6
+              },
+              {
+                "Psat": 805.525,
+                "temperature": -195.3
+              },
+              {
+                "Psat": 853.268,
+                "temperature": -194.8
+              },
+              {
+                "Psat": 903.122,
+                "temperature": -194.3
+              }
+            ],
+            "choose one option": 0,
+            "p0": 760,
+            "p0 and temp adsorptive id": 1,
+            "p0 and temp adsorptive mnemonic": "N2",
+            "p0 and temp adsorptive name": "N2 @ 77.35K",
+            "p0 and temp dose gas": 2,
+            "temperature": -195.85
+          },
+          "preparation options": {
+            "UseTranSeal": false,
+            "VaccumSetPoint": 30,
+            "evacuation rate": 3,
+            "evacuation time": 1,
+            "fast evacuation": true,
+            "leak test": false,
+            "leak test duration": 180,
+            "unresticted evac. from": 5
+          },
+          "sample backfill options": {
+            "backfill gas": 2,
+            "backfill sample at end of analysis": true,
+            "backfill sample at start of analysis": true
+          }
+        },
+        "labType": 1,
+        "originalVolume": true,
+        "thermalCorrection": false,
+        "enableNoiseRejection": false,
+        "upperVolume": 55.5,
+        "lowerVolume": 25.688600540161133,
+        "leakRateCorrectMode": 0,
+        "leakRate": 10,
+        "mass": {
+          "density": 1,
+          "isEnter": true
+        }
+      }
+    }
+  ],
+  "programs": {
+    "bet": {
+      "origin": {
+        "path": "三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
+        "sha256": "77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33",
+        "status": 4160
+      },
+      "collection": {
+        "absolute pressure dosing": false,
+        "use target pressure": true,
+        "minimum equilibration delay at p/p0 >= 0.995": 600,
+        "pressures": [
+          {
+            "end_p": 0.05,
+            "increment_p": 0,
+            "interval": 5,
+            "start_p": 0
+          },
+          {
+            "end_p": 0.1125,
+            "increment_p": 0,
+            "interval": 5,
+            "start_p": 0.05
+          },
+          {
+            "end_p": 0.175,
+            "increment_p": 0,
+            "interval": 5,
+            "start_p": 0.1125
+          },
+          {
+            "end_p": 0.2375,
+            "increment_p": 0,
+            "interval": 5,
+            "start_p": 0.175
+          },
+          {
+            "end_p": 0.3,
+            "increment_p": 0,
+            "interval": 5,
+            "start_p": 0.2375
+          }
+        ],
+        "increments": null,
+        "options": {
+          "D_DoseAmount": 0.01,
+          "D_LPressIncrementalDoseMode": false,
+          "D_MaxEquilibrationDelay": 999,
+          "D_MinEquilibrationDelay": 0,
+          "T_DoseAmount": 0.01,
+          "T_LPressIncrementalDoseMode": false,
+          "T_MaxEquilibrationDelay": 999,
+          "T_MinEquilibrationDelay": 0,
+          "absolute pressure tolerance": 5,
+          "first dose isActive": false,
+          "first pressure fixed dose": 0.01,
+          "maximum increment isActive": false,
+          "maximum volume increment": 25,
+          "relative pressure tolerance": 5
+        }
+      }
+    },
+    "micropore": {
+      "origin": {
+        "path": "多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
+        "status": 8208
+      },
+      "collection": {
+        "absolute pressure dosing": false,
+        "use target pressure": true,
+        "minimum equilibration delay at p/p0 >= 0.995": 600,
+        "pressures": [
+          {
+            "end_p": 0.01,
+            "increment_p": 0,
+            "interval": 30,
+            "start_p": 0
+          },
+          {
+            "end_p": 0.03,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.01
+          },
+          {
+            "end_p": 0.06,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.03
+          },
+          {
+            "end_p": 0.08,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.06
+          },
+          {
+            "end_p": 0.1,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.08
+          },
+          {
+            "end_p": 0.12,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.1
+          },
+          {
+            "end_p": 0.14,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.12
+          },
+          {
+            "end_p": 0.16,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.14
+          },
+          {
+            "end_p": 0.18,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.16
+          },
+          {
+            "end_p": 0.2,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.18
+          },
+          {
+            "end_p": 0.25,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.2
+          },
+          {
+            "end_p": 0.3,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.25
+          },
+          {
+            "end_p": 0.35,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.3
+          },
+          {
+            "end_p": 0.4,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.35
+          },
+          {
+            "end_p": 0.45,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.4
+          },
+          {
+            "end_p": 0.5,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.45
+          },
+          {
+            "end_p": 0.55,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.5
+          },
+          {
+            "end_p": 0.6,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.55
+          },
+          {
+            "end_p": 0.65,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.6
+          },
+          {
+            "end_p": 0.7,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.65
+          },
+          {
+            "end_p": 0.75,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.7
+          },
+          {
+            "end_p": 0.8,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.75
+          },
+          {
+            "end_p": 0.82,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.8
+          },
+          {
+            "end_p": 0.85,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.82
+          },
+          {
+            "end_p": 0.875,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.85
+          },
+          {
+            "end_p": 0.9,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.875
+          },
+          {
+            "end_p": 0.925,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.9
+          },
+          {
+            "end_p": 0.95,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.925
+          },
+          {
+            "end_p": 0.975,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.95
+          },
+          {
+            "end_p": 0.98,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.975
+          },
+          {
+            "end_p": 0.99,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.98
+          },
+          {
+            "end_p": 0.995,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.99
+          },
+          {
+            "end_p": 0.99,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.995
+          },
+          {
+            "end_p": 0.98,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.99
+          },
+          {
+            "end_p": 0.975,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.98
+          },
+          {
+            "end_p": 0.95,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.975
+          },
+          {
+            "end_p": 0.925,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.95
+          },
+          {
+            "end_p": 0.9,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.925
+          },
+          {
+            "end_p": 0.875,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.9
+          },
+          {
+            "end_p": 0.85,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.875
+          },
+          {
+            "end_p": 0.825,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.85
+          },
+          {
+            "end_p": 0.8,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.825
+          },
+          {
+            "end_p": 0.75,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.8
+          },
+          {
+            "end_p": 0.7,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.75
+          },
+          {
+            "end_p": 0.65,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.7
+          },
+          {
+            "end_p": 0.6,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.65
+          },
+          {
+            "end_p": 0.55,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.6
+          },
+          {
+            "end_p": 0.5,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.55
+          },
+          {
+            "end_p": 0.45,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.5
+          },
+          {
+            "end_p": 0.4,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.45
+          },
+          {
+            "end_p": 0.35,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.4
+          },
+          {
+            "end_p": 0.3,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.35
+          },
+          {
+            "end_p": 0.25,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.3
+          },
+          {
+            "end_p": 0.2,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.25
+          },
+          {
+            "end_p": 0.14,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.2
+          }
+        ],
+        "increments": null,
+        "options": {
+          "D_DoseAmount": 20,
+          "D_LPressIncrementalDoseMode": true,
+          "D_MaxEquilibrationDelay": 2,
+          "D_MinEquilibrationDelay": 0,
+          "T_DoseAmount": 20,
+          "T_LPressIncrementalDoseMode": true,
+          "T_MaxEquilibrationDelay": 2,
+          "T_MinEquilibrationDelay": 0,
+          "absolute pressure tolerance": 5,
+          "first dose isActive": false,
+          "first pressure fixed dose": 0.01,
+          "maximum increment isActive": false,
+          "maximum volume increment": 25,
+          "relative pressure tolerance": 5
+        }
+      }
+    },
+    "mesopore": {
+      "origin": {
+        "path": "氧化镁-氢氧化镁/2026.7.24-上海实业振泰/氧化镁-1_介孔_U1P1_20260723120245.SAM",
+        "sha256": "db1139ed9d33fef6b5a92f844e1d906271f17eee79cd25316bcea544378c62da",
+        "status": 4160
+      },
+      "collection": {
+        "absolute pressure dosing": false,
+        "use target pressure": true,
+        "minimum equilibration delay at p/p0 >= 0.995": 600,
+        "pressures": [
+          {
+            "end_p": 0.01,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0
+          },
+          {
+            "end_p": 0.03,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.01
+          },
+          {
+            "end_p": 0.06,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.03
+          },
+          {
+            "end_p": 0.08,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.06
+          },
+          {
+            "end_p": 0.1,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.08
+          },
+          {
+            "end_p": 0.12,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.1
+          },
+          {
+            "end_p": 0.14,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.12
+          },
+          {
+            "end_p": 0.16,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.14
+          },
+          {
+            "end_p": 0.18,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.16
+          },
+          {
+            "end_p": 0.2,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.18
+          },
+          {
+            "end_p": 0.25,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.2
+          },
+          {
+            "end_p": 0.3,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.25
+          },
+          {
+            "end_p": 0.35,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.3
+          },
+          {
+            "end_p": 0.4,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.35
+          },
+          {
+            "end_p": 0.45,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.4
+          },
+          {
+            "end_p": 0.5,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.45
+          },
+          {
+            "end_p": 0.55,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.5
+          },
+          {
+            "end_p": 0.6,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.55
+          },
+          {
+            "end_p": 0.65,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.6
+          },
+          {
+            "end_p": 0.7,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.65
+          },
+          {
+            "end_p": 0.75,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.7
+          },
+          {
+            "end_p": 0.8,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.75
+          },
+          {
+            "end_p": 0.82,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.8
+          },
+          {
+            "end_p": 0.85,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.82
+          },
+          {
+            "end_p": 0.875,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.85
+          },
+          {
+            "end_p": 0.9,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.875
+          },
+          {
+            "end_p": 0.925,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.9
+          },
+          {
+            "end_p": 0.95,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.925
+          },
+          {
+            "end_p": 0.975,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.95
+          },
+          {
+            "end_p": 0.98,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.975
+          },
+          {
+            "end_p": 0.99,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.98
+          },
+          {
+            "end_p": 0.995,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.99
+          },
+          {
+            "end_p": 0.99,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.995
+          },
+          {
+            "end_p": 0.98,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.99
+          },
+          {
+            "end_p": 0.975,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.98
+          },
+          {
+            "end_p": 0.95,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.975
+          },
+          {
+            "end_p": 0.925,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.95
+          },
+          {
+            "end_p": 0.9,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.925
+          },
+          {
+            "end_p": 0.875,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.9
+          },
+          {
+            "end_p": 0.85,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.875
+          },
+          {
+            "end_p": 0.825,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.85
+          },
+          {
+            "end_p": 0.8,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.825
+          },
+          {
+            "end_p": 0.75,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.8
+          },
+          {
+            "end_p": 0.7,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.75
+          },
+          {
+            "end_p": 0.65,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.7
+          },
+          {
+            "end_p": 0.6,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.65
+          },
+          {
+            "end_p": 0.55,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.6
+          },
+          {
+            "end_p": 0.5,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.55
+          },
+          {
+            "end_p": 0.45,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.5
+          },
+          {
+            "end_p": 0.4,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.45
+          },
+          {
+            "end_p": 0.35,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.4
+          },
+          {
+            "end_p": 0.3,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.35
+          },
+          {
+            "end_p": 0.25,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.3
+          },
+          {
+            "end_p": 0.2,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.25
+          },
+          {
+            "end_p": 0.14,
+            "increment_p": 0,
+            "interval": 10,
+            "start_p": 0.2
+          }
+        ],
+        "increments": null,
+        "options": {
+          "D_DoseAmount": 0.01,
+          "D_LPressIncrementalDoseMode": false,
+          "D_MaxEquilibrationDelay": 999,
+          "D_MinEquilibrationDelay": 0,
+          "T_DoseAmount": 0.01,
+          "T_LPressIncrementalDoseMode": false,
+          "T_MaxEquilibrationDelay": 999,
+          "T_MinEquilibrationDelay": 0,
+          "absolute pressure tolerance": 5,
+          "first dose isActive": false,
+          "first pressure fixed dose": 0.01,
+          "maximum increment isActive": false,
+          "maximum volume increment": 25,
+          "relative pressure tolerance": 5
+        }
+      }
+    }
+  }
+}

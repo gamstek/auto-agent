@@ -5,9 +5,9 @@
 每次用户提交是一轮generation，其中可以包含多个模型和工具步骤。每个模型步骤按以下方式组装：
 
 ```text
-System 1：选定角色（自定义或内置默认）+ 固定运行时约束
+System 1：选定角色（自定义或内置默认）+ <tool_guidance>
 System 2：本步骤最新的宿主环境事实
-System 3：本步骤最新的可用技能目录
+System 3：<skill_guidance>（技能加载/信任规则及本步骤最新的可用技能目录）
 历史消息、当前用户输入、当前轮的技能/工具结果
 
 另行提供：工具名称、description和输入JSON Schema
@@ -17,32 +17,58 @@ System 3：本步骤最新的可用技能目录
 
 上表是Agent内部消息结构。CloudModel适配器将System段合并为服务商请求的instructions/system消息，其余对话和工具结果保持各自角色；工具定义通过独立的tools参数发送。
 
-`systemPrompt`默认保存为空字符串，运行时使用当前内置角色；非空自定义文本替换默认角色，并在同一System消息末尾追加固定运行约束。不会同时发送默认和自定义两套角色。已有用户配置原样保留，想采用最新内置角色时将该字段设为空。
+请求组装由 `src/agent/index.ts` 负责：选择自定义或默认角色，调用工具、环境和技能模块的提示词入口，并按上面的顺序传给模型。`src/agent/prompt.ts` 仅保存默认角色文本，不承担跨模块拼装。
+
+`systemPrompt`默认保存为空字符串，运行时使用当前内置角色；非空自定义文本替换默认角色，并在同一System消息末尾追加一次工具使用指导。技能规则由技能模块随目录独立注入，环境说明由宿主事实模块提供，各模块在自己的目录内维护提示词。不会同时发送默认和自定义两套角色。已有用户配置原样保留，想采用最新内置角色时将该字段设为空。
+
+各区块使用与技能一致的 XML 风格标签标明职责边界：
+
+```text
+<tool_guidance>
+  <tool_execution>通用调用与效果判断规则</tool_execution>
+  <evidence_boundaries>工具证据边界</evidence_boundaries>
+  <execution_budgets>预算与有界查询</execution_budgets>
+  <tool name="wiki">知识来源与引用语义</tool>
+  <web_access tools="web_search web_fetch">
+    <address_policy>实际配置的网络策略</address_policy>
+    共享的隐私与错误处理规则
+  </web_access>
+</tool_guidance>
+<env>宿主环境事实</env>
+<skill_guidance>
+  <skill_prerequisites>本轮技能加载前提</skill_prerequisites>
+  <skill_trust>技能指令与资源的信任边界</skill_trust>
+  <available_skills>当前可用技能目录</available_skills>
+</skill_guidance>
+```
+
+这些标签用于组织模型上下文，不是协议或权限机制。当前工具通过本地 BuiltinToolRegistry 和 AI SDK 的 tool 定义提供，并非 MCP 服务；XML 标签也不是 MCP 的要求。工具 description 和输入 Schema 继续由各自 defineTool 提供，工具指导不重复列出工具定义或创建额外能力。
 
 ## 2. 提示词清单与职责
 
-| 层           | 代码/资源                                                           | 负责什么                                                                      |
-| ------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| 默认角色     | `src/agent/prompt.ts` / `DEFAULT_SYSTEM_PROMPT`                     | 业务目标、任务类型、推荐输出、语言和沟通方式                                  |
-| 运行时约束   | 同文件 / `runtimeContract()`                                        | 当前轮技能门控、指令/证据边界、工具结果语义、未知写入处理、预算和实际网络策略 |
-| 环境事实     | `src/agent/builtins.ts`                                             | 日期时间、系统和运行时、宿主cwd、Git标记；不表示仪器连接或脚本cwd             |
-| 技能目录     | `src/skill/prompt.ts` / `skillGuidance()`                           | 技能名称、适用描述和SKILL位置，帮助选择要加载的技能                           |
-| 技能包装     | 同文件 / `skillContent()`                                           | 加载后的正文、路径基准和抽样文件列表                                          |
-| 业务技能     | `skills/device-automation/SKILL.md`                                 | 预设自动化流程或单仪器入口、模板匹配和当前任务执行流程                        |
-| 接口资料     | 技能的`references/automation.md`、`climber.md`、`sam.md`、`wiki.md` | 对应入口的字段、单位、状态和操作数据约定，按需读取                            |
-| 工具说明     | `src/tool/tools/*.ts`的`description`及字段说明                      | 工具用途、调用条件、输入结构和返回含义；与Schema、执行实现共同维护            |
-| 历史压缩     | `src/agent/prompt.ts` / `HISTORY_SUMMARY_PROMPT`                    | 保留用户目标、确认值、操作标识、来源、观察结果及未知事项                      |
-| 压缩结果边界 | 同文件 / `HISTORY_SUMMARY_MARKER`、`HISTORY_SUMMARY_END`            | 明确摘要是历史数据，通过标记后的user消息回填上下文                            |
-| Wiki知识提取 | `src/wiki/prompt.ts` / `KNOWLEDGE_PROMPT`                           | 从编号源文档提取带精确引用的推荐记录、范围和歧义                              |
-| Wiki分段范围 | 同文件 / `knowledgeSourcePrompt()`                                  | 输出截断后限定原始行范围，完整文档只作上下文                                  |
-| 会话标题     | `src/llm/prompt.ts` / `SESSION_TITLE_PROMPT`                        | 按用户语言生成短标题，输出仅标题                                              |
-| 开发示例技能 | `examples/skills/*/SKILL.md`                                        | 用户请求本地脚本演示时的问候或计算示例                                        |
+| 层             | 代码/资源                                                           | 负责什么                                                           |
+| -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
+| 默认角色       | `src/agent/prompt.ts` / `DEFAULT_SYSTEM_PROMPT`                     | 业务目标、任务类型、推荐输出、语言和沟通方式                       |
+| 工具指导       | `src/tool/prompt.ts` / `toolGuidance()`                             | 工具调用、结果与证据语义、未知写入处理、预算和实际网络策略         |
+| 环境事实       | `src/agent/builtins.ts`                                             | 日期时间、系统和运行时、宿主cwd、Git标记；不表示仪器连接或脚本cwd  |
+| 技能指导及目录 | `src/skill/prompt.ts` / `skillGuidance()`                           | 技能加载前提、信任边界及技能名称、适用描述和SKILL位置              |
+| 技能包装       | 同文件 / `skillContent()`                                           | 加载后的正文、路径基准和抽样文件列表                               |
+| 业务技能       | `skills/device-automation/SKILL.md`                                 | 预设自动化流程或单仪器入口、模板匹配和当前任务执行流程             |
+| 接口资料       | 技能的`references/automation.md`、`climber.md`、`sam.md`、`wiki.md` | 对应入口的字段、单位、状态和操作数据约定，按需读取                 |
+| 工具说明       | `src/tool/tools/*.ts`的`description`及字段说明                      | 工具用途、调用条件、输入结构和返回含义；与Schema、执行实现共同维护 |
+| 历史压缩       | `src/agent/context.ts` / `HISTORY_SUMMARY_PROMPT`                   | 保留用户目标、确认值、操作标识、来源、观察结果及未知事项           |
+| 压缩结果边界   | 同文件 / `HISTORY_SUMMARY_MARKER`、`HISTORY_SUMMARY_END`            | 明确摘要是历史数据，通过标记后的user消息回填上下文                 |
+| Wiki知识提取   | `src/wiki/prompt.ts` / `KNOWLEDGE_PROMPT`                           | 从编号源文档提取带精确引用的推荐记录、范围和歧义                   |
+| Wiki分段范围   | 同文件 / `knowledgeSourcePrompt()`                                  | 输出截断后限定原始行范围，完整文档只作上下文                       |
+| 会话标题       | `src/llm/prompt.ts` / `SESSION_TITLE_PROMPT`                        | 按用户语言生成短标题，输出仅标题                                   |
+| 开发示例技能   | `examples/skills/*/SKILL.md`                                        | 用户请求本地脚本演示时的问候或计算示例                             |
 
 工具正文仍放在各自的defineTool旁，不复制到系统提示。材料数值和真实案例放在Wiki知识源/SQLite中，不硬编码进角色提示。
 
 ## 3. 当前业务分工
 
 - 默认角色说明Auto-Agent的目标，具体能力由当前工具与成功加载的技能确定。
+- 对外以样品测试、仪器操作和结果查询为主线。模板查询、生成、修改及另存为属于测样时按需完成的配置步骤，随后交给仪器执行；用户询问相关细节或任务需要时再说明，不将内部步骤主动列成独立功能菜单。技能目录描述也采用任务导向，避免在未加载技能时诱导模型枚举实现细节。
 - 预设自动化流程由控制系统执行内部步骤；单仪器操作使用对应服务。
 - Wiki的query提供编译推荐，search/read提供历史模板参数与字段来源。历史设置与用户本次确认值分别表述。
 - SAM解析提供明确字段和单位转换，静态相符不等于当前软件兼容或设备就绪。

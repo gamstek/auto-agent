@@ -59,6 +59,23 @@ function encode(value: unknown, status = 0x1010) {
   header.writeUInt32BE(body.length, 4);
   return Buffer.concat([header, body]);
 }
+function newTemplate() {
+  const root = sample();
+  return {
+    ...root,
+    'sample tube': { name: 'fixture tube', 'use isothermal jacket': true },
+    'analysis conditions': {
+      ...root['analysis conditions'],
+      'preparation options': { 'fast evacuation': false, 'evacuation time': 1 },
+      'sample backfill options': { 'backfill sample at end of analysis': true, 'backfill gas': 2 },
+    },
+    extension: { retained: [false, 0, null, '未知字段'] },
+  };
+}
+function decode(bytes: Buffer) {
+  expect(bytes.readUInt32BE(4)).toBe(bytes.length - 8);
+  return JSON.parse(new TextDecoder('utf-16be', { fatal: true }).decode(bytes.subarray(8)));
+}
 async function setup() {
   const f = await fixture();
   const path = join(f.dir, '样品 configuration.SAM');
@@ -72,13 +89,16 @@ async function setup() {
         ...(Array.isArray(runtime) ? runtime : [runtime]),
         script,
         command,
-        JSON.stringify({ path, product: 'g5', ...extra }),
+        JSON.stringify({ ...(command === 'profiles' ? {} : { path }), product: 'g5', ...extra }),
       ],
       {
         cwd: f.dir,
         stdout: 'pipe',
         stderr: 'pipe',
-        env: { SystemRoot: globalThis.process.env.SystemRoot },
+        env: {
+          SystemRoot: globalThis.process.env.SystemRoot,
+          SAM_OUTPUT_DIR: join(f.dir, 'generated'),
+        },
       },
     );
     const [stdout, stderr, code] = await Promise.all([
@@ -317,6 +337,438 @@ test('unknown scalar types and null tables are not coerced into valid configurat
     );
     await writeFile(f.path, encode(root));
     expect((await f.run()).value.error.code).toBe('INVALID_SEGMENTS');
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('create produces independent G5/G12 templates with correct Qt framing and no overwrite', async () => {
+  const f = await setup();
+  try {
+    for (const product of ['g5', 'g12']) {
+      const target = join(f.dir, `${product}.SAM`);
+      const template = newTemplate();
+      const result = await f.run('create', { path: target, product, template });
+      expect(result.code).toBe(0);
+      expect(result.value).toMatchObject({
+        operation: 'create',
+        written: true,
+        executionVerified: false,
+      });
+      const bytes = await readFile(target);
+      const root = decode(bytes);
+      expect(bytes.readInt32BE(0)).toBe(product === 'g5' ? 0x1010 : 0x2010);
+      expect(root.analysisStatus).toBe(bytes.readInt32BE(0));
+      expect(root.uuid).toMatch(/^[a-f0-9-]{36}$/);
+      expect(root.extension).toEqual(template.extension);
+      expect(root['sample name']).toBe('合成样品😀');
+      expect((await f.run('create', { path: target, product, template })).value.error.code).toBe(
+        'FILE_EXISTS',
+      );
+      expect(await readFile(target)).toEqual(bytes);
+    }
+    const g5 = decode(await readFile(join(f.dir, 'g5.SAM')));
+    const g12 = decode(await readFile(join(f.dir, 'g12.SAM')));
+    expect(g5.uuid).not.toBe(g12.uuid);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('modify and save-as preserve extensions, provenance, identity and ordered raw units', async () => {
+  const f = await setup();
+  try {
+    const created = await f.run('create', { template: newTemplate() });
+    expect(created.code).toBe(0);
+    const original = await readFile(f.path);
+    const target = join(f.dir, 'copy.SAM');
+    const saved = await f.run('save-as', {
+      path: target,
+      sourcePath: f.path,
+      expectedSha256: created.value.file.sha256,
+      changes: {
+        'sample name': '另存😀',
+        'analysis conditions': {
+          'isotherm collection': {
+            'absolute pressure dosing': true,
+            pressures: [{ start_p: 0.76, end_p: 0.1, increment_p: 0, interval: 30 }],
+          },
+        },
+      },
+    });
+    expect(saved.code).toBe(0);
+    expect(saved.value.source.sha256).toBe(created.value.file.sha256);
+    expect(saved.value.pressureProgram.segments[0]).toMatchObject({
+      start: 760,
+      end: 100,
+      step: 0,
+      intervalSeconds: 30,
+    });
+    expect(await readFile(f.path)).toEqual(original);
+    const copied = decode(await readFile(target));
+    expect(copied.uuid).toBe(decode(original).uuid);
+    expect(copied.extension).toEqual(newTemplate().extension);
+    const modified = await f.run('modify', {
+      path: target,
+      expectedSha256: saved.value.file.sha256,
+      changes: {
+        mass: { 'sample mass': 2 },
+        'analysis conditions': { 'p0 and temperature options': { temperature: -195.85 } },
+      },
+    });
+    expect(modified.code).toBe(0);
+    expect(modified.value.facts.sampleMassG.value).toBe(2);
+    expect(modified.value.facts.tubeMassG.value).toBe(29.1);
+    expect(modified.value.facts.temperatureK.value).toBeCloseTo(77.3);
+    const before = await readFile(target);
+    expect(
+      (
+        await f.run('modify', {
+          path: target,
+          expectedSha256: saved.value.file.sha256,
+          changes: { mass: { 'sample mass': 3 } },
+        })
+      ).value.error.code,
+    ).toBe('FILE_CHANGED');
+    expect(
+      (
+        await f.run('modify', {
+          path: target,
+          expectedSha256: modified.value.file.sha256,
+          changes: { mass: { 'sample mass': -1 } },
+        })
+      ).value.error.code,
+    ).toBe('INVALID_INPUT');
+    expect(await readFile(target)).toEqual(before);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('create rejects incomplete or historical input and product-specific invalid configuration', async () => {
+  const f = await setup();
+  try {
+    for (const [template, code] of [
+      [sample(), 'INCOMPLETE_TEMPLATE'],
+      [{ ...newTemplate(), completed: '2026/10/27 10:00:00' }, 'HISTORICAL_DATA'],
+      [{ ...newTemplate(), reports: [{ result: {} }] }, 'HISTORICAL_DATA'],
+      [{ ...newTemplate(), mass: { 'sample mass': 0, 'tube mass': 29 } }, 'INVALID_INPUT'],
+      [
+        {
+          ...newTemplate(),
+          'analysis conditions': { ...newTemplate()['analysis conditions'], 'analysis type': 10 },
+        },
+        'INVALID_INPUT',
+      ],
+    ] as const) {
+      expect((await f.run('create', { template })).value.error.code).toBe(code);
+    }
+    expect((await f.run()).code).not.toBe(0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('new SAM template feeds the existing Climber batch start contract', async () => {
+  const f = await setup();
+  let calls = 0;
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    async fetch(request) {
+      calls++;
+      expect(new URL(request.url).pathname).toBe('/commands');
+      const body = await request.json();
+      expect(body.commandType).toBe('CLIMBER_ANALYZER_START');
+      const experiment = body.payload.experiments[0];
+      expect(experiment.samPath).toBe('//server/share/generated.SAM');
+      // The mock vendor maps its shared path to the file on the agent host.
+      const root = decode(await readFile(f.path));
+      expect(root.mass['sample mass']).toBe(experiment.sampleMassG);
+      return Response.json(
+        { commandId: body.commandId, accepted: true, workStatus: 'BUSY' },
+        { status: 202 },
+      );
+    },
+  });
+  try {
+    expect(
+      (
+        await f.run('create', {
+          settings: {
+            analysisType: 'bet',
+            sampleName: '新样品',
+            sampleMassG: 1.5,
+            tubeMassG: 29.1,
+          },
+        })
+      ).code,
+    ).toBe(0);
+    const child = Bun.spawn(
+      [
+        node!,
+        resolve('skills/device-automation/scripts/climber.js'),
+        'start',
+        JSON.stringify({
+          commandId: 'NEW-CMD',
+          payload: {
+            taskId: 'NEW-BATCH',
+            stationId: 'analyzer-02',
+            experiments: [
+              {
+                experimentId: 'NEW-EXP',
+                analysisPort: 1,
+                tubeNo: 109,
+                samPath: '//server/share/generated.SAM',
+                sampleName: '新样品',
+                emptyTubeMassG: 29.1,
+                sampleMassG: 1.5,
+              },
+            ],
+          },
+        }),
+      ],
+      {
+        env: { CLIMBER_SERVICE_URL: server.url.origin, SystemRoot: process.env.SystemRoot },
+        stdout: 'pipe',
+        stderr: 'pipe',
+      },
+    );
+    const output = await new Response(child.stdout).text();
+    expect(await child.exited).toBe(0);
+    expect(JSON.parse(output).response.accepted).toBe(true);
+    expect(calls).toBe(1);
+  } finally {
+    server.stop(true);
+    await f.cleanup();
+  }
+});
+
+test('template creation works in the application and embedded script runtimes', async () => {
+  const f = await setup();
+  try {
+    const runtimes: (string | string[])[] = [process.execPath];
+    if (process.env.AUTO_AGENT_TEST_BINARY)
+      runtimes.push([
+        resolve(
+          process.env.AUTO_AGENT_TEST_BINARY_PATH ??
+            join('dist', process.platform === 'win32' ? 'auto-agent.exe' : 'auto-agent'),
+        ),
+        '--auto-agent-internal-script',
+      ]);
+    for (const [index, runtime] of runtimes.entries()) {
+      const target = join(f.dir, `runtime-${index}.SAM`);
+      const result = await f.run('create', { path: target, template: newTemplate() }, runtime);
+      expect(result.code).toBe(0);
+      expect(result.value.file.path).toBe(target);
+      expect(decode(await readFile(target)).analysisStatus).toBe(0x1010);
+      const generated = await f.run(
+        'create',
+        {
+          path: join(f.dir, `generated-runtime-${index}.SAM`),
+          settings: {
+            analysisType: 'bet',
+            sampleName: '生成模板',
+            sampleMassG: 1.5,
+            tubeMassG: 29.1,
+          },
+        },
+        runtime,
+      );
+      expect(generated.code).toBe(0);
+      expect(generated.value.generation.sampleInputsComplete).toBe(true);
+      expect(generated.value.facts.analysisType.value).toBe('bet');
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('packaged profiles generate complete independent G5/G12 configurations without source files or caller-supplied versions', async () => {
+  const f = await setup();
+  try {
+    const catalog = await f.run('profiles', { product: 'g12' });
+    expect(catalog.code).toBe(0);
+    expect(catalog.value.profiles).toHaveLength(1);
+    expect(catalog.value.profiles[0]).toMatchObject({
+      product: 'g12',
+      softwareVersion: '2.1',
+      clientVersion: '2.1.26.0416',
+    });
+    const uuids = new Set<string>();
+    for (const product of ['g5', 'g12']) {
+      for (const analysisType of ['bet', 'mesopore', 'micropore']) {
+        const target = join(f.dir, `${product}-${analysisType}.SAM`);
+        const result = await f.run('create', {
+          path: target,
+          product,
+          settings: { analysisType, sampleName: '石墨😀', sampleMassG: 0.8, tubeMassG: 29.1 },
+        });
+        expect(result.code).toBe(0);
+        expect(result.value.generation).toMatchObject({
+          sampleInputsComplete: true,
+          pendingInputs: [],
+        });
+        expect(result.value.generation.configurationOrigin.sha256).toMatch(/^[a-f0-9]{64}$/);
+        expect(result.value.generation.catalogSha256).toMatch(/^[a-f0-9]{64}$/);
+        expect(result.value.facts.analysisType.value).toBe(analysisType);
+        expect(result.value.facts.gasMnemonic.value).toBe('N2');
+        expect(result.value.facts.freeSpaceMode.value).toBe('measured');
+        expect(result.value.status.state).toBe('new');
+        if (analysisType === 'bet') {
+          expect(
+            result.value.pressureProgram.segments.map((row: { end: number }) => row.end),
+          ).toEqual([0.05, 0.1125, 0.175, 0.2375, 0.3]);
+          expect(result.value.facts.lowPressureEnabled.value).toBe(false);
+        } else {
+          expect(result.value.pressureProgram.segments.length).toBeGreaterThan(5);
+          expect(
+            result.value.pressureProgram.segments.some(
+              (row: { direction: string }) => row.direction === 'descending',
+            ),
+          ).toBe(true);
+          expect(result.value.facts.lowPressureEnabled.value).toBe(analysisType === 'micropore');
+        }
+        const root = decode(await readFile(target));
+        uuids.add(root.uuid);
+        expect(root.reports).toBeNull();
+        for (const key of [
+          'started',
+          'completed',
+          'analysis data',
+          'dropDatas',
+          'labData',
+          'serialNO',
+          'firmwareVersion',
+        ])
+          expect(Object.hasOwn(root, key)).toBe(false);
+        const conditions = root['analysis conditions'];
+        expect(conditions['adsorptive properties']['molecular cross sectional area']).toBe(0.162);
+        expect(conditions['p0 and temperature options']['p0 and temp dose gas']).toBe(
+          conditions['adsorptive properties']['gas type'],
+        );
+        expect(conditions['free space options']['ambient free space']).toBe(0);
+        expect(conditions['free space options']['analysis free space']).toBe(0);
+        expect(conditions['isotherm collection']['advanced mode']).toBeUndefined();
+      }
+    }
+    expect(uuids.size).toBe(6);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('generation can publish a draft to the configured default directory and later fill actual sample inputs', async () => {
+  const f = await setup();
+  try {
+    const draft = await f.run('create', {
+      path: undefined,
+      product: 'g12',
+      settings: { analysisType: 'bet' },
+    });
+    expect(draft.code).toBe(0);
+    expect(draft.value.file.path.startsWith(join(f.dir, 'generated'))).toBe(true);
+    expect(draft.value.generation.pendingInputs).toEqual([
+      'sampleName',
+      'sampleMassG',
+      'tubeMassG',
+    ]);
+    expect(draft.value.generation.sampleInputsComplete).toBe(false);
+    expect(draft.value.facts.sampleMassG.value).toBe(0);
+    const renamed = await f.run('modify', {
+      path: draft.value.file.path,
+      product: 'g12',
+      expectedSha256: draft.value.file.sha256,
+      changes: { 'sample name': '实际样品' },
+    });
+    expect(renamed.code).toBe(0);
+    expect(renamed.value.pendingInputs).toEqual(['sampleMassG', 'tubeMassG']);
+    expect(renamed.value.sampleInputsComplete).toBe(false);
+    const copied = await f.run('save-as', {
+      path: join(f.dir, 'draft-copy.SAM'),
+      product: 'g12',
+      sourcePath: draft.value.file.path,
+      expectedSha256: renamed.value.file.sha256,
+    });
+    expect(copied.code).toBe(0);
+    expect(copied.value.pendingInputs).toEqual(['sampleMassG', 'tubeMassG']);
+    expect(copied.value.sampleInputsComplete).toBe(false);
+    const filled = await f.run('modify', {
+      path: draft.value.file.path,
+      product: 'g12',
+      expectedSha256: renamed.value.file.sha256,
+      changes: { 'sample name': '实际样品', mass: { 'sample mass': 1.2, 'tube mass': 28.8 } },
+    });
+    expect(filled.code).toBe(0);
+    expect(filled.value.identity.uuid).toBe(draft.value.identity.uuid);
+    expect(filled.value.facts.sampleMassG.value).toBe(1.2);
+    expect(filled.value.facts.tubeMassG.value).toBe(28.8);
+    expect(filled.value.sampleInputsComplete).toBe(true);
+    expect(filled.value.pendingInputs).toEqual([]);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('normalized generation converts only pressure-table and thermal units and validates incomplete plans before writing', async () => {
+  const f = await setup();
+  try {
+    const result = await f.run('create', {
+      settings: {
+        analysisType: 'micropore',
+        sampleName: '样品',
+        sampleMassG: 1,
+        tubeMassG: 29,
+        pressureMode: 'absolute-mmHg',
+        pressureProgram: [
+          { start: 760, end: 100, step: 0, intervalSeconds: 30 },
+          { start: 100, end: 200, step: 20, intervalSeconds: 60 },
+        ],
+        temperatureK: 77.3,
+        p0MmHg: 759,
+        lowPressureEnabled: true,
+        lowPressureMinHours: 0.5,
+        lowPressureMaxHours: 2,
+      },
+    });
+    expect(result.code).toBe(0);
+    const root = decode(await readFile(f.path));
+    const conditions = root['analysis conditions'];
+    expect(conditions['isotherm collection'].pressures[0]).toEqual({
+      start_p: 0.76,
+      end_p: 0.1,
+      increment_p: 0,
+      interval: 30,
+    });
+    expect(conditions['p0 and temperature options'].temperature).toBeCloseTo(-195.85);
+    expect(conditions['p0 and temperature options'].p0).toBe(759);
+    expect(result.value.facts.lowPressureMinHours.value).toBe(0.5);
+    expect(result.value.pressureProgram.segments[0].start).toBe(760);
+    const before = await readFile(f.path);
+    for (const settings of [
+      { analysisType: 'bet', gasMnemonic: 'CO2' },
+      { analysisType: 'bet', pressureMode: 'absolute-mmHg' },
+      { analysisType: 'bet', sampleMassG: 0 },
+      { analysisType: 'bet', temperatureK: '77' },
+      { analysisType: 'bet', port: 3 },
+      {
+        analysisType: 'bet',
+        lowPressureEnabled: true,
+        lowPressureMinHours: 3,
+        lowPressureMaxHours: 1,
+      },
+      { analysisType: 'bet', pressureProgram: [] },
+    ])
+      expect((await f.run('create', { settings })).code).not.toBe(0);
+    expect(
+      (await f.run('create', { profile: 'g12-n2-2.1.26.0416', settings: { analysisType: 'bet' } }))
+        .value.error.code,
+    ).toBe('UNSUPPORTED_PROFILE');
+    expect(
+      (await f.run('create', { template: newTemplate(), settings: { analysisType: 'bet' } })).value
+        .error.code,
+    ).toBe('INVALID_INPUT');
+    expect(await readFile(f.path)).toEqual(before);
   } finally {
     await f.cleanup();
   }

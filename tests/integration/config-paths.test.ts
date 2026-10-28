@@ -4,7 +4,7 @@ import { writeFile } from 'node:fs/promises';
 import { fixture } from '../helpers';
 import { loadConfig, ensureDefaultConfig } from '../../src/config';
 import { Skills } from '../../src/skill';
-import { DEFAULT_SYSTEM_PROMPT, systemInstructions } from '../../src/agent/prompt';
+import { toolGuidance } from '../../src/tool/prompt';
 import { skillGuidance } from '../../src/skill/prompt';
 test('repository config discovers example skills and the formal built-in analyzer workflow', async () => {
   const config = await loadConfig(resolve('examples', 'config.json'), false, true);
@@ -21,23 +21,24 @@ test('repository config discovers example skills and the formal built-in analyze
   ]);
   expect(skills.source('device-automation')).toBe('built-in');
   expect(skills.source('hello-world')).toBe('configured');
-  const prompt = systemInstructions(config.systemPrompt);
-  expect(prompt).toContain(DEFAULT_SYSTEM_PROMPT);
-  expect(prompt.match(/Runtime contract:/g)).toHaveLength(1);
-  expect(prompt).not.toContain('hello-world');
-  expect(prompt).not.toContain('<available_skills>');
-  expect(prompt).not.toContain('only skill,');
-  expect(prompt).not.toContain('skill tool description');
-  expect(prompt).not.toContain('Read a UTF-8 resource from a loaded skill');
-  expect(prompt).toContain('trusted local SKILL.md');
-  expect(prompt).toContain('current generation');
-  expect(prompt).toContain('Software cancellation does not prove');
-  expect(systemInstructions('Custom role')).toContain('Runtime contract:');
-  expect(systemInstructions('Custom role')).not.toContain(DEFAULT_SYSTEM_PROMPT);
-  expect(systemInstructions('   ')).toBe(systemInstructions());
   const description = skillGuidance(catalog);
+  expect(description).toContain('trusted local SKILL.md');
+  expect(description).toContain('current generation');
   expect(description).toContain('<name>hello-world</name>');
   expect(description).toContain('<name>sum-values</name>');
+});
+test('tool guidance reflects the configured network policy independently of the role and skill guidance', () => {
+  for (const allowPrivate of [false, true]) {
+    const prompt = toolGuidance(allowPrivate);
+    expect(prompt.match(/<address_policy>/g)).toHaveLength(1);
+    expect(prompt).toContain(`webAllowPrivateAddresses=${allowPrivate}`);
+    expect(prompt).not.toContain(`webAllowPrivateAddresses=${!allowPrivate}`);
+    expect(prompt).not.toContain('<skill_prerequisites>');
+    expect(prompt).toContain('sourceVerified=false');
+    expect(prompt).not.toContain('<available_skills>');
+  }
+  expect(skillGuidance([])).toContain('<skill_prerequisites>');
+  expect(skillGuidance([])).not.toContain('webAllowPrivateAddresses');
 });
 test('installed default config uses user data and no implicit repository skill trust', async () => {
   const f = await fixture();
@@ -48,7 +49,6 @@ test('installed default config uses user data and no implicit repository skill t
     expect(config.skillRoots).toEqual([]);
     expect(config.builtinSkills).toBe(true);
     expect(config.systemPrompt).toBe('');
-    expect(systemInstructions(config.systemPrompt)).toContain(DEFAULT_SYSTEM_PROMPT);
     await writeFile(
       created.path,
       JSON.stringify({

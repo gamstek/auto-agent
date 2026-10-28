@@ -29,7 +29,7 @@ const schema = z.object({
   token: z.string(),
   // Model identifier exposed by the OpenAI-compatible provider.
   model: z.string().default('deepseek-flash'),
-  // Blank follows the current built-in role; a custom role keeps the runtime contract.
+  // Blank follows the current built-in role; module guidance is independent of the role.
   systemPrompt: z.string().max(16000).default(''),
   // OpenAI-compatible provider endpoint.
   baseURL: z.string().url().default('https://api.deepseek.com'),

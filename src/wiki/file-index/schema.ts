@@ -4,7 +4,7 @@ export const INDEX_REVISION = 'wiki-templates-v1';
 export const MAX_FILES = 5000;
 export const MAX_FILE_BYTES = 32 * 1024 * 1024;
 export const warning =
-  'Historical template reference only. Directory labels and parsed parameters are not scientific approval or executable new templates. Preserve product, version, units and source hashes.';
+  'Historical configuration evidence, not current execution state or scientific approval. Use the SAM skill profiles/create workflow to generate an independent new template from complete packaged configuration and task settings. Preserve product, version, units and source hashes.';
 export const filtersSchema = z
   .object({
     material: z.string().trim().min(1).max(128).optional(),

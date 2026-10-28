@@ -47,7 +47,7 @@ test('Wiki source API and tool authenticate, explicitly index, search and read c
         };
       const content = JSON.stringify(messages);
       expect(content).toContain('status-family');
-      expect(content).toContain('Historical template reference');
+      expect(content).toContain('Historical configuration evidence');
       if (step === 3) {
         const last = JSON.parse(JSON.stringify(messages.at(-1)));
         return {

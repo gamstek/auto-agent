@@ -42,9 +42,9 @@ test('formal built-in skill loads host-independent interface guidance and preser
     expect(content).toContain('当前环境提供的');
     expect(content).toContain('references/automation.md');
     expect(content).toContain('模板推荐草案——参数尚未确认，不可下发运行');
-    expect(content).toContain('仅复用满足需求的已有模板');
-    expect(content).toContain('不查询、列举或读取设备模板目录');
-    expect(content).toContain('暂不支持生成、创建或修改模板');
+    expect(content).toContain('新建使用独立身份与实验前配置');
+    expect(content).toContain('不要求用户提供基准 SAM');
+    expect(content).toContain('支持新建模板、修改模板和另存为');
     expect(content).toContain('不要同时绕过流程直接启动其中的仪器');
     const automation = await skills.read('device-automation', 'references/automation.md');
     expect(automation).toContain('预先设置好的一系列流程');
@@ -73,10 +73,13 @@ test('formal built-in skill loads host-independent interface guidance and preser
     ).toEqual([
       'device-automation/scripts/automation.js',
       'device-automation/scripts/climber.js',
+      'device-automation/scripts/lib/sam-generate.js',
+      'device-automation/scripts/lib/sam-write.js',
       'device-automation/scripts/lib/sam.js',
       'device-automation/scripts/sam.js',
     ]);
     expect(content).toContain('references/sam.md');
+    expect(Object.hasOwn(assets, 'device-automation/scripts/lib/sam-profiles.json')).toBe(true);
     expect(content).toContain('references/wiki.md');
     expect(await skills.read('device-automation', 'references/wiki.md')).toContain(
       'Wiki提供三种只读操作',

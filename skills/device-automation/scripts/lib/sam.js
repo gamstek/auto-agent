@@ -232,10 +232,7 @@ export async function inspectSam(input, command = 'inspect') {
   if (mismatchedProduct)
     warn('PRODUCT_STATUS_MISMATCH', '所选产品与文件状态家族不一致，产品相关枚举不作归一化。');
   if (state !== 'new')
-    warn(
-      'NOT_NEW_TEMPLATE',
-      '文件不是已确认的新建实验状态；解析或参数匹配不代表可直接提交为新任务。',
-    );
+    warn('NOT_NEW_TEMPLATE', '文件保留已有实验状态；启动时需按目标服务契约核对用途与任务身份。');
   if (status !== null && root.analysisStatus !== undefined && root.analysisStatus !== status)
     warn('STATUS_MISMATCH', '文件头状态与 analysisStatus 不一致。');
   if (['adsorptive-parameters', 'tube-parameters'].includes(state))
@@ -452,7 +449,7 @@ export async function inspectSam(input, command = 'inspect') {
     root.completed ||
     ['analysis data', 'dropDatas', 'labData'].some((k) => root[k] && Object.keys(root[k]).length)
   )
-    warn('HISTORICAL_DATA', '文件含运行时间或历史结果；不能把历史实验直接当成新建底稿。');
+    warn('HISTORICAL_DATA', '文件含历史运行时间或结果，不代表本次任务的运行事实。');
   if (mode === 'absolute-mmHg' && scale === null)
     warn('UNKNOWN_PRESSURE_SCALE', '所选产品的绝对压力倍率未确认，保留原值，不作倍率转换。');
   if (Array.isArray(root.reports) && root.reports.length > 64)

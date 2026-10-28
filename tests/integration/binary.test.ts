@@ -56,6 +56,42 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         expect(await readFile(join(builtinsRoot, versions[0]!, ...path.split('/')), 'utf8')).toBe(
           content,
         );
+      const sam = join(builtinsRoot, versions[0]!, 'device-automation', 'scripts', 'sam.js');
+      const generation = Bun.spawn(
+        [
+          binary,
+          '--auto-agent-internal-script',
+          sam,
+          'create',
+          JSON.stringify({
+            product: 'g12',
+            settings: {
+              analysisType: 'bet',
+              sampleName: '离线生成样品',
+              sampleMassG: 1.5,
+              tubeMassG: 29.1,
+            },
+          }),
+        ],
+        {
+          cwd: f.dir,
+          env: { SystemRoot: process.env.SystemRoot, SAM_OUTPUT_DIR: join(f.dir, 'generated') },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+      const [generatedText, generatedError, generatedCode] = await Promise.all([
+        new Response(generation.stdout).text(),
+        new Response(generation.stderr).text(),
+        generation.exited,
+      ]);
+      expect(generatedError).toBe('');
+      expect(generatedCode).toBe(0);
+      const generated = JSON.parse(generatedText);
+      expect(generated.generation.sampleInputsComplete).toBe(true);
+      expect(generated.facts.analysisType.value).toBe('bet');
+      expect(generated.file.path.startsWith(join(f.dir, 'generated'))).toBe(true);
+      expect((await readFile(generated.file.path)).readInt32BE(0)).toBe(0x2010);
       const base = info.url;
       await reader.cancel();
       expect((await fetch(base + '/global/health')).status).toBe(200);

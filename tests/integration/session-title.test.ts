@@ -11,7 +11,7 @@ async function waitForTitle(store: Store, id: string, title: string) {
   for (let i = 0; i < 100 && store.getSession(id).title !== title; i++) await Bun.sleep(1);
   expect(store.getSession(id).title).toBe(title);
 }
-test('model titles persist and custom roles replace the default while preserving the runtime contract', async () => {
+test('model titles persist and custom roles replace the default while preserving module guidance', async () => {
   const f = await fixture();
   const store = new Store(f.config.dataDir);
   const skills = new Skills(f.config);
@@ -46,7 +46,7 @@ test('model titles persist and custom roles replace the default while preserving
     expect(events).toContain('session.updated');
     expect(observed.filter((m) => m.role === 'system').length).toBe(3);
     expect(observed[0].content).toContain(f.config.systemPrompt!);
-    expect(observed[0].content).toContain('Runtime contract:');
+    expect(observed[0].content).toContain('<tool_guidance>');
     expect(observed[0].content).not.toContain('You are Auto-Agent');
     await service.submit(session.id, '继续');
     expect(titles).toBe(1);
