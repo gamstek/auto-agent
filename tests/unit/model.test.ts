@@ -23,6 +23,11 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
     async fetch(request) {
       requests++;
       const body = await request.json();
+      for (const entry of body.tools) {
+        expect(entry.function.parameters.type).toBe('object');
+        expect(entry.function.parameters.anyOf).toBeUndefined();
+        expect(entry.function.parameters.oneOf).toBeUndefined();
+      }
       expect(
         body.tools.map((entry: { function: { name: string } }) => entry.function.name),
       ).toEqual(['skill', 'read', 'execute_script', 'wiki', 'web_fetch', 'web_search']);
@@ -322,6 +327,44 @@ test('streamed tool calls without usage stop the generation before tool executio
     load.mockRestore();
     await service.shutdown();
     store.close();
+    server.stop(true);
+    await f.cleanup();
+  }
+});
+
+test('provider schema rejection is actionable and does not expose its raw response', async () => {
+  const f = await fixture();
+  const server = Bun.serve({
+    hostname: '127.0.0.1',
+    port: 0,
+    fetch() {
+      return Response.json(
+        {
+          error: {
+            code: 'invalid_request_error',
+            message: `Invalid schema for function wiki: ${f.config.apiKey} private-provider-payload`,
+          },
+        },
+        { status: 400 },
+      );
+    },
+  });
+  try {
+    let failure: unknown;
+    try {
+      await new CloudModel({ ...f.config, baseURL: server.url.origin + '/v1' }).generate(
+        [{ role: 'user', content: '11' }],
+        new AbortController().signal,
+        () => {},
+      );
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toMatchObject({ code: 'model_tool_schema', status: 502 });
+    expect((failure as Error).message).toContain('HTTP 400');
+    expect((failure as Error).message).not.toContain(f.config.apiKey!);
+    expect((failure as Error).message).not.toContain('private-provider-payload');
+  } finally {
     server.stop(true);
     await f.cleanup();
   }

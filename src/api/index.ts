@@ -83,6 +83,42 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
         }
       };
       if (request.method === 'GET' && path === '/wiki') return json(await service.wiki.status());
+      if (request.method === 'GET' && path === '/wiki/index')
+        return json(service.wiki.indexStatus());
+      if (request.method === 'GET' && path === '/wiki/search') {
+        const limit = url.searchParams.get('limit');
+        if (limit !== null && !/^\d+$/.test(limit))
+          throw new AppError('wiki_index_query', 'limit must be an integer from 1 to 10');
+        let filters: unknown = {};
+        try {
+          filters = JSON.parse(url.searchParams.get('filters') ?? '{}');
+        } catch {
+          throw new AppError('wiki_index_query', 'filters must be a JSON object');
+        }
+        return json(
+          service.wiki.search({
+            query: url.searchParams.get('query') ?? '',
+            filters,
+            limit: limit === null ? 3 : Number(limit),
+          }),
+        );
+      }
+      const sourceId = /^\/wiki\/source\/([a-f0-9]{64})$/.exec(path);
+      if (request.method === 'GET' && sourceId)
+        return json(
+          await service.wiki.read(
+            { id: sourceId[1], query: url.searchParams.get('query') ?? '' },
+            request.signal,
+          ),
+        );
+      if (request.method === 'POST' && path === '/wiki/index/update') {
+        if (Object.keys(await body()).length)
+          throw new AppError(
+            'wiki_index_update',
+            'Update accepts only an empty object; Wiki source roots are server-configured',
+          );
+        return json(await service.updateWikiIndex(request.signal));
+      }
       if (request.method === 'GET' && path === '/wiki/query') {
         const rawLimit = url.searchParams.get('limit');
         if (rawLimit !== null && !/^\d+$/.test(rawLimit))

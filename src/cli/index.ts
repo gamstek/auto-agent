@@ -13,6 +13,7 @@ export function argumentsFor(argv: string[]) {
       help: { type: 'boolean' },
       licenses: { type: 'boolean' },
       'wiki-update': { type: 'boolean' },
+      'wiki-index': { type: 'boolean' },
       'no-token': { type: 'boolean' },
     },
   });
@@ -33,6 +34,7 @@ Options
   --json             Print chat history and replies as newline-delimited JSON
   --no-token         Disable HTTP authentication on loopback only
   --wiki-update      Explicitly compile built-in and external wiki sources using the cloud model, then exit
+  --wiki-index       Explicitly index wikiIndexRoots as local source evidence without model calls, then exit
   --licenses         Show bundled third-party license notices
   --help             Show this help
 

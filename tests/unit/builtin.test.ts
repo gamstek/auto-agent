@@ -53,7 +53,7 @@ test('formal built-in skill loads host-independent interface guidance and preser
     expect(automation).toContain('模拟实现');
     for (const guidance of [content, automation, catalog[0]!.metadata.compatibility]) {
       expect(guidance).not.toMatch(
-        /wiki|execute_script|`read`|\.auto-agent|AUTO_AGENT_|scriptEnv/i,
+        /wiki\(\{|execute_script|`read`|\.auto-agent|AUTO_AGENT_|scriptEnv/i,
       );
     }
     expect(Object.hasOwn(assets, 'device-automation/scripts/automation.js')).toBe(true);
@@ -70,7 +70,23 @@ test('formal built-in skill loads host-independent interface guidance and preser
       Object.keys(assets)
         .filter((path) => path.endsWith('.js'))
         .sort(),
-    ).toEqual(['device-automation/scripts/automation.js', 'device-automation/scripts/climber.js']);
+    ).toEqual([
+      'device-automation/scripts/automation.js',
+      'device-automation/scripts/climber.js',
+      'device-automation/scripts/lib/sam.js',
+      'device-automation/scripts/sam.js',
+    ]);
+    expect(content).toContain('references/sam.md');
+    expect(content).toContain('references/wiki.md');
+    expect(await skills.read('device-automation', 'references/wiki.md')).toContain(
+      'Wiki提供三种只读操作',
+    );
+    expect(await skills.read('device-automation', 'references/sam.md')).toContain(
+      'executionVerified=false',
+    );
+    expect((await skills.resolveScript('device-automation', 'scripts/sam.js')).path).toEndWith(
+      'sam.js',
+    );
     expect(
       (await skills.resolveScript('device-automation', 'scripts/automation.js')).path,
     ).toEndWith('automation.js');

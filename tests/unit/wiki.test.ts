@@ -100,8 +100,10 @@ test('built-in wiki is query-ready from bundled analyzed knowledge', async () =>
 });
 
 test('expanded bundled recommendations retain source citations, template variants and material-specific prerequisites', async () => {
-  const text = await readFile(join('wiki', builtinTemplate), 'utf8');
-  const snapshot = bundledSnapshotSchema.parse(await Bun.file('wiki/_knowledge.json').json());
+  const text = await readFile(join('wiki', 'sources', builtinTemplate), 'utf8');
+  const snapshot = bundledSnapshotSchema.parse(
+    await Bun.file('wiki/knowledge/recommendations.json').json(),
+  );
   const source = snapshot.sources.find((source) => source.path === `builtin/${builtinTemplate}`)!;
   expect(source.hash).toBe(sourceHash(text));
   const knowledge = parseKnowledge(JSON.stringify(source.knowledge), text.split(/\r?\n/));
@@ -177,7 +179,7 @@ test('built-in wiki and external roots coexist, disable cleanly and detect modif
     f.config.builtinWiki = true;
     const versions = await readdir(join(f.config.dataDir, 'builtin-wiki'));
     await writeFile(
-      join(f.config.dataDir, 'builtin-wiki', versions[0]!, builtinTemplate),
+      join(f.config.dataDir, 'builtin-wiki', versions[0]!, 'sources', builtinTemplate),
       'modified',
     );
     await expect(wiki.query('石墨')).rejects.toThrow('modified');
@@ -761,7 +763,10 @@ test('source removal updates the snapshot, source limits and symlinks fail close
 
 test('real template source is numbered without hardcoded interpretation; model output retains source issues', async () => {
   const f = await setup();
-  const text = await readFile(join(import.meta.dir, '..', '..', 'wiki', builtinTemplate), 'utf8');
+  const text = await readFile(
+    join(import.meta.dir, '..', '..', 'wiki', 'sources', builtinTemplate),
+    'utf8',
+  );
   await writeFile(join(f.config.wikiRoots[0]!, 'template.txt'), text);
   const k = knowledge();
   const quote = '200-300℃，2h';

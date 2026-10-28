@@ -4,7 +4,7 @@ import { completed, defineTool } from '../context';
 
 export const skillTool = defineTool({
   description:
-    'Load a specialized skill when the task matches an available skill in the system context. The result provides workflow instructions, a base directory, and a sampled file list. The name must match an available skill.',
+    'Load task-relevant workflow guidance from an available skill in the system context. A successful current-generation load enables its resource, Wiki and script calls. Returns trusted SKILL.md guidance, base directory and sampled files; it does not connect an instrument.',
   effects: ['read'],
   requiresLoadedSkill: false,
   inputSchema: z.object({ name: z.string().min(1) }),

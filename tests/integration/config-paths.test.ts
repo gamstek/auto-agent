@@ -22,27 +22,18 @@ test('repository config discovers example skills and the formal built-in analyze
   expect(skills.source('device-automation')).toBe('built-in');
   expect(skills.source('hello-world')).toBe('configured');
   const prompt = systemInstructions(config.systemPrompt);
-  expect(prompt).toContain('You are Auto-Agent');
-  expect(prompt).toContain('specific surface area and pore size analyzers');
-  expect(prompt).toContain('not a completed experiment');
-  expect(prompt).toContain('simulator result is only a simulation');
-  expect(prompt).toContain('Software cancellation does not prove');
-  expect(prompt).toContain('BET, BJH, and DFT');
-  expect(prompt).toContain('Preserve raw data');
+  expect(prompt).toContain(DEFAULT_SYSTEM_PROMPT);
+  expect(prompt.match(/Runtime contract:/g)).toHaveLength(1);
   expect(prompt).not.toContain('hello-world');
   expect(prompt).not.toContain('<available_skills>');
   expect(prompt).not.toContain('only skill,');
   expect(prompt).not.toContain('skill tool description');
   expect(prompt).not.toContain('Read a UTF-8 resource from a loaded skill');
-  expect(prompt).not.toContain('execute_script');
-  expect(prompt).toContain('trusted local SKILL.md instructions');
-  expect(prompt).toContain('Load a skill in the current generation');
-  expect(prompt).toContain('conversation history is not currently loaded');
-  expect(prompt).toContain('Read the returned guidance before issuing dependent');
-  expect(prompt).toContain('Use relevant data as evidence');
-  expect(prompt).toContain('Process exit success alone does not establish');
-  expect(prompt).toContain('Do not work around a runtime denial');
+  expect(prompt).toContain('trusted local SKILL.md');
+  expect(prompt).toContain('current generation');
+  expect(prompt).toContain('Software cancellation does not prove');
   expect(systemInstructions('Custom role')).toContain('Runtime contract:');
+  expect(systemInstructions('Custom role')).not.toContain(DEFAULT_SYSTEM_PROMPT);
   expect(systemInstructions('   ')).toBe(systemInstructions());
   const description = skillGuidance(catalog);
   expect(description).toContain('<name>hello-world</name>');
@@ -56,7 +47,8 @@ test('installed default config uses user data and no implicit repository skill t
     expect(config.dataDir).toBe(join(f.dir, '.auto-agent'));
     expect(config.skillRoots).toEqual([]);
     expect(config.builtinSkills).toBe(true);
-    expect(config.systemPrompt).toBe(DEFAULT_SYSTEM_PROMPT);
+    expect(config.systemPrompt).toBe('');
+    expect(systemInstructions(config.systemPrompt)).toContain(DEFAULT_SYSTEM_PROMPT);
     await writeFile(
       created.path,
       JSON.stringify({

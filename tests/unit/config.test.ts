@@ -146,6 +146,7 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(template.maxOutputTokens).toBe(16000);
     expect(template.maxInputTokens).toBe(1000000);
     expect(template.webAllowPrivateAddresses).toBe(true);
+    expect(template.wikiIndexRoots).toEqual([]);
     expect(template.scriptEnv).toEqual({
       CLIMBER_SERVICE_URL: 'http://127.0.0.1:19181',
       CLIMBER_TIMEOUT_MS: '5000',
@@ -161,6 +162,11 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(defaults.maxOutputTokens).toBe(16000);
     expect(defaults.maxInputTokens).toBe(1000000);
     expect(defaults.webAllowPrivateAddresses).toBe(true);
+    expect(defaults.wikiIndexRoots).toEqual([]);
+    await writeFile(created.path, JSON.stringify({ wikiIndexRoots: ['./external-cases'] }));
+    expect((await loadConfig(created.path, true, true)).wikiIndexRoots).toEqual([
+      join(home, '.auto-agent', 'external-cases'),
+    ]);
     await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: false }));
     expect((await loadConfig(created.path, true, true)).webAllowPrivateAddresses).toBe(false);
     await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: true }));

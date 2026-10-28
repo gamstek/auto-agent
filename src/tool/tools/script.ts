@@ -4,7 +4,7 @@ import { defineTool, UncertainToolError } from '../context';
 
 export const executeScriptTool = defineTool({
   description:
-    'Execute a script in a loaded trusted skill. Scripts have host permissions and may cause side effects. Never retry uncertain side effects.',
+    'Execute a documented script from a skill loaded in this generation. Supply its scripts/ relative path and an argument array. Scripts run with host permissions and may have side effects. Inspect execution status and the skill-defined output; process success is not physical completion. Failed/uncertain writes are not automatically retried.',
   effects: ['process'],
   requiresLoadedSkill: true,
   inputSchema: z.object({

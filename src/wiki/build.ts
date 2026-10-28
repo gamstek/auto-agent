@@ -5,6 +5,7 @@ import { revision, type Snapshot } from './knowledge';
 import { knowledgeSchema, type Knowledge, type Source, parseKnowledge } from './knowledge';
 import { readSources, sourceRoot } from './sources';
 import { loadBundledSnapshot, loadStoredSnapshot, saveSnapshot, snapshotPath } from './snapshot';
+import { knowledgeSourcePrompt } from './prompt';
 
 const activeUpdates = new Set<string>();
 
@@ -97,9 +98,7 @@ async function extractKnowledge(
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(config.modelTimeoutMs)]);
     try {
       result = await model.generateKnowledge!(
-        focused
-          ? `Extraction scope: original source lines ${start}–${end} ONLY. The complete numbered source below is context for headings and inherited table cells. Generate records only for rows or statements in the scope; each record must include at least one citation of non-whitespace source text in the scope. Cite original line numbers, including earlier lines when inheritance requires it. Do not regenerate records outside the scope. Keep summaries and issues concise.\n\n${numberedSource}`
-          : numberedSource,
+        knowledgeSourcePrompt(numberedSource, focused ? { start, end } : undefined),
         requestSignal,
       );
       requestSignal.throwIfAborted();

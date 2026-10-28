@@ -19,13 +19,16 @@ export async function main(
     return;
   }
   const updatingWiki = Boolean(args.values['wiki-update']);
+  const indexingWiki = Boolean(args.values['wiki-index']);
+  if (updatingWiki && indexingWiki)
+    throw new AppError('usage', 'Select only one of --wiki-update and --wiki-index');
   if (
-    updatingWiki &&
+    (updatingWiki || indexingWiki) &&
     (args.positionals.length || args.values.session || args.values.json || args.values['no-token'])
   )
     throw new AppError(
       'usage',
-      '--wiki-update does not accept chat, serve, --session, --json or --no-token arguments',
+      `${updatingWiki ? '--wiki-update' : '--wiki-index'} does not accept chat, serve, --session, --json or --no-token arguments`,
     );
   const isServer = args.positionals[0] === 'serve';
   if (isServer && (args.positionals.length !== 1 || args.values.session || args.values.json))
@@ -37,7 +40,7 @@ export async function main(
   output.info(
     `Configuration: ${config.configPath}\nModel: ${config.model}\nData: ${config.dataDir}`,
   );
-  if (!config.apiKey)
+  if (!config.apiKey && !indexingWiki)
     output.warn(
       'AUTO_AGENT_API_KEY is not set. Set it before starting this process to enable chat. Configuration and health endpoints remain available.',
     );
@@ -46,16 +49,27 @@ export async function main(
       '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
     );
   const store = new Store(config.dataDir);
-  if (updatingWiki) {
+  if (updatingWiki || indexingWiki) {
     const controller = new AbortController();
     const stop = () => controller.abort();
     process.once('SIGINT', stop);
     process.once('SIGTERM', stop);
     try {
       output.info(
-        'Explicit wiki update: changed source text is sent to the configured model provider.',
+        updatingWiki
+          ? 'Explicit wiki update: changed source text is sent to the configured model provider.'
+          : 'Explicit local Wiki file indexing: files are read locally; no model request is made.',
       );
-      output.json(await new Wiki(config).update(new CloudModel(config), controller.signal));
+      const wiki = new Wiki(config, store.db);
+      try {
+        output.json(
+          updatingWiki
+            ? await wiki.update(new CloudModel(config), controller.signal)
+            : await wiki.indexSources(controller.signal),
+        );
+      } finally {
+        wiki.close();
+      }
     } finally {
       process.removeListener('SIGINT', stop);
       process.removeListener('SIGTERM', stop);
@@ -90,6 +104,14 @@ export async function main(
     new ScriptExecutor(config, skills),
     new CloudModel(config),
   );
+  const fileIndex = service.wiki.indexStatus();
+  output.info(
+    `Wiki index roots: ${config.wikiIndexRoots.length ? config.wikiIndexRoots.join(', ') : '(none configured)'}\nWiki file index: ${fileIndex.state} (${fileIndex.records} records)`,
+  );
+  if (fileIndex.state === 'unbuilt' || fileIndex.state === 'stale')
+    output.warn(
+      'Run --wiki-index explicitly before searching Wiki source files. Startup did not scan index roots.',
+    );
   if (isServer) {
     let server: ReturnType<typeof serve>;
     try {

@@ -27,6 +27,7 @@ export async function fixture() {
     builtinSkills: false,
     builtinWiki: false,
     wikiRoots: [],
+    wikiIndexRoots: [],
     host: '127.0.0.1',
     port: 0,
     allowRemote: false,

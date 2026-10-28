@@ -9,19 +9,27 @@ if (platform !== 'windows' && platform !== 'linux')
 
 const root = resolve(import.meta.dir, '..');
 const assetsModule = resolve(root, 'src', 'shared', 'builtin.ts');
+const indexModule = resolve(root, 'src', 'shared', 'builtin-index.ts');
 function validateBuiltinWiki(assets: Record<string, string>): void {
-  const text = assets['_knowledge.json'];
+  const text = assets['knowledge/recommendations.json'];
   if (text === undefined) throw new Error('Built-in wiki knowledge snapshot is missing');
   const snapshot = bundledSnapshotSchema.parse(JSON.parse(text));
   const sources = Object.entries(assets)
     .filter(
       ([path]) =>
-        /\.(md|txt)$/i.test(path) && !path.split('/').some((part) => part.startsWith('.')),
+        path.startsWith('sources/') &&
+        /\.(md|txt)$/i.test(path) &&
+        !path.split('/').some((part) => part.startsWith('.')),
     )
-    .map(([path, content]) => [`builtin/${path}`, sourceHash(content)] as const);
+    .map(
+      ([path, content]) =>
+        [`builtin/${path.slice('sources/'.length)}`, sourceHash(content)] as const,
+    );
   const analyzed = snapshot.sources.map((source) => [source.path, source.hash] as const);
   if (JSON.stringify(analyzed) !== JSON.stringify(sources))
-    throw new Error('Built-in wiki knowledge snapshot is stale; regenerate wiki/_knowledge.json');
+    throw new Error(
+      'Built-in wiki knowledge snapshot is stale; regenerate wiki/knowledge/recommendations.json',
+    );
 }
 
 await mkdir(resolve(root, 'dist'), { recursive: true });
@@ -40,6 +48,21 @@ const result = await Bun.build({
     {
       name: 'builtin-assets',
       setup(build) {
+        build.onLoad({ filter: /builtin-index\.ts$/ }, async (args) => {
+          if (resolve(args.path) !== indexModule) return;
+          const source = await readFile(args.path, 'utf8');
+          const collector = /export function collectBuiltinIndex\([\s\S]*?\n\}/;
+          if (!collector.test(source)) throw new Error('Wiki index collector not found');
+          return {
+            loader: 'ts',
+            contents:
+              `import embeddedIndex from ${JSON.stringify(resolve(root, 'wiki/indexes/library.sqlite'))} with { type: 'file' };\n` +
+              source.replace(
+                collector,
+                'export function collectBuiltinIndex(): Uint8Array { return readFileSync(embeddedIndex); }',
+              ),
+          };
+        });
         build.onLoad({ filter: /builtin\.ts$/ }, async (args) => {
           if (resolve(args.path) !== assetsModule) return;
           const [skills, wiki] = await Promise.all([
@@ -48,7 +71,7 @@ const result = await Bun.build({
           ]);
           validateBuiltinWiki(wiki);
           const source = await readFile(args.path, 'utf8');
-          const collector = /export function collectBuiltinAssets\([\s\S]*?\n\}/;
+          const collector = /export (?:async )?function collectBuiltinAssets\([\s\S]*?\n\}/;
           if (!collector.test(source))
             throw new Error('Built-in collector not found; cannot embed assets');
           return {

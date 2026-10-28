@@ -1,6 +1,7 @@
 {
   "dataDir": "../.auto-agent",
   "wikiRoots": [],
+  "wikiIndexRoots": [],
   "builtinWiki": true,
   "skillRoots": ["skills"],
   "builtinSkills": true,

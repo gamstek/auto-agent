@@ -4,7 +4,6 @@ import { homedir } from 'node:os';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppError } from '../shared/types';
 import { output } from '../shared/console';
-import { DEFAULT_SYSTEM_PROMPT } from '../agent/prompt';
 const schema = z.object({
   // Persistent data; relative paths are resolved from the configuration file's directory.
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
@@ -12,6 +11,8 @@ const schema = z.object({
   skillRoots: z.array(z.string()).default([]),
   // Additional wiki source roots, relative to the configuration file.
   wikiRoots: z.array(z.string()).default([]),
+  // Wiki source files for local native-format indexing, without model extraction.
+  wikiIndexRoots: z.array(z.string()).default([]),
   // Include bundled wiki sources alongside configured roots.
   builtinWiki: z.boolean().default(true),
   // Include bundled skills alongside configured roots.
@@ -28,8 +29,8 @@ const schema = z.object({
   token: z.string(),
   // Model identifier exposed by the OpenAI-compatible provider.
   model: z.string().default('deepseek-flash'),
-  // Replace the default role prompt; the runtime contract is always appended.
-  systemPrompt: z.string().max(16000).default(DEFAULT_SYSTEM_PROMPT),
+  // Blank follows the current built-in role; a custom role keeps the runtime contract.
+  systemPrompt: z.string().max(16000).default(''),
   // OpenAI-compatible provider endpoint.
   baseURL: z.string().url().default('https://api.deepseek.com'),
   // Loaded only from AUTO_AGENT_API_KEY, not from the JSON configuration.
@@ -84,6 +85,7 @@ export async function ensureDefaultConfig(
     builtinSkills: true,
     // Additional wiki source roots, relative to config.json.
     wikiRoots: [],
+    wikiIndexRoots: [],
     // Load bundled wiki sources even when no external roots are configured.
     builtinWiki: true,
     // Listen only on loopback unless explicitly configured otherwise.
@@ -102,8 +104,8 @@ export async function ensureDefaultConfig(
     maxOutputTokens: 16000,
     // OpenAI-compatible endpoint for the selected model.
     baseURL: 'https://api.deepseek.com',
-    // Editable role prompt; mandatory runtime instructions remain appended.
-    systemPrompt: DEFAULT_SYSTEM_PROMPT,
+    // Blank follows built-in prompt updates; mandatory runtime instructions are appended.
+    systemPrompt: '',
     // Script extension → executable; bare Node falls back to embedded Bun if absent.
     interpreters: { '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' },
     // Local Climber Python subservice connection for the device-automation skill.
@@ -198,6 +200,7 @@ export async function loadConfig(file?: string, noToken = false, local = false):
   config.dataDir = isAbsolute(config.dataDir) ? config.dataDir : resolve(base, config.dataDir);
   config.skillRoots = config.skillRoots.map((p) => (isAbsolute(p) ? p : resolve(base, p)));
   config.wikiRoots = [...new Set(config.wikiRoots.map((p) => resolve(base, p)))];
+  config.wikiIndexRoots = [...new Set(config.wikiIndexRoots.map((p) => resolve(base, p)))];
   if (!local && !['127.0.0.1', 'localhost', '::1'].includes(config.host) && !config.allowRemote)
     throw new AppError('remote_binding', 'Non-loopback binding requires allowRemote');
   for (const value of Object.values(config.scriptEnv))

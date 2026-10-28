@@ -11,7 +11,7 @@ async function waitForTitle(store: Store, id: string, title: string) {
   for (let i = 0; i < 100 && store.getSession(id).title !== title; i++) await Bun.sleep(1);
   expect(store.getSession(id).title).toBe(title);
 }
-test('model titles persist, preserve custom titles, and custom prompt augments platform instructions', async () => {
+test('model titles persist and custom roles replace the default while preserving the runtime contract', async () => {
   const f = await fixture();
   const store = new Store(f.config.dataDir);
   const skills = new Skills(f.config);
@@ -44,9 +44,10 @@ test('model titles persist, preserve custom titles, and custom prompt augments p
     await service.submit(session.id, '介绍项目');
     await waitForTitle(store, session.id, '项目简介');
     expect(events).toContain('session.updated');
-    expect(observed.filter((m) => m.role === 'system').length).toBe(4);
-    expect(observed[0].content).toContain('You are Auto-Agent');
-    expect(observed[1].content).toBe(f.config.systemPrompt!);
+    expect(observed.filter((m) => m.role === 'system').length).toBe(3);
+    expect(observed[0].content).toContain(f.config.systemPrompt!);
+    expect(observed[0].content).toContain('Runtime contract:');
+    expect(observed[0].content).not.toContain('You are Auto-Agent');
     await service.submit(session.id, '继续');
     expect(titles).toBe(1);
     const manual = store.createSession('My title');

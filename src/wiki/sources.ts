@@ -18,7 +18,7 @@ export async function readSources(config: Config): Promise<Source[]> {
   const roots: { path: string; prefix: string }[] = [];
   if (config.builtinWiki)
     roots.push({
-      path: await materializeBuiltins(config.dataDir, 'wiki'),
+      path: join(await materializeBuiltins(config.dataDir, 'wiki'), 'sources'),
       prefix: 'builtin',
     });
   for (const path of config.wikiRoots)

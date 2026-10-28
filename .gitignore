@@ -3,5 +3,6 @@ dist/
 .auto-agent/
 .env
 *.sqlite*
+!wiki/indexes/library.sqlite
 coverage/
 docs/internal/

@@ -1,10 +1,10 @@
 ---
 name: hello-world
-description: 'Use when asked to greet a person or demonstrate a harmless local skill script.'
+description: 'Use when explicitly asked to demonstrate a local greeting script for a named person.'
 license: MIT
-compatibility: Requires Node.js on PATH.
+compatibility: Requires Node.js 22 or a compatible JavaScript runtime.
 ---
 
 # Greeting
 
-Read references/format.txt. Execute scripts/greet.js with the person's name as one argument. Return the greeting. This script only prints text.
+For a requested script demonstration, read references/format.txt and pass the supplied person's name to scripts/greet.js as one argument. Report the printed greeting. Ordinary greetings can be answered directly; this example only prints text.

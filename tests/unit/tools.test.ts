@@ -3,6 +3,7 @@ import { BuiltinToolRegistry, toolSchemas } from '../../src/tool';
 import * as web from '../../src/tool/tools/web-fetch';
 import * as search from '../../src/tool/tools/web-search';
 import { toolFixture } from '../tool-helpers';
+import { z } from 'zod';
 
 const registry = new BuiltinToolRegistry();
 
@@ -13,12 +14,49 @@ test('registry co-locates schemas and execution but gives the model declarations
   expect(modelTools).toHaveProperty('execute_script');
   expect(modelTools).not.toHaveProperty('execute_skill_script');
   for (const spec of specs) {
+    const schema = z.toJSONSchema(spec.inputSchema, { io: 'input' });
+    expect(schema.type).toBe('object');
+    expect(schema.anyOf).toBeUndefined();
+    expect(schema.oneOf).toBeUndefined();
     expect(spec.inputSchema).toBe(toolSchemas[spec.name as keyof typeof toolSchemas]);
     expect(typeof spec.execute).toBe('function');
     expect(spec.outputSchema).toBeDefined();
     expect(spec.effects.length).toBeGreaterThan(0);
     expect(modelTools[spec.name]).not.toHaveProperty('execute');
   }
+});
+
+test('Wiki publishes an object schema while retaining per-action requirements and defaults', () => {
+  expect(toolSchemas.wiki.parse({ skill: 'example', query: '石墨' })).toEqual({
+    skill: 'example',
+    action: 'query',
+    query: '石墨',
+    limit: 5,
+  });
+  expect(toolSchemas.wiki.parse({ skill: 'example', action: 'search' })).toEqual({
+    skill: 'example',
+    action: 'search',
+    query: '',
+    filters: {},
+    limit: 3,
+  });
+  const id = 'a'.repeat(64);
+  expect(toolSchemas.wiki.parse({ skill: 'example', action: 'read', id })).toEqual({
+    skill: 'example',
+    action: 'read',
+    id,
+    query: '',
+    maxEvidence: 4,
+  });
+  for (const invalid of [
+    { skill: 'example' },
+    { skill: 'example', query: ' ' },
+    { skill: 'example', action: 'read' },
+    { skill: 'example', action: 'read', id, limit: 2 },
+    { skill: 'example', action: 'search', id },
+    { skill: 'example', query: '石墨', filters: {} },
+  ])
+    expect(() => toolSchemas.wiki.parse(invalid)).toThrow();
 });
 
 test('registry rejects unknown and inherited tool names before execution', async () => {
@@ -36,6 +74,7 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
     ['read', { skill: 'example', path: 'reference.txt' }],
     ['wiki', { skill: 'example', query: 'sample' }],
     ['execute_script', { skill: 'example', path: 'scripts/main.js' }],
+    ['wiki', { skill: 'example', action: 'search', query: 'sample' }],
   ] as const) {
     await expect(registry.execute(name, input, f.context)).rejects.toThrow(
       'Load skill instructions',
@@ -57,6 +96,16 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
   expect(
     await registry.execute('read', { skill: 'example', path: 'reference.txt' }, f.context),
   ).toEqual({ output: 'Resource text', status: 'completed' });
+  await registry.execute(
+    'wiki',
+    { skill: 'example', action: 'search', query: 'sample' },
+    f.context,
+  );
+  expect(f.calls.find((call) => call.name === 'wiki-search')?.input).toEqual({
+    query: 'sample',
+    filters: {},
+    limit: 3,
+  });
   await registry.execute(
     'execute_script',
     { skill: 'example', path: 'scripts/main.js' },

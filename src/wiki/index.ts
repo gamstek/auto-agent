@@ -6,13 +6,67 @@ import type { Config } from '../config';
 import type { ModelAdapter } from '../shared/types';
 import { updateWiki } from './build';
 import { createKeywordSearch, compareSearchResults } from './search';
+import { Database } from 'bun:sqlite';
+import { SourceIndex } from './file-index';
+import { INDEX_REVISION } from './file-index/schema';
+import { materializeBuiltinIndex } from '../shared/builtin-index';
 
 export { KNOWLEDGE_PROMPT } from './prompt';
 export { parseKnowledge } from './knowledge';
 export { knowledgeSchema } from './knowledge';
 
 export class Wiki {
-  constructor(private readonly config: Config) {}
+  private snapshotDatabase?: Database;
+  constructor(
+    private readonly config: Config,
+    private readonly database?: Database,
+  ) {}
+  private get files(): SourceIndex {
+    if (!this.config.wikiIndexRoots.length && this.config.builtinWiki) {
+      if (!this.snapshotDatabase) {
+        const snapshot = new Database(materializeBuiltinIndex(this.config.dataDir), {
+          readonly: true,
+        });
+        try {
+          const meta = snapshot
+            .query<{ revision: string }, []>('SELECT revision FROM wiki_snapshot_meta WHERE id=1')
+            .get();
+          if (meta?.revision !== INDEX_REVISION)
+            throw new AppError(
+              'wiki_snapshot',
+              'Bundled template database revision is incompatible',
+            );
+          this.snapshotDatabase = snapshot;
+        } catch (error) {
+          snapshot.close();
+          throw error;
+        }
+      }
+      return new SourceIndex(this.config, this.snapshotDatabase, true);
+    }
+    if (!this.database)
+      throw new AppError(
+        'wiki_index_storage',
+        'Wiki file index requires initialized local storage',
+      );
+    return new SourceIndex(this.config, this.database);
+  }
+  close() {
+    this.snapshotDatabase?.close();
+    this.snapshotDatabase = undefined;
+  }
+  indexStatus() {
+    return this.files.status();
+  }
+  indexSources(signal: AbortSignal) {
+    return this.files.update(signal);
+  }
+  search(input: unknown) {
+    return this.files.search(input);
+  }
+  read(input: unknown, signal?: AbortSignal) {
+    return this.files.read(input, signal);
+  }
   update(model: ModelAdapter, signal: AbortSignal) {
     return updateWiki(this.config, model, signal);
   }

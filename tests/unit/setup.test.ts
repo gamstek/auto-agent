@@ -22,6 +22,8 @@ test('default config generation is idempotent and never overwrites edits or save
 });
 test('provider failures offer actionable hints without raw response data', () => {
   for (const [status, expected] of [
+    [400, 'request parameters'],
+    [422, 'request parameters'],
     [401, 'authentication'],
     [404, 'model or endpoint'],
     [429, 'rate limit'],
@@ -31,4 +33,12 @@ test('provider failures offer actionable hints without raw response data', () =>
     expect(error.message).toContain(expected);
     expect(error.message).not.toContain('private-secret');
   }
+  const schemaError = modelFailure(
+    Object.assign(new Error('Invalid schema for function wiki: private-secret'), {
+      statusCode: 400,
+    }),
+  );
+  expect(schemaError.code).toBe('model_tool_schema');
+  expect(schemaError.message).toContain('HTTP 400');
+  expect(schemaError.message).not.toContain('private-secret');
 });

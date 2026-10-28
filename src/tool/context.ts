@@ -7,7 +7,7 @@ import { AppError, type ScriptResult } from '../shared/types';
 
 export interface ToolContext {
   skills: Pick<Skills, 'load' | 'list' | 'files' | 'read' | 'resolveScript'>;
-  wiki: Pick<Wiki, 'query'>;
+  wiki: Pick<Wiki, 'query' | 'search' | 'read'>;
   executor: Pick<ScriptExecutor, 'execute'>;
   audit: Pick<Store, 'beginExecution' | 'finishExecution'>;
   network: { allowPrivateAddresses: boolean };

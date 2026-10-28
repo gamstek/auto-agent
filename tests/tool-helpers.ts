@@ -38,6 +38,19 @@ export function toolFixture() {
           warning: 'Fixture recommendations only.',
         };
       },
+      search: (input) => {
+        calls.push({ name: 'wiki-search', input });
+        return {
+          indexedAt: 1,
+          results: [],
+          matchedRecords: 0,
+          truncated: false,
+          warning: 'Fixture source evidence only.',
+        };
+      },
+      read: async () => {
+        throw new Error('No fixture source');
+      },
     },
     executor: {
       execute: async (input) => {

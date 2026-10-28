@@ -105,6 +105,23 @@ export class Store {
           content TEXT NOT NULL
         );`,
       );
+      migrate(
+        db,
+        'store-6-wiki-file-index',
+        `
+        CREATE TABLE wiki_index_meta (id INTEGER PRIMARY KEY CHECK(id=1), fingerprint TEXT NOT NULL, indexedAt INTEGER NOT NULL);
+        CREATE TABLE wiki_files (
+          id TEXT PRIMARY KEY, rootId TEXT NOT NULL, path TEXT NOT NULL, directory TEXT NOT NULL, hash TEXT,
+          kind TEXT NOT NULL, state TEXT NOT NULL, material TEXT, product TEXT, gas TEXT,
+          analysisType TEXT, pressureMode TEXT, clientVersion TEXT, temperatureK REAL,
+          data TEXT NOT NULL, body TEXT NOT NULL
+        );
+        CREATE INDEX wiki_source_hash ON wiki_files(hash);
+        CREATE INDEX wiki_source_folder ON wiki_files(rootId, directory);
+        CREATE INDEX wiki_source_filters ON wiki_files(product, gas, analysisType, temperatureK);
+        CREATE VIRTUAL TABLE wiki_file_search USING fts5(id UNINDEXED, body, tokenize='unicode61');
+      `,
+      );
       this.recover();
     } catch (error) {
       db?.close();

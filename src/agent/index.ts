@@ -17,7 +17,7 @@ import {
   type Message,
 } from '../shared/types';
 import { Events } from './events';
-import { DEFAULT_SYSTEM_PROMPT, systemInstructions } from './prompt';
+import { systemInstructions } from './prompt';
 import { builtinInstructions } from './builtins';
 import { fitModelContext } from './context';
 const State = Annotation.Root({
@@ -41,7 +41,30 @@ export class AgentService {
     done: Promise<{ sources: number; rebuilt: number; builtAt: number }>;
   };
   get wiki(): Wiki {
-    return new Wiki(this.config);
+    return this.wikiService;
+  }
+  private wikiIndexUpdate?: { controller: AbortController; done: ReturnType<Wiki['indexSources']> };
+  updateWikiIndex(signal: AbortSignal): ReturnType<Wiki['indexSources']> {
+    if (this.closing) throw new AppError('shutdown', 'Agent is shutting down', 503);
+    if (this.wikiIndexUpdate)
+      throw new AppError('wiki_index_busy', 'Wiki source index update already running', 409);
+    const controller = new AbortController();
+    const done = this.wiki
+      .indexSources(AbortSignal.any([signal, controller.signal]))
+      .catch((error) => {
+        if (signal.aborted || controller.signal.aborted)
+          throw new AppError(
+            'cancelled',
+            'Wiki source index update cancelled; previous index retained',
+            409,
+          );
+        throw error;
+      })
+      .finally(() => {
+        this.wikiIndexUpdate = undefined;
+      });
+    this.wikiIndexUpdate = { controller, done };
+    return done;
   }
   updateWiki(signal: AbortSignal): Promise<{ sources: number; rebuilt: number; builtAt: number }> {
     if (this.closing) throw new AppError('shutdown', 'Agent is shutting down', 503);
@@ -71,7 +94,10 @@ export class AgentService {
     readonly skills: Skills,
     private executor: ScriptExecutor,
     private model: ModelAdapter,
-  ) {}
+  ) {
+    this.wikiService = new Wiki(config, store.db);
+  }
+  private readonly wikiService: Wiki;
   submit(sessionId: string, content: string): Promise<Message> {
     this.store.getSession(sessionId);
     if (this.closing) throw new AppError('shutdown', 'Agent is shutting down', 503);
@@ -115,13 +141,16 @@ export class AgentService {
   async shutdown(): Promise<void> {
     this.closing = true;
     this.wikiUpdate?.controller.abort();
+    this.wikiIndexUpdate?.controller.abort();
     const wikiDone = this.wikiUpdate?.done;
     for (const entry of [...this.active.values(), ...this.titles.values()])
       entry.controller.abort();
     await Promise.allSettled([
       ...[...this.active.values(), ...this.titles.values()].map((v) => v.done),
       ...(wikiDone ? [wikiDone] : []),
+      ...(this.wikiIndexUpdate ? [this.wikiIndexUpdate.done] : []),
     ]);
+    this.wiki.close();
   }
   private startTitle(sessionId: string, reply: Message): void {
     if (
@@ -369,7 +398,11 @@ export class AgentService {
         const loaded = new Set(state.loaded);
         const context: ToolContext = {
           skills: this.skills,
-          wiki: { query: (query, limit) => this.wiki.query(query, limit) },
+          wiki: {
+            query: (query, limit) => this.wiki.query(query, limit),
+            search: (input) => this.wiki.search(input),
+            read: (input, signal) => this.wiki.read(input, signal),
+          },
           executor: { execute: (input, caller) => this.executor.execute(input, caller) },
           audit: {
             beginExecution: this.store.beginExecution.bind(this.store),
@@ -473,15 +506,13 @@ export class AgentService {
         );
       const system: ModelMessage = {
         role: 'system',
-        content: redact(systemInstructions(undefined, this.config.webAllowPrivateAddresses)),
+        content: redact(
+          systemInstructions(this.config.systemPrompt, this.config.webAllowPrivateAddresses),
+        ),
       };
-      const customSystem: ModelMessage[] =
-        this.config.systemPrompt?.trim() && this.config.systemPrompt !== DEFAULT_SYSTEM_PROMPT
-          ? [{ role: 'system', content: redact(this.config.systemPrompt) }]
-          : [];
       const result = await graph.invoke(
         {
-          messages: [system, ...customSystem, ...history],
+          messages: [system, ...history],
           steps: 0,
           tokens: 0,
           loaded: [],

@@ -6,6 +6,7 @@ import { Store } from '../../src/storage';
 import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { fixture } from '../helpers';
+import { BuiltinToolRegistry } from '../../src/tool';
 
 const usage = { inputTokens: 8, outputTokens: 2, totalTokens: 10 };
 const history = (): ModelMessage[] => [
@@ -114,7 +115,8 @@ test('cancellation stops an in-flight summary even if an adapter ignores the sig
 
 test('agent counts summary usage and reuses the compressed messages in subsequent model steps', async () => {
   const f = await fixture();
-  f.config.maxInputTokens = 4200;
+  // Keep the historical-message budget stable as tool declarations evolve.
+  f.config.maxInputTokens = new BuiltinToolRegistry().contextTokenEstimate() + 3500;
   const store = new Store(f.config.dataDir);
   const skills = new Skills(f.config);
   await skills.discover();
