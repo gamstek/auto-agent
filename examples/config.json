@@ -17,7 +17,7 @@
   },
   "scriptTimeoutMs": 30000,
   "scriptEnv": {
-    "CLIMBER_SERVICE_URL": "http://127.0.0.1:19181",
+    "CLIMBER_SERVICE_URL": "http://127.0.0.1:18080/api/v1",
     "CLIMBER_TIMEOUT_MS": "5000"
   },
   "outputLimitBytes": 65536,

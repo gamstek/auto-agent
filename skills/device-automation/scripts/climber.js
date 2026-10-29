@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Real Climber access goes through the Python subservice, never the vendor API directly.
+// Direct access to the manufacturer's Climber PC HTTP API.
 async function main() {
   const fail = (code, message, details = {}) => {
     throw Object.assign(new Error(message), { code, details });
@@ -14,32 +14,16 @@ async function main() {
     v.length <= max &&
     !/[\u0000-\u001f\u007f]/.test(v);
   const positive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const batchId = (v) =>
+    typeof v === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(v) && !['.', '..'].includes(v);
   const [command, ...args] = process.argv.slice(2);
-  const reads = {
-    health: '/health',
-    status: '/status',
-    'vendor-health': '/api/v1/health',
-    'vendor-status': '/api/v1/status',
-    results: '/results',
-  };
-  const localCommands = {
-    resume: 'RESUME',
-    'clear-error': 'CLEAR_ERROR',
-    'status-poll': 'STATUS_POLL',
-  };
-  if (
-    !Object.hasOwn(reads, command) &&
-    command !== 'start' &&
-    !Object.hasOwn(localCommands, command)
-  )
-    fail(
-      'INVALID_COMMAND',
-      '支持 health、status、vendor-health、vendor-status、results、start、resume、clear-error、status-poll。',
-    );
-  const write = !Object.hasOwn(reads, command);
+  if (!['health', 'status', 'register', 'start'].includes(command))
+    fail('INVALID_COMMAND', '支持 health、status、register、start。');
+  const write = command === 'register' || command === 'start';
   if (args.length !== (write ? 1 : 0))
-    fail('INVALID_ARGUMENTS', '写命令需要一个 JSON 参数，只读命令不接受参数。');
+    fail('INVALID_ARGUMENTS', 'register/start 需要一个 JSON 参数；health/status 不接受参数。');
   let input;
+  const tubeMapping = [];
   if (write) {
     if (Buffer.byteLength(args[0], 'utf8') > 16384) fail('INVALID_INPUT', 'JSON 超过 16384 字节。');
     try {
@@ -48,30 +32,24 @@ async function main() {
       fail('INVALID_INPUT', '参数必须是有效 JSON。');
     }
     if (
-      !exact(input, ['commandId', 'payload']) ||
-      !text(input.commandId, 128) ||
-      !object(input.payload)
+      !exact(input, command === 'register' ? ['batchId', 'experiments'] : ['batchId']) ||
+      !batchId(input.batchId)
     )
       fail(
         'INVALID_INPUT',
-        '需要 commandId 和 payload；commandId 必须是非空字符串（最多 128 字符）。',
+        '需要 batchId（1–64位字母、数字、点、下划线或连字符，不得为点路径段）；register 还需要 experiments。',
       );
-    if (command === 'start') {
-      const p = input.payload;
+    if (command === 'register') {
       if (
-        !exact(p, ['taskId', 'stationId', 'experiments']) ||
-        typeof p.taskId !== 'string' ||
-        !/^[A-Za-z0-9._-]{1,64}$/.test(p.taskId) ||
-        !text(p.stationId, 128) ||
-        !Array.isArray(p.experiments) ||
-        p.experiments.length < 1 ||
-        p.experiments.length > 3
+        !Array.isArray(input.experiments) ||
+        input.experiments.length < 1 ||
+        input.experiments.length > 3
       )
-        fail('INVALID_INPUT', 'START 需要 taskId、stationId 及左侧 1 至 3 项 experiments。');
+        fail('INVALID_INPUT', '登记需要左侧1–3项 experiments。');
       const ids = new Set(),
         ports = new Set(),
         tubes = new Set();
-      for (const e of p.experiments) {
+      for (const e of input.experiments) {
         if (
           !exact(e, [
             'experimentId',
@@ -95,7 +73,7 @@ async function main() {
         )
           fail(
             'INVALID_INPUT',
-            '实验字段不合法：仅支持左口 1/2/3、正整数管号、绝对 SAM 路径、合法样品名和正有限质量（g）。',
+            '实验字段不合法：仅支持左口1/2/3、正整数管号、绝对SAM路径、合法样品名和正有限质量（g）。',
           );
         const tube = e.tubeNo % 72 || 72;
         if (ids.has(e.experimentId) || ports.has(e.analysisPort) || tubes.has(tube))
@@ -103,6 +81,7 @@ async function main() {
         ids.add(e.experimentId);
         ports.add(e.analysisPort);
         tubes.add(tube);
+        tubeMapping.push({ experimentId: e.experimentId, tubeNo: e.tubeNo, vendorTubeNo: tube });
       }
     }
   }
@@ -110,38 +89,51 @@ async function main() {
   try {
     base = new URL(process.env.CLIMBER_SERVICE_URL);
   } catch {
-    fail('INVALID_CONFIGURATION', '必须配置 CLIMBER_SERVICE_URL 为 Python 子服务地址。');
+    fail('INVALID_CONFIGURATION', '必须配置 CLIMBER_SERVICE_URL 为厂家 HTTP API 基址。');
   }
   if (
     !['http:', 'https:'].includes(base.protocol) ||
     base.username ||
     base.password ||
-    base.pathname !== '/' ||
+    !['/api/v1', '/api/v1/'].includes(base.pathname) ||
     base.search ||
     base.hash
   )
-    fail('INVALID_CONFIGURATION', '子服务地址必须是无凭据、路径或查询参数的 HTTP(S) 源地址。');
+    fail(
+      'INVALID_CONFIGURATION',
+      '厂家API地址必须为无凭据和查询参数、以 /api/v1 结尾的 HTTP(S) 基址。',
+    );
+  base.pathname = '/api/v1/';
   const timeout = process.env.CLIMBER_TIMEOUT_MS ?? '5000';
   if (!/^\d+$/.test(timeout) || Number(timeout) < 1 || Number(timeout) > 60000)
-    fail('INVALID_CONFIGURATION', 'CLIMBER_TIMEOUT_MS 必须为 1 至 60000 的整数。');
+    fail('INVALID_CONFIGURATION', 'CLIMBER_TIMEOUT_MS 必须为1–60000的整数。');
   const identity = write
-    ? {
-        commandId: input.commandId,
-        ...(command === 'start' ? { taskId: input.payload.taskId } : {}),
-      }
+    ? { batchId: input.batchId, stage: command, ...(command === 'register' ? { tubeMapping } : {}) }
     : {};
+  const route =
+    command === 'register'
+      ? 'tasks'
+      : command === 'start'
+        ? `tasks/${encodeURIComponent(input.batchId)}/start`
+        : command;
   let response, body;
   try {
-    response = await fetch(new URL(write ? '/commands' : reads[command], base), {
+    response = await fetch(new URL(route, base), {
       method: write ? 'POST' : 'GET',
       headers: write ? { 'Content-Type': 'application/json' } : {},
       ...(write
         ? {
-            body: JSON.stringify({
-              commandId: input.commandId,
-              commandType: command === 'start' ? 'CLIMBER_ANALYZER_START' : localCommands[command],
-              payload: input.payload,
-            }),
+            body: JSON.stringify(
+              command === 'register'
+                ? {
+                    batchId: input.batchId,
+                    experiments: input.experiments.map((experiment, index) => ({
+                      ...experiment,
+                      tubeNo: tubeMapping[index].vendorTubeNo,
+                    })),
+                  }
+                : {},
+            ),
           }
         : {}),
       signal: AbortSignal.timeout(Number(timeout)),
@@ -151,32 +143,47 @@ async function main() {
   } catch {
     fail(
       write ? 'OUTCOME_UNKNOWN' : 'SERVICE_UNAVAILABLE',
-      write ? '命令效果未知；只读查询并由操作者对账，不得自动重发。' : '无法取得子服务 JSON 响应。',
+      write
+        ? '厂家请求效果未知；保留批次与阶段，只读对账，不得自动重发。'
+        : '无法取得厂家API的JSON响应。',
       identity,
     );
   }
-  if (!object(body))
-    fail(write ? 'OUTCOME_UNKNOWN' : 'INVALID_RESPONSE', '子服务响应必须为 JSON 对象。', identity);
+  const uncertain = (message) =>
+    fail(write ? 'OUTCOME_UNKNOWN' : 'INVALID_RESPONSE', message, identity);
+  if (!object(body)) uncertain('厂家响应必须为JSON对象。');
+  if (
+    body.ok === false &&
+    object(body.error) &&
+    text(body.error.code, 128) &&
+    text(body.error.message, 4096)
+  )
+    fail(write ? 'COMMAND_REJECTED' : 'SERVICE_ERROR', '厂家拒绝请求。', {
+      ...identity,
+      status: response.status,
+      response: body,
+    });
+  if (!response.ok || body.ok !== true || !object(body.data))
+    uncertain('厂家HTTP状态或 ok/data 封套无效；写请求不得自动重发。');
   if (write) {
+    // Registration: data.task. Start: task directly in data, as observed in the documented HTTP 202 response.
+    const task = command === 'register' ? body.data.task : body.data;
+    if (!object(task) || task.batchId !== input.batchId || !text(task.state, 128))
+      uncertain('厂家任务回执缺少批次/状态或批次不匹配；请只读对账，不得自动重发。');
+  } else if (command === 'status') {
     if (
-      body.commandId !== input.commandId ||
-      typeof body.accepted !== 'boolean' ||
-      typeof body.workStatus !== 'string'
+      !object(body.data.health) ||
+      !(
+        body.data.task === null ||
+        (object(body.data.task) &&
+          text(body.data.task.batchId, 64) &&
+          text(body.data.task.state, 128))
+      )
     )
-      fail('OUTCOME_UNKNOWN', '命令回执缺失字段或身份不匹配；不得自动重发。', identity);
-    if (!body.accepted)
-      fail('COMMAND_REJECTED', '子服务拒绝命令。', { ...identity, response: body });
-    if (!response.ok) fail('OUTCOME_UNKNOWN', 'HTTP 状态与受理回执矛盾；请只读对账。', identity);
-  } else if (!response.ok || body.ok === false) {
-    fail('SERVICE_ERROR', '子服务查询失败。', { status: response.status, response: body });
+      uncertain('厂家status需要 data.health 和 data.task（任务对象或null）。');
   }
   console.log(
-    JSON.stringify({
-      backend: 'climber-subservice',
-      operation: command,
-      ...identity,
-      response: body,
-    }),
+    JSON.stringify({ backend: 'climber-vendor', operation: command, ...identity, response: body }),
   );
 }
 
@@ -185,7 +192,7 @@ main().catch((error) => {
     JSON.stringify({
       error: {
         code: error.code ?? 'INTERNAL_ERROR',
-        message: error.code ? error.message : 'Climber 接口调用失败。',
+        message: error.code ? error.message : 'Climber 厂家接口调用失败。',
         ...error.details,
       },
     }),

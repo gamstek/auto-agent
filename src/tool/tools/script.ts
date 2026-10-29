@@ -4,7 +4,7 @@ import { defineTool, UncertainToolError } from '../context';
 
 export const executeScriptTool = defineTool({
   description:
-    'Execute a documented script from a skill loaded in this generation. Supply its scripts/ relative path and an argument array. Scripts run with host permissions and may have side effects. Inspect execution status and the skill-defined output; process success is not physical completion. Failed/uncertain writes are not automatically retried.',
+    'Execute a documented script from a skill loaded in this generation. Supply its scripts/ relative path and an argument array. Scripts run with host permissions and may have side effects. Inspect execution status and the skill-defined output; process success is not physical completion. A JSON error code OUTCOME_UNKNOWN is audited as unknown and stops dependent tools. Failed/uncertain writes are not automatically retried.',
   effects: ['process'],
   requiresLoadedSkill: true,
   inputSchema: z.object({
@@ -48,12 +48,29 @@ export const executeScriptTool = defineTool({
       if (uncertain) throw new UncertainToolError(errorText(error));
       throw error;
     }
+    // A confirmed process exit does not resolve an external write. Portable
+    // scripts report this explicitly through the single-JSON error contract.
+    if (result.status === 'completed' || result.status === 'failed') {
+      try {
+        const output: unknown = JSON.parse(result.stdout);
+        if (
+          output &&
+          typeof output === 'object' &&
+          'error' in output &&
+          output.error &&
+          typeof output.error === 'object' &&
+          'code' in output.error &&
+          output.error.code === 'OUTCOME_UNKNOWN'
+        )
+          result = { ...result, status: 'unknown' };
+      } catch {
+        // Other script output formats retain their executor outcome.
+      }
+    }
     record(result);
     if (result.status !== 'completed') run.failedScripts.add(signature);
     if (result.status === 'unknown') {
-      throw new UncertainToolError(
-        'Script termination is unconfirmed; manual reconciliation required',
-      );
+      throw new UncertainToolError('Script outcome is uncertain; manual reconciliation required');
     }
     return { output: result, status: result.status };
   },

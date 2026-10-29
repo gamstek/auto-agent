@@ -2,7 +2,7 @@
 
 ## 用途与入口
 
-`scripts/sam.js` 支持读取与对比 SAM/SMP，以及新建、修改和另存为 G5/G12 模板。文件由当前主机写入，运行时将厂家可访问的绝对 `.SAM` 路径交给 `scripts/climber.js start`，按 Climber 契约执行完整批次登记及启动。文件历史状态不代表本次实验的状态。
+`scripts/sam.js` 支持读取与对比 SAM/SMP，以及新建、修改和另存为 G5/G12 模板。文件由当前主机写入，运行时将厂家可访问的绝对 `.SAM` 路径交给 `scripts/climber.js register`，登记成功后用 `start` 启动同一 batchId。文件历史状态不代表本次实验的状态。
 
 需要 Node.js 22 或宿主支持的 JavaScript 运行时。路径必须是当前主机的绝对路径；厂家进程可访问的 samPath 不保证 Agent 主机也能读取。以下数组为命令参数，JSON 是单个参数，不拼接 shell 字符串。
 
@@ -46,7 +46,7 @@
 - `intervalSeconds` 保留为秒；低压最小/最大延时保留为小时。两者不是同一种平衡参数。
 - `T_` 表示目标压力模式、`D_` 表示注气增量模式。低压注气事实只取当前模式且开关已启用的字段；停用或缺失时为未知。
 - 两张表可以同时存在，以 active 标识哪张被模式选中，不合并为执行点。压力段保留原顺序和 start/end/step，step=0 标为 endpointOnly，不自动展开或补齐点位。
-- `unit`、零起始 `port` 原样返回，不自动换成子服务 analysisPort，更不把管号当端口。
+- `unit`、零起始 `port` 原样返回，不自动换成厂家 analysisPort，更不把管号当端口。
 - reports 的 selected 才表示勾选。报告存在不证明自动导出 PDF。
 
 facts 用 presence=missing/null/value 区分字段缺失、显式null和有值；标量保留 rawValue，归一化失败不把字符串数字当成有效枚举。两张分段表也带 presence，空数组不会变成 null。false、0 保留原值。出现未解释的扩展字段会报告 extraKeys/warnings，不解释其执行行为。
@@ -97,6 +97,8 @@ comparison.checks 的状态为 match、mismatch、unknown 或 unsupported；over
 
 将此 JSON 作为 `create` 的一个参数，脚本自行装配完整配置、生成独立 UUID 与新建状态并保存真实 SAM。`path` 可选，省略时写入 `SAM_OUTPUT_DIR`（如部署设置），否则写入当前操作系统用户主目录下 `Auto-Agent/templates`，目录自动创建；文件名由方法和随机标识组成，不覆盖已有文件。`profile` 可选，用 profiles 返回的 id 精确选择配置。参数中的示例称量不是默认值，必须使用实际值。
 
+生成后使用结果中的 `file.path` 继续任务，不再要求用户提供同一文件或重填路径。按已知部署规则将其用于厂家登记；仅在厂家访问条件或跨机路径映射缺失时询问该缺项，不能把本机生成成功当成厂家读取已验证。批次和实验标识按 Climber 契约生成或复用，不与真实样品编号混淆。
+
 仅生成模板时，sampleName/sampleMassG/tubeMassG 可缺省：名称为明确占位、质量为待填0，返回 `generation.pendingInputs` 和 `sampleInputsComplete=false`。因此缺少称量不阻止先生成文件；称量、样品信息及仪器前提齐备后才能提交执行。新建状态的待填模板可以逐项 modify 或 save-as，各写入结果均返回顶层 pendingInputs/sampleInputsComplete；也可按补齐后的 settings 生成另一份新文件。sampleInputsComplete 只表示样品字段齐全，不证明仪器就绪或真实称量已核验。不要声称“任意补齐一项就可执行”，也不要将内置配置缺失与样品尚未称量混淆。
 
 settings 使用归一化单位，支持以下字段：
@@ -146,7 +148,7 @@ settings 使用归一化单位，支持以下字段：
 
 成功返回 `backend=sam-file-write`、`operation`、`written=true` 和目标文件摘要/哈希；修改与另存为还返回 source 来源哈希。新建和另存为不覆盖现有目标；modify 必须在用户授权的覆盖范围内。发生写入错误、超时或回执不明时，先核对目标路径和哈希，不自动重试。
 
-生成 `.SAM` 后，按 Climber 契约查询设备状态并提交 `start`，将目标路径填写到 experiments[].samPath；保留 commandId、taskId、experimentId，并通过状态与结果接口确认实际执行。Agent 主机路径与厂家路径不同时，依据部署映射取得厂家可读路径。
+生成 `.SAM` 后，按 Climber 契约查询厂家 health/status，用 register 登记 batchId 与 experiments，将目标路径填写到 experiments[].samPath；登记明确成功后用 start 启动该 batchId。保留批次、实验及阶段标识，通过 status 确认实际执行。Agent 主机路径与厂家路径不同时，依据部署映射取得厂家可读路径。
 
 ## 调用边界
 

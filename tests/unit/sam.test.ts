@@ -469,7 +469,7 @@ test('create rejects incomplete or historical input and product-specific invalid
   }
 });
 
-test('new SAM template feeds the existing Climber batch start contract', async () => {
+test('new SAM template feeds manufacturer registration followed by a separate Climber start', async () => {
   const f = await setup();
   let calls = 0;
   const server = Bun.serve({
@@ -477,17 +477,27 @@ test('new SAM template feeds the existing Climber batch start contract', async (
     hostname: '127.0.0.1',
     async fetch(request) {
       calls++;
-      expect(new URL(request.url).pathname).toBe('/commands');
+      const route = new URL(request.url).pathname;
       const body = await request.json();
-      expect(body.commandType).toBe('CLIMBER_ANALYZER_START');
-      const experiment = body.payload.experiments[0];
+      if (route === '/api/v1/tasks/NEW-BATCH/start') {
+        expect(calls).toBe(2);
+        expect(body).toEqual({});
+        return Response.json(
+          { ok: true, data: { batchId: 'NEW-BATCH', state: 'STARTING', analysisStarted: false } },
+          { status: 202 },
+        );
+      }
+      expect(route).toBe('/api/v1/tasks');
+      expect(body.batchId).toBe('NEW-BATCH');
+      const experiment = body.experiments[0];
+      expect(experiment.tubeNo).toBe(37);
       expect(experiment.samPath).toBe('//server/share/generated.SAM');
       // The mock vendor maps its shared path to the file on the agent host.
       const root = decode(await readFile(f.path));
       expect(root.mass['sample mass']).toBe(experiment.sampleMassG);
       return Response.json(
-        { commandId: body.commandId, accepted: true, workStatus: 'BUSY' },
-        { status: 202 },
+        { ok: true, data: { task: { batchId: body.batchId, state: 'READY' } } },
+        { status: 201 },
       );
     },
   });
@@ -504,40 +514,45 @@ test('new SAM template feeds the existing Climber batch start contract', async (
         })
       ).code,
     ).toBe(0);
-    const child = Bun.spawn(
-      [
-        node!,
-        resolve('skills/device-automation/scripts/climber.js'),
-        'start',
-        JSON.stringify({
-          commandId: 'NEW-CMD',
-          payload: {
-            taskId: 'NEW-BATCH',
-            stationId: 'analyzer-02',
-            experiments: [
-              {
-                experimentId: 'NEW-EXP',
-                analysisPort: 1,
-                tubeNo: 109,
-                samPath: '//server/share/generated.SAM',
-                sampleName: '新样品',
-                emptyTubeMassG: 29.1,
-                sampleMassG: 1.5,
-              },
-            ],
-          },
-        }),
+    const registration = {
+      batchId: 'NEW-BATCH',
+      experiments: [
+        {
+          experimentId: 'NEW-EXP',
+          analysisPort: 1,
+          tubeNo: 109,
+          samPath: '//server/share/generated.SAM',
+          sampleName: '新样品',
+          emptyTubeMassG: 29.1,
+          sampleMassG: 1.5,
+        },
       ],
-      {
-        env: { CLIMBER_SERVICE_URL: server.url.origin, SystemRoot: process.env.SystemRoot },
-        stdout: 'pipe',
-        stderr: 'pipe',
-      },
-    );
-    const output = await new Response(child.stdout).text();
-    expect(await child.exited).toBe(0);
-    expect(JSON.parse(output).response.accepted).toBe(true);
-    expect(calls).toBe(1);
+    };
+    for (const [command, input] of [
+      ['register', registration],
+      ['start', { batchId: 'NEW-BATCH' }],
+    ] as const) {
+      const child = Bun.spawn(
+        [
+          node!,
+          resolve('skills/device-automation/scripts/climber.js'),
+          command,
+          JSON.stringify(input),
+        ],
+        {
+          env: {
+            CLIMBER_SERVICE_URL: `${server.url.origin}/api/v1`,
+            SystemRoot: process.env.SystemRoot,
+          },
+          stdout: 'pipe',
+          stderr: 'pipe',
+        },
+      );
+      const output = await new Response(child.stdout).text();
+      expect(await child.exited).toBe(0);
+      expect(JSON.parse(output).response.ok).toBe(true);
+    }
+    expect(calls).toBe(2);
   } finally {
     server.stop(true);
     await f.cleanup();

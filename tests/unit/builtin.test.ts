@@ -61,7 +61,7 @@ test('formal built-in skill loads host-independent interface guidance and preser
     expect(content).toContain('references/climber.md');
     const climber = await skills.read('device-automation', 'references/climber.md');
     expect(climber).toContain('不需要提交自动化流程');
-    expect(climber).toContain('CLIMBER_ANALYZER_START');
+    expect(climber).toContain('POST /api/v1/tasks');
     expect(climber).toContain('OUTCOME_UNKNOWN');
     expect((await skills.resolveScript('device-automation', 'scripts/climber.js')).path).toEndWith(
       'climber.js',

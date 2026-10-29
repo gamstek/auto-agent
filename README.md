@@ -306,7 +306,7 @@ bun src/index.ts --config examples/config.json --wiki-index
 | 入口       | 作用                                                                         | 契约与实现                                                                                                 |
 | ---------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | 自动化流程 | 根据材料、样品及测试需求匹配已有模板，交给自动化控制系统运行预设的一系列流程 | [automation.md](skills/device-automation/references/automation.md)；`scripts/automation.js` 为开发模拟实现 |
-| 单仪器控制 | 直接查询或操作指定仪器，当前接入 Climber                                     | [climber.md](skills/device-automation/references/climber.md)；`scripts/climber.js` 连接 Python 子服务      |
+| 单仪器控制 | 直接查询或操作指定仪器，当前接入 Climber                                     | [climber.md](skills/device-automation/references/climber.md)；`scripts/climber.js` 直连厂家 HTTP API       |
 
 技能先识别任务类型，再加载对应契约。自动化流程内的步骤与仪器调度由控制系统负责，Agent 不同时直接启动其中的仪器。单独操作 Climber 无需提交流程；状态和结果查询无需先匹配模板。支持根据需求选择、新建、修改或另存为模板，保留产品、版本、单位、适用条件及引用；完整配置与文件路径来自资料或用户确认。
 
@@ -314,24 +314,24 @@ bun src/index.ts --config examples/config.json --wiki-index
 
 使用 [SAM 模板接口](skills/device-automation/references/sam.md)及 `scripts/sam.js` 检查、对比、新建、修改和另存为模板。`inspect/compare` 支持 g5/g12/s60pro，返回文件哈希、状态、来源、单位及差异。`profiles` 查询随技能发布的 G5/G12 N2 完整配置和来源；`create` 接受 product 与 settings，按 BET/介孔/微孔方法组织完整配置并生成真实 SAM，无需用户提供基准文件或完整 JSON。也支持直接提供完整 template。未指定输出位置时使用 SAM_OUTPUT_DIR 或用户主目录的 Auto-Agent/templates；缺少称量或样品名可先保存待填模板，补齐本次信息后再提交执行。新建使用独立身份及新建状态；`modify/save-as` 校验来源哈希、保留未改字段，新建和另存为不覆盖已有目标。生成文件可通过厂家可读的绝对 `.SAM` 路径交给现有 Climber 启动接口。静态检查不代表设备验收通过；内置完整配置与 Wiki 历史摘要分别维护，原案例及默认程序不等于任意材料的科学批准。
 
-`scripts/climber.js` 通过 Python 子服务控制左站 1–3 口。启动使用批次、实验、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径。Agent 确认模板、必要字段和运行授权，查询目标站与厂家状态后提交批次，并跟踪实际状态及归档结果。
+`scripts/climber.js` 直接调用厂家 Climber PC 软件的 18080 HTTP API，控制已验收的左侧1–3口。登记使用 batchId、experiments、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径；脚本将原管号按 `n % 72 or 72` 转换后发给厂家并返回映射。Agent 确认运行授权与参数，查询厂家 health/status，明确登记成功后再单独启动同一批次，并跟踪实际状态。
 
 程序首次启动自动生成的 `config.json` 已包含以下 `scriptEnv` 连接设置；使用自定义配置时可自行加入或修改（默认地址适用于同机部署）：
 
 ```json
 {
   "scriptEnv": {
-    "CLIMBER_SERVICE_URL": "http://127.0.0.1:19181",
+    "CLIMBER_SERVICE_URL": "http://127.0.0.1:18080/api/v1",
     "CLIMBER_TIMEOUT_MS": "5000"
   }
 }
 ```
 
-重启应用后生效。地址必须指向 Python 子服务源地址，不是厂家 `:18080/api/v1`。应用启动不会主动访问设备，执行技能命令时才调用配置的地址。脚本使用支持 fetch 的 Node.js（CI 为 Node.js 22）或应用兼容的内嵌运行时。按现行文档没有为子服务调用增加鉴权字段，凭据不得放入 `scriptEnv` 或 URL。部署若需要额外鉴权，需先对齐相应合同与凭据注入方式。
+重启应用后生效。地址必须指向厂家 HTTP API 并包含 `/api/v1`，不再连接 Python 子服务。已有配置保留原值，需要将旧连接地址手动改为上面的厂家地址。应用启动不会主动访问设备，执行技能命令时才调用。脚本使用 Node.js 22 或应用兼容的内嵌运行时。厂家部署若要求鉴权，需先对齐其合同与凭据注入方式；凭据不得放入 URL 或 `scriptEnv`。
 
-调用参数：只读 `health`、`status`、`vendor-health`、`vendor-status`、`results`；写入 `start` 加一个包含 `commandId` 和 `payload` 的 JSON 参数，字段示例见控制契约。`resume`、`clear-error`、`status-poll` 对应子服务本地管理命令，不能解释为物理继续、仪器复位或强制新查询。所有写命令均不自动重试；超时或无效回执保留标识并返回 `OUTCOME_UNKNOWN`，需只读对账。
+调用参数：`health` 与 `status` 为只读查询；`register <JSON>` 接受 `{batchId,experiments}` 并 POST `/api/v1/tasks`；`start <JSON>` 只接受 `{batchId}` 并以 `{}` 正文 POST `/api/v1/tasks/{batchId}/start`。没有旧命令别名或子服务封套。所有写请求均不自动重试；超时、无效回执或批次不符返回 `OUTCOME_UNKNOWN`，保留 batchId 和阶段，停止依赖步骤并只读对账。
 
-启动受理不等于实际 RUNNING；归档 PENDING 不改变设备完成事实。脚本不直接调用厂家登记/启动，不提供物理暂停/停止/取消、窗口关闭、自动 PDF 或右站并行能力。通过本地 HTTP mock 验证接口合同；真实现场连通性与设备动作仍需在实际部署中核对。
+厂家登记回执使用 `ok/data.task`；启动按文档实测 HTTP 202 的 `ok/data` 任务对象校验；status 使用 `ok/data.health` 和 `data.task`。READY 不代表分析开始，启动受理不等于实际 RUNNING；结果文件仅按厂家实际返回的同批证据报告。通过本地 HTTP mock 验证接口合同，真实现场连通性与设备动作仍需在实际部署中核对。
 
 ### 自动化流程与模拟脚本
 

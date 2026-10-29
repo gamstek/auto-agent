@@ -148,7 +148,7 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(template.webAllowPrivateAddresses).toBe(true);
     expect(template.wikiIndexRoots).toEqual([]);
     expect(template.scriptEnv).toEqual({
-      CLIMBER_SERVICE_URL: 'http://127.0.0.1:19181',
+      CLIMBER_SERVICE_URL: 'http://127.0.0.1:18080/api/v1',
       CLIMBER_TIMEOUT_MS: '5000',
     });
     const config = await loadConfig(created.path, true, true);
