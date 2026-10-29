@@ -1,4 +1,4 @@
-import { collectTextAssets } from '../../src/shared/assets';
+import { collectTextAssets, materializeAssets } from '../../src/shared/assets';
 import { test, expect } from 'bun:test';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -124,6 +124,41 @@ test('built-ins disable cleanly, duplicate names fail, modified resources are no
     const root = await materializeBuiltins(f.config.dataDir, 'skills');
     await writeFile(join(root, 'device-automation', 'references', 'automation.md'), 'modified');
     await expect(materializeBuiltins(f.config.dataDir, 'skills')).rejects.toThrow('modified');
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('built-in workflow guidance loads under the 16 KiB resource limit with LF and CRLF checkouts', async () => {
+  const f = await fixture();
+  try {
+    const assets = await collectBuiltinAssets('skills');
+    for (const [name, eol] of [
+      ['lf', '\n'],
+      ['crlf', '\r\n'],
+    ] as const) {
+      const converted = Object.fromEntries(
+        Object.entries(assets).map(([path, text]) => [path, text.replace(/\r?\n/g, eol)]),
+      );
+      const root = await materializeAssets(f.dir, `${name}-skills`, converted);
+      const skills = new Skills({
+        ...f.config,
+        skillRoots: [root],
+        builtinSkills: false,
+        resourceLimitBytes: 16384,
+      });
+      await skills.discover();
+      expect(await skills.load('device-automation')).toContain('设备自动化与单仪器控制');
+      for (const [path, text] of Object.entries(converted)) {
+        if (!path.startsWith('device-automation/references/') || !path.endsWith('.md')) continue;
+        const bytes = Buffer.byteLength(text);
+        if (bytes > 16384)
+          throw new Error(`${name} resource ${path}: ${bytes} bytes exceeds 16384`);
+        expect(
+          await skills.read('device-automation', path.slice('device-automation/'.length)),
+        ).toBe(text);
+      }
+    }
   } finally {
     await f.cleanup();
   }

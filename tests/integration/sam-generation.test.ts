@@ -23,7 +23,7 @@ test('agent generates a BET SAM from packaged configuration through the loaded s
   const store = new Store(config.dataDir);
   const calls = [
     { name: 'skill', input: { name: 'device-automation' } },
-    { name: 'read', input: { skill: 'device-automation', path: 'references/sam.md' } },
+    { name: 'read', input: { skill: 'device-automation', path: 'references/sam-create.md' } },
     {
       name: 'execute_script',
       input: {

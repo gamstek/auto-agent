@@ -46,22 +46,22 @@ System 3：<skill_guidance>（技能加载/信任规则及本步骤最新的可�
 
 ## 2. 提示词清单与职责
 
-| 层             | 代码/资源                                                           | 负责什么                                                           |
-| -------------- | ------------------------------------------------------------------- | ------------------------------------------------------------------ |
-| 默认角色       | `src/agent/prompt.ts` / `DEFAULT_SYSTEM_PROMPT`                     | 业务目标、任务类型、推荐输出、语言和沟通方式                       |
-| 工具指导       | `src/tool/prompt.ts` / `toolGuidance()`                             | 工具调用、结果与证据语义、未知写入处理、预算和实际网络策略         |
-| 环境事实       | `src/agent/builtins.ts`                                             | 日期时间、系统和运行时、宿主cwd、Git标记；不表示仪器连接或脚本cwd  |
-| 技能指导及目录 | `src/skill/prompt.ts` / `skillGuidance()`                           | 技能加载前提、信任边界及技能名称、适用描述和SKILL位置              |
-| 技能包装       | 同文件 / `skillContent()`                                           | 加载后的正文、路径基准和抽样文件列表                               |
-| 业务技能       | `skills/device-automation/SKILL.md`                                 | 预设自动化流程或单仪器入口、模板匹配和当前任务执行流程             |
-| 接口资料       | 技能的`references/automation.md`、`climber.md`、`sam.md`、`wiki.md` | 对应入口的字段、单位、状态和操作数据约定，按需读取                 |
-| 工具说明       | `src/tool/tools/*.ts`的`description`及字段说明                      | 工具用途、调用条件、输入结构和返回含义；与Schema、执行实现共同维护 |
-| 历史压缩       | `src/agent/context.ts` / `HISTORY_SUMMARY_PROMPT`                   | 保留用户目标、确认值、操作标识、来源、观察结果及未知事项           |
-| 压缩结果边界   | 同文件 / `HISTORY_SUMMARY_MARKER`、`HISTORY_SUMMARY_END`            | 明确摘要是历史数据，通过标记后的user消息回填上下文                 |
-| Wiki知识提取   | `src/wiki/prompt.ts` / `KNOWLEDGE_PROMPT`                           | 从编号源文档提取带精确引用的推荐记录、范围和歧义                   |
-| Wiki分段范围   | 同文件 / `knowledgeSourcePrompt()`                                  | 输出截断后限定原始行范围，完整文档只作上下文                       |
-| 会话标题       | `src/llm/prompt.ts` / `SESSION_TITLE_PROMPT`                        | 按用户语言生成短标题，输出仅标题                                   |
-| 开发示例技能   | `examples/skills/*/SKILL.md`                                        | 用户请求本地脚本演示时的问候或计算示例                             |
+| 层             | 代码/资源                                                                            | 负责什么                                                           |
+| -------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------ |
+| 默认角色       | `src/agent/prompt.ts` / `DEFAULT_SYSTEM_PROMPT`                                      | 业务目标、任务类型、推荐输出、语言和沟通方式                       |
+| 工具指导       | `src/tool/prompt.ts` / `toolGuidance()`                                              | 工具调用、结果与证据语义、未知写入处理、预算和实际网络策略         |
+| 环境事实       | `src/agent/builtins.ts`                                                              | 日期时间、系统和运行时、宿主cwd、Git标记；不表示仪器连接或脚本cwd  |
+| 技能指导及目录 | `src/skill/prompt.ts` / `skillGuidance()`                                            | 技能加载前提、信任边界及技能名称、适用描述和SKILL位置              |
+| 技能包装       | 同文件 / `skillContent()`                                                            | 加载后的正文、路径基准和抽样文件列表                               |
+| 业务技能       | `skills/device-automation/SKILL.md`                                                  | 预设自动化流程或单仪器入口、模板匹配和当前任务执行流程             |
+| 接口资料       | 技能的`references/automation.md`、`climber.md`、`sam.md`、`sam-create.md`、`wiki.md` | 对应入口的字段、单位、状态和操作数据约定，按需读取                 |
+| 工具说明       | `src/tool/tools/*.ts`的`description`及字段说明                                       | 工具用途、调用条件、输入结构和返回含义；与Schema、执行实现共同维护 |
+| 历史压缩       | `src/agent/context.ts` / `HISTORY_SUMMARY_PROMPT`                                    | 保留用户目标、确认值、操作标识、来源、观察结果及未知事项           |
+| 压缩结果边界   | 同文件 / `HISTORY_SUMMARY_MARKER`、`HISTORY_SUMMARY_END`                             | 明确摘要是历史数据，通过标记后的user消息回填上下文                 |
+| Wiki知识提取   | `src/wiki/prompt.ts` / `KNOWLEDGE_PROMPT`                                            | 从编号源文档提取带精确引用的推荐记录、范围和歧义                   |
+| Wiki分段范围   | 同文件 / `knowledgeSourcePrompt()`                                                   | 输出截断后限定原始行范围，完整文档只作上下文                       |
+| 会话标题       | `src/llm/prompt.ts` / `SESSION_TITLE_PROMPT`                                         | 按用户语言生成短标题，输出仅标题                                   |
+| 开发示例技能   | `examples/skills/*/SKILL.md`                                                         | 用户请求本地脚本演示时的问候或计算示例                             |
 
 工具正文仍放在各自的defineTool旁，不复制到系统提示。材料数值和真实案例放在Wiki知识源/SQLite中，不硬编码进角色提示。
 
