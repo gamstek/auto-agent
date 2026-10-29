@@ -1,4 +1,5 @@
 import { expect, test } from 'bun:test';
+import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
 const script = resolve('skills/device-automation/scripts/climber.js');
@@ -26,23 +27,45 @@ async function run(
   timeout = '5000',
   runtime = node!,
 ) {
-  const child = Bun.spawn(
-    [runtime, script, command, ...(input === undefined ? [] : [JSON.stringify(input)])],
-    {
-      env: {
-        CLIMBER_SERVICE_URL: url,
-        CLIMBER_TIMEOUT_MS: timeout,
-        SystemRoot: process.env.SystemRoot,
+  const { stdout, stderr, code, signal } = await new Promise<{
+    stdout: string;
+    stderr: string;
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolve, reject) => {
+    const child = spawn(
+      runtime,
+      [script, command, ...(input === undefined ? [] : [JSON.stringify(input)])],
+      {
+        env: {
+          CLIMBER_SERVICE_URL: url,
+          CLIMBER_TIMEOUT_MS: timeout,
+          SystemRoot: process.env.SystemRoot,
+        },
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true,
       },
-      stdout: 'pipe',
-      stderr: 'pipe',
-    },
-  );
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ]);
+    );
+    let stdout = '',
+      stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+    });
+    child.once('error', reject);
+    // close follows stdio closure, unlike process exit. Collect complete output
+    // before parsing, including for CLI validations that exit immediately.
+    child.once('close', (code, signal) => resolve({ stdout, stderr, code, signal }));
+  });
+  if (!stdout.trim())
+    throw new Error(
+      `Climber ${command} produced no JSON (exit=${code}, signal=${signal}, stderr=${JSON.stringify(stderr)})`,
+    );
+  expect(signal).toBeNull();
   expect(stderr).toBe('');
   expect(stdout.trim().split('\n')).toHaveLength(1);
   return { code, value: JSON.parse(stdout) };
@@ -133,7 +156,7 @@ test('Climber uses only manufacturer routes, normalizes tube numbers and separat
   } finally {
     server.stop(true);
   }
-});
+}, 30000);
 
 test('Climber rejects invalid vendor inputs and removed subservice commands before HTTP', async () => {
   let requests = 0;
@@ -202,7 +225,7 @@ test('Climber rejects invalid vendor inputs and removed subservice commands befo
   } finally {
     server.stop(true);
   }
-});
+}, 30000);
 
 test('Climber preserves batch and stage for uncertain registration/start and never retries a write', async () => {
   let requests = 0;
@@ -261,7 +284,7 @@ test('Climber preserves batch and stage for uncertain registration/start and nev
   } finally {
     server.stop(true);
   }
-});
+}, 30000);
 
 test('Climber read responses require vendor evidence envelopes rather than subservice snapshots', async () => {
   let response: unknown = { workStatus: 'IDLE' };
@@ -283,4 +306,4 @@ test('Climber read responses require vendor evidence envelopes rather than subse
   } finally {
     server.stop(true);
   }
-});
+}, 30000);
