@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { skillLog } from './lib/log.js';
+
 // Direct access to the manufacturer's Climber PC HTTP API.
 async function main() {
   const fail = (code, message, details = {}) => {
@@ -14,6 +16,7 @@ async function main() {
     v.length <= max &&
     !/[\u0000-\u001f\u007f]/.test(v);
   const positive = (v) => typeof v === 'number' && Number.isFinite(v) && v > 0;
+  const samFilePath = (v) => text(v, 4096) && /^[A-Za-z]:[\\/].+\.sam$/i.test(v);
   const batchId = (v) =>
     typeof v === 'string' && /^[A-Za-z0-9._-]{1,64}$/.test(v) && !['.', '..'].includes(v);
   const [command, ...args] = process.argv.slice(2);
@@ -50,6 +53,11 @@ async function main() {
         ports = new Set(),
         tubes = new Set();
       for (const e of input.experiments) {
+        if (object(e) && !samFilePath(e.samPath))
+          fail(
+            'INVALID_INPUT',
+            'samPath 必须是Windows盘符开头、包含文件名的绝对 .SAM 文件路径，例如 E:/templates/example.SAM，不能传目录或网络路径。',
+          );
         if (
           !exact(e, [
             'experimentId',
@@ -64,8 +72,6 @@ async function main() {
           ![1, 2, 3].includes(e.analysisPort) ||
           !Number.isSafeInteger(e.tubeNo) ||
           e.tubeNo <= 0 ||
-          !text(e.samPath, 4096) ||
-          !/^(?:[A-Za-z]:[\\/]|[\\/]{2}[^\\/]+[\\/][^\\/]+[\\/]).+\.sam$/i.test(e.samPath) ||
           !text(e.sampleName, 128) ||
           /[<>:"/\\|?*]/.test(e.sampleName) ||
           !positive(e.emptyTubeMassG) ||
@@ -116,7 +122,18 @@ async function main() {
       : command === 'start'
         ? `tasks/${encodeURIComponent(input.batchId)}/start`
         : command;
+  const started = Date.now();
+  const requestDetails = {
+    operation: command,
+    ...identity,
+    endpoint: base.href,
+    route,
+    method: write ? 'POST' : 'GET',
+    timeoutMs: Number(timeout),
+  };
+  skillLog('http.request', requestDetails);
   let response, body;
+  let phase = 'transport';
   try {
     response = await fetch(new URL(route, base), {
       method: write ? 'POST' : 'GET',
@@ -139,18 +156,108 @@ async function main() {
       signal: AbortSignal.timeout(Number(timeout)),
       redirect: 'error',
     });
+    phase = 'decode';
     body = await response.json();
-  } catch {
+  } catch (error) {
+    const cause = {
+      name: error?.name,
+      message: String(error?.message ?? error).slice(0, 1000),
+      code: error?.cause?.code,
+    };
+    const diagnostic = {
+      ...requestDetails,
+      phase,
+      durationMs: Date.now() - started,
+      status: response?.status,
+      cause,
+    };
+    skillLog('http.failed', diagnostic);
     fail(
       write ? 'OUTCOME_UNKNOWN' : 'SERVICE_UNAVAILABLE',
       write
         ? '厂家请求效果未知；保留批次与阶段，只读对账，不得自动重发。'
         : '无法取得厂家API的JSON响应。',
-      identity,
+      { ...identity, diagnostic },
     );
   }
-  const uncertain = (message) =>
-    fail(write ? 'OUTCOME_UNKNOWN' : 'INVALID_RESPONSE', message, identity);
+  const fieldTypes = (value) =>
+    object(value)
+      ? Object.fromEntries(
+          Object.keys(value)
+            .slice(0, 32)
+            .map((key) => [
+              key.slice(0, 128),
+              value[key] === null
+                ? 'null'
+                : Array.isArray(value[key])
+                  ? 'array'
+                  : typeof value[key],
+            ]),
+        )
+      : typeof value;
+  const metadata = (value) =>
+    typeof value === 'string'
+      ? value.slice(0, 256)
+      : value === null || ['boolean', 'number'].includes(typeof value)
+        ? value
+        : typeof value;
+  const taskIdentity = (value) =>
+    object(value)
+      ? {
+          ...Object.fromEntries(
+            ['batchId', 'state', 'analysisStarted', 'templateSha256']
+              .filter((key) => Object.hasOwn(value, key))
+              .map((key) => [key, metadata(value[key])]),
+          ),
+          ...(Array.isArray(value.experiments)
+            ? {
+                experiments: value.experiments
+                  .slice(0, 3)
+                  .map((experiment) =>
+                    object(experiment)
+                      ? Object.fromEntries(
+                          ['experimentId', 'analysisPort', 'state', 'deviceRunId', 'templateSha256']
+                            .filter((key) => Object.hasOwn(experiment, key))
+                            .map((key) => [key, metadata(experiment[key])]),
+                        )
+                      : null,
+                  ),
+              }
+            : {}),
+        }
+      : null;
+  const responseSummary = {
+    ok: metadata(body?.ok),
+    rootFields: fieldTypes(body),
+    dataFields: fieldTypes(body?.data),
+    directTask: taskIdentity(body?.data),
+    nestedTask: taskIdentity(body?.data?.task),
+    ...(object(body?.error)
+      ? {
+          error: {
+            code: metadata(body.error.code),
+            message:
+              typeof body.error.message === 'string'
+                ? body.error.message.slice(0, 1000)
+                : typeof body.error.message,
+          },
+        }
+      : {}),
+  };
+  const diagnostic = {
+    ...requestDetails,
+    phase: 'validate',
+    status: response.status,
+    durationMs: Date.now() - started,
+    responseSummary,
+  };
+  skillLog('http.response', diagnostic);
+  const uncertain = (message, reason = 'invalid_response') =>
+    fail(write ? 'OUTCOME_UNKNOWN' : 'INVALID_RESPONSE', message, {
+      ...identity,
+      status: response.status,
+      diagnostic: { ...diagnostic, reason },
+    });
   if (!object(body)) uncertain('厂家响应必须为JSON对象。');
   if (
     body.ok === false &&
@@ -162,14 +269,30 @@ async function main() {
       ...identity,
       status: response.status,
       response: body,
+      diagnostic,
     });
   if (!response.ok || body.ok !== true || !object(body.data))
     uncertain('厂家HTTP状态或 ok/data 封套无效；写请求不得自动重发。');
   if (write) {
-    // Registration: data.task. Start: task directly in data, as observed in the documented HTTP 202 response.
-    const task = command === 'register' ? body.data.task : body.data;
+    // The documented v1 start replies include both data and data.task forms.
+    // Normalize only these known forms; conflicting identities remain uncertain.
+    const nested = object(body.data.task) ? body.data.task : null;
+    if (
+      command === 'start' &&
+      nested &&
+      ((Object.hasOwn(body.data, 'batchId') && body.data.batchId !== nested.batchId) ||
+        (Object.hasOwn(body.data, 'state') && body.data.state !== nested.state))
+    )
+      uncertain(
+        '厂家启动回执的两处任务身份或状态矛盾；请只读对账，不得自动重发。',
+        'conflicting_tasks',
+      );
+    const task = command === 'register' ? body.data.task : (nested ?? body.data);
     if (!object(task) || task.batchId !== input.batchId || !text(task.state, 128))
-      uncertain('厂家任务回执缺少批次/状态或批次不匹配；请只读对账，不得自动重发。');
+      uncertain(
+        '厂家任务回执缺少批次/状态或批次不匹配；请只读对账，不得自动重发。',
+        'task_identity',
+      );
   } else if (command === 'status') {
     if (
       !object(body.data.health) ||
@@ -182,12 +305,25 @@ async function main() {
     )
       uncertain('厂家status需要 data.health 和 data.task（任务对象或null）。');
   }
+  skillLog('command.completed', {
+    operation: command,
+    ...identity,
+    status: response.status,
+    durationMs: Date.now() - started,
+  });
   console.log(
     JSON.stringify({ backend: 'climber-vendor', operation: command, ...identity, response: body }),
   );
 }
 
 main().catch((error) => {
+  skillLog('command.failed', {
+    code: error.code ?? 'INTERNAL_ERROR',
+    message: error.message,
+    batchId: error.details?.batchId,
+    stage: error.details?.stage,
+    diagnostic: error.details?.diagnostic,
+  });
   console.log(
     JSON.stringify({
       error: {

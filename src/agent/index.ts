@@ -21,6 +21,7 @@ import { Events } from './events';
 import { DEFAULT_SYSTEM_PROMPT } from './prompt';
 import { builtinInstructions } from './builtins';
 import { fitModelContext } from './context';
+import { Diagnostics } from '../shared/diagnostics';
 const State = Annotation.Root({
   messages: Annotation<ModelMessage[]>(),
   turn: Annotation<ModelTurn>(),
@@ -95,10 +96,81 @@ export class AgentService {
     readonly skills: Skills,
     private executor: ScriptExecutor,
     private model: ModelAdapter,
+    readonly diagnostics = new Diagnostics(config.dataDir, [config.apiKey ?? '', config.token]),
   ) {
     this.wikiService = new Wiki(config, store.db);
   }
   private readonly wikiService: Wiki;
+  review(sessionId: string) {
+    const pending = this.store.pendingReview(sessionId);
+    return {
+      pending: JSON.parse(this.redact(JSON.stringify(pending))) as typeof pending,
+      logs: this.diagnostics.paths(),
+    };
+  }
+  private reviewText(sessionId: string): string {
+    const { pending, logs } = this.review(sessionId);
+    if (!pending)
+      return this.redact(
+        `No operator review is pending for this session.\nAgent log: ${logs.agent}\nSkill log: ${logs.skills}`,
+      );
+    const lines = [`等待对账 / Operator review required`, `Run: ${pending.id}`];
+    for (const execution of pending.executions.filter((item) => item.status === 'unknown')) {
+      lines.push(
+        `Execution: ${execution.id}`,
+        `Script: ${execution.skill} / ${execution.path}`,
+        `Exit code: ${execution.exitCode ?? 'unconfirmed'}`,
+      );
+      if (execution.diagnostic) {
+        const detail = execution.diagnostic;
+        const request =
+          detail.diagnostic && typeof detail.diagnostic === 'object'
+            ? (detail.diagnostic as Record<string, unknown>)
+            : {};
+        for (const [label, value] of Object.entries({
+          Code: detail.code,
+          Reason: detail.message,
+          Batch: detail.batchId,
+          Stage: detail.stage,
+          HTTP: detail.status,
+          Phase: request.reason ?? request.phase,
+          DurationMs: request.durationMs,
+          Cause: request.cause ? JSON.stringify(request.cause) : undefined,
+        }))
+          if (value !== undefined) lines.push(`${label}: ${String(value)}`);
+      } else
+        lines.push(
+          '该执行未保留结构化错误（旧版本或进程中断）；请查看技能日志，不能据此推断仪器启动失败或成功。',
+        );
+    }
+    lines.push(
+      `Agent log: ${logs.agent}`,
+      `Skill log: ${logs.skills}`,
+      '仅显示诊断，不会重放脚本或解除待对账状态。核对厂家当前状态及批次后，可由操作者使用 /resolve <runId> <核对说明> 记录处理结果。',
+    );
+    return this.redact(lines.join('\n'));
+  }
+  reviewMessage(sessionId: string): Message {
+    return {
+      id: crypto.randomUUID(),
+      sessionId,
+      role: 'assistant',
+      content: this.reviewText(sessionId),
+      createdAt: Date.now(),
+    };
+  }
+  resolveReview(sessionId: string, runId: string, note: string): Message {
+    if (this.active.has(sessionId))
+      throw new AppError('session_busy', 'Session already has an active generation', 409);
+    const safeNote = this.redact(note);
+    this.store.resolveReview(sessionId, runId, safeNote);
+    this.diagnostics.write('agent', 'review.resolved', { sessionId, runId, note: safeNote });
+    return this.store.addMessage(
+      sessionId,
+      'assistant',
+      `Operator review recorded for ${runId}. The interrupted run remains failed and its executions retain their original unknown status. This does not confirm equipment stopped.\nReview: ${safeNote}`,
+    );
+  }
   submit(sessionId: string, content: string): Promise<Message> {
     this.store.getSession(sessionId);
     if (this.closing) throw new AppError('shutdown', 'Agent is shutting down', 503);
@@ -106,6 +178,22 @@ export class AgentService {
       throw new AppError('invalid_message', 'Message is empty or too large');
     if (this.active.has(sessionId))
       throw new AppError('session_busy', 'Session already has an active generation', 409);
+    if (this.store.pendingReview(sessionId)) {
+      const reply = this.store.db
+        .transaction(() => {
+          this.store.addMessage(sessionId, 'user', this.redact(content));
+          return this.store.addMessage(sessionId, 'assistant', this.reviewText(sessionId));
+        })
+        .immediate();
+      this.diagnostics.write('agent', 'review.reported', { sessionId });
+      this.events.publish({
+        type: 'message.completed',
+        sessionId,
+        messageId: reply.id,
+        properties: { message: reply },
+      });
+      return Promise.resolve(reply);
+    }
     if (this.active.size >= this.config.maxConcurrent)
       throw new AppError('capacity', 'Agent concurrency budget exhausted', 429);
     const messageId = crypto.randomUUID();
@@ -140,6 +228,7 @@ export class AgentService {
     return true;
   }
   async shutdown(): Promise<void> {
+    this.diagnostics.write('agent', 'service.stopping');
     this.closing = true;
     this.wikiUpdate?.controller.abort();
     this.wikiIndexUpdate?.controller.abort();
@@ -152,6 +241,7 @@ export class AgentService {
       ...(this.wikiIndexUpdate ? [this.wikiIndexUpdate.done] : []),
     ]);
     this.wiki.close();
+    this.diagnostics.write('agent', 'service.stopped');
   }
   private startTitle(sessionId: string, reply: Message): void {
     if (
@@ -218,8 +308,11 @@ export class AgentService {
     runId: string,
     signal: AbortSignal,
   ): Promise<Message> {
-    const emit = (type: string, properties: Record<string, unknown> = {}) =>
+    const emit = (type: string, properties: Record<string, unknown> = {}) => {
+      if (!['message.part.delta', 'message.reasoning.delta', 'message.completed'].includes(type))
+        this.diagnostics.write('agent', type, { ...properties, sessionId, messageId, runId });
       this.events.publish({ type, sessionId, messageId, properties });
+    };
     const redact = (text: string) => this.redact(text);
     const failedScripts = new Set<string>();
     let uncertain = false;
@@ -346,13 +439,26 @@ export class AgentService {
           modelSignal.throwIfAborted();
           requireTokenUsage(rawTurn.usage);
         } catch (error) {
+          const failure =
+            !signal.aborted && modelSignal.aborted && !(error instanceof AppError)
+              ? new AppError(
+                  'model_timeout',
+                  `Model request timed out after ${this.config.modelTimeoutMs} ms. No additional tools were executed; verify the last recorded device/task state before continuing.`,
+                  504,
+                )
+              : error;
           emit('model.failed', {
             step: state.steps + 1,
-            status: signal.aborted ? 'cancelled' : 'failed',
-            message: errorText(error),
+            status: signal.aborted
+              ? 'cancelled'
+              : failure instanceof AppError && failure.code === 'model_timeout'
+                ? 'timeout'
+                : 'failed',
+            code: failure instanceof AppError ? failure.code : 'model_error',
+            message: errorText(failure),
             durationMs: Date.now() - modelStarted,
           });
-          throw error;
+          throw failure;
         }
         reasoningDeltas.flush(true);
         textDeltas.flush(true);
@@ -404,12 +510,15 @@ export class AgentService {
             search: (input) => this.wiki.search(input),
             read: (input, signal) => this.wiki.read(input, signal),
           },
-          executor: { execute: (input, caller) => this.executor.execute(input, caller) },
+          executor: {
+            execute: (input, caller, trace) => this.executor.execute(input, caller, trace),
+          },
           audit: {
             beginExecution: this.store.beginExecution.bind(this.store),
             finishExecution: this.store.finishExecution.bind(this.store),
           },
           network: { allowPrivateAddresses: this.config.webAllowPrivateAddresses },
+          diagnostics: this.diagnostics,
           run: { id: runId, signal, loadedSkills: loaded, failedScripts },
         };
         if (state.turn.toolCalls.length > 16)
@@ -537,6 +646,7 @@ export class AgentService {
         result.turn.reasoning ? redact(result.turn.reasoning) : undefined,
       );
       this.store.finishRun(runId, 'completed');
+      this.diagnostics.write('agent', 'generation.completed', { sessionId, runId, messageId });
       const active = this.active.get(sessionId);
       if (active) active.completed = true;
       emit('message.completed', { message: reply });
@@ -544,11 +654,22 @@ export class AgentService {
     } catch (error) {
       const status = uncertain ? 'waiting_for_operator' : signal.aborted ? 'cancelled' : 'failed';
       this.store.finishRun(runId, status);
-      const message = uncertain
-        ? 'Script outcome is unknown. Manual reconciliation is required; no automatic replay.'
-        : signal.aborted
-          ? 'Generation cancelled. This does not confirm physical equipment stopped.'
-          : errorText(error);
+      const message = redact(
+        uncertain
+          ? `Script outcome is unknown. Manual reconciliation is required; no automatic replay.\n${errorText(error)}\nUse /review for diagnostic details. Logs: ${this.diagnostics.directory}`
+          : signal.aborted
+            ? 'Generation cancelled. This does not confirm physical equipment stopped.'
+            : errorText(error),
+      );
+      this.diagnostics.write('agent', 'generation.failed', {
+        sessionId,
+        runId,
+        status,
+        error:
+          error instanceof Error
+            ? { name: error.name, message: error.message, stack: error.stack }
+            : String(error),
+      });
       this.store.addMessage(sessionId, 'assistant', message, messageId);
       emit('session.error', { code: status, message });
       throw new AppError(status, message, signal.aborted ? 409 : 502);

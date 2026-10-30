@@ -9,6 +9,8 @@ import { argumentsFor, cli, help } from './cli';
 import { AppError } from './shared/types';
 import { output } from './shared/console';
 import { Wiki } from './wiki';
+import { Diagnostics } from './shared/diagnostics';
+import { version } from '../package.json';
 export async function main(
   argv = process.argv.slice(2),
   options: { development?: boolean; defaultConfig?: string } = {},
@@ -49,6 +51,17 @@ export async function main(
       '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
     );
   const store = new Store(config.dataDir);
+  const diagnostics = new Diagnostics(config.dataDir, [config.apiKey ?? '', config.token]);
+  diagnostics.write('agent', 'app.started', {
+    version,
+    configPath: config.configPath,
+    dataDir: config.dataDir,
+    mode: isServer ? 'http' : 'cli',
+    platform: process.platform,
+    runtime: process.versions.bun,
+    model: config.model,
+  });
+  output.info(`Logs: ${diagnostics.directory}`);
   if (updatingWiki || indexingWiki) {
     const controller = new AbortController();
     const stop = () => controller.abort();
@@ -82,6 +95,10 @@ export async function main(
   try {
     catalog = await skills.discover();
   } catch (error) {
+    diagnostics.write('agent', 'startup.failed', {
+      stage: 'skill_discovery',
+      message: error instanceof Error ? error.message : String(error),
+    });
     store.close();
     throw error;
   }
@@ -101,8 +118,9 @@ export async function main(
     config,
     store,
     skills,
-    new ScriptExecutor(config, skills),
+    new ScriptExecutor(config, skills, diagnostics),
     new CloudModel(config),
+    diagnostics,
   );
   const fileIndex = service.wiki.indexStatus();
   output.info(
@@ -117,6 +135,10 @@ export async function main(
     try {
       server = serve(service);
     } catch (error) {
+      diagnostics.write('agent', 'startup.failed', {
+        stage: 'listen',
+        message: error instanceof Error ? error.message : String(error),
+      });
       store.close();
       throw error;
     }

@@ -21,7 +21,7 @@
     "CLIMBER_TIMEOUT_MS": "5000"
   },
   "outputLimitBytes": 65536,
-  "maxSteps": 12,
+  "maxSteps": 24,
   "maxInputTokens": 1000000,
   "maxOutputTokens": 16000,
   "maxConcurrent": 4,

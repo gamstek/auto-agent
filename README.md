@@ -108,13 +108,13 @@ All fields below require positive integers; `maxSteps` additionally cannot excee
 
 | Field                | Default   | Meaning                                                                                                                                                     |
 | -------------------- | --------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `maxSteps`           | `12`      | Maximum model/tool-loop steps for a generation (`1`–`100`).                                                                                                 |
+| `maxSteps`           | `24`      | Maximum model/tool-loop steps for a generation (`1`–`100`).                                                                                                 |
 | `maxInputTokens`     | `1000000` | Maximum input (prompt) tokens supported by the model. Optional when `contextWindow` is set; derived as `contextWindow - maxOutputTokens`.                   |
 | `maxOutputTokens`    | `16000`   | Maximum output tokens supported by the model; passed as the output cap to AI SDK.                                                                           |
 | `contextWindow`      | unset     | Optional combined model input/output capacity. Must accommodate `maxInputTokens + maxOutputTokens`; not inferred from the SDK.                              |
 | `modelTimeoutMs`     | `60000`   | Model request timeout. Title requests use the shorter of this and 15000 ms.                                                                                 |
 | `scriptTimeoutMs`    | `30000`   | Skill script execution timeout.                                                                                                                             |
-| `outputLimitBytes`   | `65536`   | Combined stdout/stderr limit for one script execution.                                                                                                      |
+| `outputLimitBytes`   | `65536`   | Combined stdout/non-diagnostic stderr limit for one script execution; structured file-log frames have a separate bounded channel.                           |
 | `resourceLimitBytes` | `65536`   | Skill resource read limit, individual wiki source limit, and complete serialized wiki query-response limit (including metadata and warnings).               |
 | `requestLimitBytes`  | `65536`   | HTTP request-body limit and submitted user-message content limit (UTF-8 bytes).                                                                             |
 | `maxConcurrent`      | `4`       | Concurrent generation capacity and script execution budget. Background titles have a separate budget of this size. Only one generation may run per session. |
@@ -147,7 +147,7 @@ This strict JSON example is a complete local setup without saved credentials. Sa
   "model": "deepseek-flash",
   "baseURL": "https://api.deepseek.com",
   "systemPrompt": "",
-  "maxSteps": 12,
+  "maxSteps": 24,
   "maxInputTokens": 1000000,
   "maxOutputTokens": 16000,
   "modelTimeoutMs": 60000,
@@ -224,6 +224,8 @@ console.log((await response.json()).content);
 ```
 
 ### Streaming
+
+终端正文支持 GFM 表格：流式输出会暂存表格块，识别表头和对齐分隔行后按当前终端列宽绘制边框、对齐中文/宽字符并换行长单元格；列数过多时改为保留全部内容的逐行字段布局。历史消息使用相同渲染。围栏代码中的表格原文保持代码显示，`--json`、HTTP 消息和 SSE 仍提供原始 Markdown，由客户端自行渲染。
 
 Subscribe /event before submitting prompt_async. Correlate sessionId/messageId; toolCallId pairs tool lifecycle events. Use fetch streaming because native EventSource cannot attach bearer headers.
 
@@ -314,7 +316,15 @@ bun src/index.ts --config examples/config.json --wiki-index
 
 使用 [SAM 模板接口](skills/device-automation/references/sam.md)及 `scripts/sam.js` 检查、对比、新建、修改和另存为模板。`inspect/compare` 支持 g5/g12/s60pro，返回文件哈希、状态、来源、单位及差异。`profiles` 查询随技能发布的 G5/G12 N2 完整配置和来源；`create` 接受 product 与 settings，按 BET/介孔/微孔方法组织完整配置并生成真实 SAM，无需用户提供基准文件或完整 JSON。也支持直接提供完整 template。未指定输出位置时使用 SAM_OUTPUT_DIR 或用户主目录的 Auto-Agent/templates；缺少称量或样品名可先保存待填模板，补齐本次信息后再提交执行。新建使用独立身份及新建状态；`modify/save-as` 校验来源哈希、保留未改字段，新建和另存为不覆盖已有目标。生成文件可通过厂家可读的绝对 `.SAM` 路径交给现有 Climber 启动接口。静态检查不代表设备验收通过；内置完整配置与 Wiki 历史摘要分别维护，原案例及默认程序不等于任意材料的科学批准。
 
+G5 当前配置以用户确认可执行的介孔模板为依据，保留软件2.11.1/客户端2.11.1.26.1028、完整报告 options 与勾选项、空运行字段及版本扩展；G12保留独立2.1配置，不跨产品替换版本。生成器不再清空 reports，至少保留一项选中的完整报告；`reportTypes` 可从 profiles 返回的类型中选择。`collectionMode`、pressureProgram/incrementProgram 与 T_/D_选项按实际活动采集路径处理，不把来源的注气增量模式强制改成目标压力。来源文件的旧状态、开始时间、称量、仪器序列号及计算缓存不当作新实验事实，生成的新文件仍需厂家现场读入/执行核对。
+
+仅调整报告勾选时，先 inspect 取得当前哈希及报告类型，再以 `modify` 的顶层 `reportTypes` 修改同一文件；也可在 save-as 中指定该字段。脚本只更新现有报告 options.selected，保留全部内部选项，不需要模型读取大型配置库或提交完整报告数组。
+
+labType 中0为常规模式、1为高通量模式。当前厂家接口仅支持常规模式，因此面向该接口的 SAM 写入固定使用数值 `labType=0`，不继承源模板中的高通量模式1。导入/新建固定写0；修改/另存为修正继承值或缺失字段，并在 normalizedFields 中标出 labType。显式在 template/changes 指定非0值会在发布文件前被拒绝；inspect 仍保留实际值，模式1不被解释为历史枚举非法。
+
 `scripts/climber.js` 直接调用厂家 Climber PC 软件的 18080 HTTP API，控制已验收的左侧1–3口。登记使用 batchId、experiments、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径；脚本将原管号按 `n % 72 or 72` 转换后发给厂家并返回映射。Agent 确认运行授权与参数，查询厂家 health/status，明确登记成功后再单独启动同一批次，并跟踪实际状态。
+
+`experiments[].samPath` 只接受厂家 Windows 主机上盘符开头的具体 `.SAM` 文件路径，例如 JSON 中的 `"E:\\templates\\MESO_SILICA_01.SAM"`；不是 `SAM_OUTPUT_DIR` 或 `E:\templates` 这样的目录。生成结果的 file.path 若不属于厂家主机可用的盘符路径，需按部署规则取得厂家 Windows 路径；接口不上传文件内容。
 
 程序首次启动自动生成的 `config.json` 已包含以下 `scriptEnv` 连接设置；使用自定义配置时可自行加入或修改（默认地址适用于同机部署）：
 
@@ -331,7 +341,29 @@ bun src/index.ts --config examples/config.json --wiki-index
 
 调用参数：`health` 与 `status` 为只读查询；`register <JSON>` 接受 `{batchId,experiments}` 并 POST `/api/v1/tasks`；`start <JSON>` 只接受 `{batchId}` 并以 `{}` 正文 POST `/api/v1/tasks/{batchId}/start`。没有旧命令别名或子服务封套。所有写请求均不自动重试；超时、无效回执或批次不符返回 `OUTCOME_UNKNOWN`，保留 batchId 和阶段，停止依赖步骤并只读对账。
 
-厂家登记回执使用 `ok/data.task`；启动按文档实测 HTTP 202 的 `ok/data` 任务对象校验；status 使用 `ok/data.health` 和 `data.task`。READY 不代表分析开始，启动受理不等于实际 RUNNING；结果文件仅按厂家实际返回的同批证据报告。通过本地 HTTP mock 验证接口合同，真实现场连通性与设备动作仍需在实际部署中核对。
+厂家登记回执使用 `ok/data.task`；启动归一化厂家 v1 文档已记录的 `ok/data` 或 `ok/data.task` 任务结构，严格核对批次及状态，冲突时保持效果未知；status 使用 `ok/data.health` 和 `data.task`。READY 不代表分析开始，启动受理不等于实际 RUNNING；结果文件仅按厂家实际返回的同批证据报告。通过本地 HTTP mock 验证接口合同，真实现场连通性与设备动作仍需在实际部署中核对。
+
+### 文件日志与待对账诊断
+
+运行时自动向所选 `dataDir/logs` 写入 UTF-8 JSONL 文件，启动信息会显示日志目录：
+
+- `agent.jsonl`：启动版本与配置路径、模型/工具调度、用量与耗时、会话错误、对账处理。
+- `skills.jsonl`：技能脚本启动/结束、进程退出与清理状态、厂家 HTTP 请求阶段、状态码、耗时、回执结构摘要和具体错误。
+
+两类文件用 runId/executionId 关联；每个文件最多2 MiB，保留 `.1`、`.2`、`.3` 三份轮转备份。默认屏蔽配置中的模型密钥、HTTP令牌和敏感字段，不记录完整工具参数、原始 stdout、模型提示词或逐 token 思考正文。日志仅为本机诊断，不授予写入或重试权限。结构化技能诊断在宿主落盘，脚本 stdout 仍保持单个 JSON 结果。
+
+结构化技能日志不占用脚本结果的 outputLimitBytes，避免日志使原本正常的操作被误判为输出超限；该诊断通道每次执行最多64 KiB、每行最多16 KiB，超出时写入截断标记。普通 stderr 和 stdout 仍遵守原输出上限。
+
+写入效果未知后，原会话继续输入消息会直接返回诊断报告，不会重新调用模型或脚本，也不会解除待对账状态。REPL 可用：
+
+```text
+/review
+/resolve <runId> <操作者核对说明>
+```
+
+`/review` 只读显示该会话待对账 run、执行状态、保留的错误详情及文件日志位置。厂家 PC 上的旧版本如果没有保留原始错误，升级无法补回过去的回执；新日志会记录后续操作。先在厂家侧核对同批状态及外部效果，再由操作者使用 `/resolve` 记录说明并解除该会话的执行阻塞。此动作将中断的 run 标为 failed，保留 execution 的 unknown 原始审计，不重放旧工具调用，也不表示仪器停止。重启后使用 `--session <原会话ID>` 可回到原会话查看。
+
+HTTP 使用同一鉴权：`GET /session/{id}/review` 读取诊断；`POST /session/{id}/resolve_review` 接收 `{"runId":"...","note":"核对说明"}`，需匹配该会话正在等待的 run，说明最多2000字节。这些是操作者接口，不是模型工具。
 
 ### 自动化流程与模拟脚本
 
@@ -380,7 +412,7 @@ Script entries are confined to the selected skill's scripts/ directory; traversa
 
 **Not an OS sandbox.** Trusted scripts retain host filesystem/network permissions and run without per-call approval. Necessary skill resources and tool output can enter cloud model context. SQLite persists session/checkpoint context; protect the data directory. Known configured credentials are redacted, but arbitrary secrets cannot be automatically detected.
 
-Execution intent is persisted first. Failed scripts are not automatically retried. Interrupted scripts without results become unknown and require operator reconciliation; other interrupted generations fail rather than resume automatically. No public resume/unblock endpoint exists. Cleanup tracks owned processes/groups, not deliberately detached scripts. **Aborting the agent does not confirm equipment stopped or effects were undone.**
+Execution intent is persisted first. Failed scripts are not automatically retried. Interrupted scripts without results become unknown and require operator reconciliation; other interrupted generations fail rather than resume automatically. Pending sessions return a diagnostic report without running a model or tools; the authenticated review/resolve_review routes record explicit operator reconciliation, preserving unknown execution audits and never replaying checkpoints. Cleanup tracks owned processes/groups, not deliberately detached scripts. **Aborting the agent does not confirm equipment stopped or effects were undone.**
 
 ## CLI output
 

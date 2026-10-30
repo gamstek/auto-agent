@@ -1,16 +1,19 @@
 import { test, expect } from 'bun:test';
 import { Writable } from 'node:stream';
 import { ReplRenderer } from '../../src/cli/renderer';
-function renderer(color: boolean) {
+function renderer(color: boolean, columns?: number) {
   let output = '',
     errors = '';
   const view = new ReplRenderer(
-    new Writable({
-      write(chunk, _enc, done) {
-        output += chunk.toString();
-        done();
-      },
-    }),
+    Object.assign(
+      new Writable({
+        write(chunk, _enc, done) {
+          output += chunk.toString();
+          done();
+        },
+      }),
+      { columns },
+    ),
     new Writable({
       write(chunk, _enc, done) {
         errors += chunk.toString();
@@ -40,6 +43,30 @@ test('renderer distinguishes roles and shows model/tool progress without injecti
   expect(r.errors()).toContain('timeout');
   expect(r.output()).not.toContain('[model]');
   expect(r.errors()).not.toContain('\x1b[2J');
+});
+
+test('streaming and history tables use the output width and finish before tool progress', () => {
+  const source =
+    '| 字段 | 值 |\n| --- | --- |\n| 样品 | 球形硅微粉 |\n| 路径 | E:/templates/MESO_SILICA_01.SAM |';
+  const streamed = renderer(false, 34);
+  for (const delta of [...source]) streamed.event('message.part.delta', { delta });
+  streamed.event('tool.started', { name: 'execute_script', skill: 'device-automation' });
+  const history = renderer(false, 34);
+  history.view.history({
+    id: 'a',
+    sessionId: 's',
+    role: 'assistant',
+    content: source,
+    createdAt: 0,
+  });
+  const streamedTable = streamed.output().slice(streamed.output().indexOf('┌')).trim();
+  const historyTable = history.output().slice(history.output().indexOf('┌')).trim();
+  expect(streamedTable).toBe(historyTable);
+  expect(streamed.output()).toContain('assistant > \n┌');
+  expect(history.output()).toContain('assistant: \n┌');
+  expect(streamedTable.split('\n').every((line) => Bun.stringWidth(line) <= 34)).toBe(true);
+  expect(streamed.errors()).toContain('[tool] execute_script');
+  expect(streamed.output()).not.toContain('[tool]');
 });
 test('renderer distinguishes cumulative run tokens from each model request and reports compaction', () => {
   const r = renderer(false);

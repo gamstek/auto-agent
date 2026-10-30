@@ -106,6 +106,24 @@ test('SQLite ownership, per-session concurrency, persistence, uncertain recovery
     expect(() => store!.beginRun(a.id, am.id)).toThrow();
     expect(store.db.query('SELECT status FROM executions').get()).toEqual({ status: 'unknown' });
     expect((await new SQLiteSaver(store.db).getTuple(saved))?.checkpoint.id).toBe(checkpoint.id);
+    expect(store.pendingReview(a.id)?.id).toBe(run);
+    expect(store.pendingReview(a.id)?.executions[0]?.diagnostic).toBeNull();
+    expect(() => store!.resolveReview(a.id, run, '  ')).toThrow('note');
+    expect(() => store!.resolveReview(a.id, other, 'checked')).toThrow('awaiting review');
+    store.resolveReview(a.id, run, 'Operator confirmed external effects; do not replay');
+    expect(store.pendingReview(a.id)).toBeNull();
+    expect(store.db.query('SELECT status FROM executions').get()).toEqual({ status: 'unknown' });
+    expect((await new SQLiteSaver(store.db).getTuple(saved))?.checkpoint.id).toBe(checkpoint.id);
+    store.close();
+    store = new Store(f.config.dataDir);
+    expect(store.pendingReview(a.id)).toBeNull();
+    expect(store.db.query('SELECT note FROM run_reviews WHERE runId=?').get(run)).toEqual({
+      note: 'Operator confirmed external effects; do not replay',
+    });
+    const freshMessage = store.addMessage(a.id, 'user', 'A new request after review');
+    const fresh = store.beginRun(a.id, freshMessage.id);
+    expect(fresh).not.toBe(run);
+    store.finishRun(fresh, 'completed');
   } finally {
     store?.close();
     await f.cleanup();

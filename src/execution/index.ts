@@ -2,7 +2,13 @@ import { spawn, type ChildProcess } from 'node:child_process';
 import { extname, join } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
 import type { Config } from '../config';
-import { AppError, type ScriptRequest, type ScriptResult } from '../shared/types';
+import {
+  AppError,
+  type ScriptRequest,
+  type ScriptResult,
+  type ExecutionTrace,
+} from '../shared/types';
+import { Diagnostics } from '../shared/diagnostics';
 import { Skills } from '../skill';
 import { ANCHOR_FLAG, SCRIPT_FLAG, runtimeCommand } from './runtime';
 
@@ -166,9 +172,17 @@ export class ScriptExecutor {
   constructor(
     private readonly config: Config,
     private readonly skills: Skills,
+    private readonly diagnostics = new Diagnostics(config.dataDir, [
+      config.apiKey ?? '',
+      config.token,
+    ]),
   ) {}
 
-  async execute(request: ScriptRequest, signal: AbortSignal): Promise<ScriptResult> {
+  async execute(
+    request: ScriptRequest,
+    signal: AbortSignal,
+    trace?: ExecutionTrace,
+  ): Promise<ScriptResult> {
     const empty = (status: ScriptResult['status']): ScriptResult => ({
       status,
       stdout: '',
@@ -194,6 +208,7 @@ export class ScriptExecutor {
       if (!command || /[\0\r\n]/.test(command))
         throw new AppError('script_interpreter', 'Script interpreter is not configured');
       const env = this.environment();
+      env.SKILL_LOG_STDERR = '1';
       if (signal.aborted) return empty('cancelled');
       // Revalidate after waiting for the global slot, immediately before spawning.
       await this.skills.resolveScript(request.skill, request.path);
@@ -208,7 +223,43 @@ export class ScriptExecutor {
         command === 'builtin' || (bareNode && !node)
           ? runtimeCommand(SCRIPT_FLAG, scriptArgs)
           : [node ?? command, scriptArgs];
-      return await this.run(executable, args, resolved.skill.directory, env, signal);
+      const identity = {
+        ...trace,
+        skill: request.skill,
+        path: request.path,
+        source: resolved.path,
+      };
+      const started = Date.now();
+      this.diagnostics.write('skills', 'script.started', {
+        ...identity,
+        timeoutMs: this.config.scriptTimeoutMs,
+      });
+      try {
+        const result = await this.run(
+          executable,
+          args,
+          resolved.skill.directory,
+          env,
+          signal,
+          identity,
+        );
+        this.diagnostics.write('skills', 'script.finished', {
+          ...identity,
+          processStatus: result.status,
+          exitCode: result.exitCode,
+          durationMs: Date.now() - started,
+          stdoutBytes: Buffer.byteLength(result.stdout),
+          stderrBytes: Buffer.byteLength(result.stderr),
+          ...(result.stderr ? { stderr: result.stderr } : {}),
+        });
+        return result;
+      } catch (error) {
+        this.diagnostics.write('skills', 'script.failed', {
+          ...identity,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
     } finally {
       release();
     }
@@ -256,6 +307,7 @@ export class ScriptExecutor {
     cwd: string,
     env: NodeJS.ProcessEnv,
     signal: AbortSignal,
+    trace: Record<string, unknown>,
   ): Promise<ScriptResult> {
     const windows = process.platform === 'win32';
     const [anchorCommand, anchorArgs] = runtimeCommand(ANCHOR_FLAG);
@@ -267,6 +319,7 @@ export class ScriptExecutor {
       detached: !windows,
       stdio: windows ? ['pipe', 'pipe', 'pipe', 'ipc'] : ['ignore', 'pipe', 'pipe'],
     });
+    const closed = new Promise<boolean>((resolve) => child.once('close', () => resolve(true)));
     let status: ScriptResult['status'] | undefined;
     let stdout = '',
       stderr = '',
@@ -283,19 +336,111 @@ export class ScriptExecutor {
         finish();
       }
     };
+    const outputLimit = () => {
+      if (status === 'completed' || status === 'failed') status = 'output_limit';
+      else stop('output_limit');
+    };
+    const clip = (text: string, bytes: number) => {
+      const buffer = Buffer.from(text);
+      return buffer.length <= bytes
+        ? text
+        : new StringDecoder('utf8').write(buffer.subarray(0, Math.max(0, bytes)));
+    };
+    let pendingLog = '';
+    let ordinaryContinuation = false;
+    let discardLog = false;
+    let logBytes = 0;
+    let logLimitReported = false;
+    const logLimit = () => {
+      if (!logLimitReported) {
+        logLimitReported = true;
+        this.diagnostics.write('skills', 'skill_log.truncated', trace);
+      }
+    };
+    const ordinaryStderr = (text: string) => {
+      const remaining = Math.max(0, this.config.outputLimitBytes - used);
+      const bytes = Buffer.byteLength(text);
+      stderr += clip(text, remaining);
+      used += Math.min(bytes, remaining);
+      if (bytes > remaining) outputLimit();
+    };
+    const stderrLine = (line: string) => {
+      if (!ordinaryContinuation && line.startsWith('[skill-log] ')) {
+        logBytes += Buffer.byteLength(line);
+        if (logBytes > 65536 || Buffer.byteLength(line) > 16384) {
+          logLimit();
+          return;
+        }
+        try {
+          const entry: unknown = JSON.parse(line.slice('[skill-log] '.length));
+          if (
+            entry &&
+            typeof entry === 'object' &&
+            'event' in entry &&
+            typeof entry.event === 'string'
+          ) {
+            this.diagnostics.write('skills', entry.event, { ...entry, ...trace });
+            return;
+          }
+        } catch {
+          /* Preserve non-log stderr verbatim. */
+        }
+      }
+      ordinaryStderr(line);
+    };
+    const stderrText = (text: string, final = false) => {
+      if (discardLog) {
+        const newline = text.indexOf('\n');
+        if (newline < 0) return;
+        text = text.slice(newline + 1);
+        discardLog = false;
+      }
+      pendingLog += text;
+      let end: number;
+      while ((end = pendingLog.indexOf('\n')) >= 0) {
+        stderrLine(pendingLog.slice(0, end + 1));
+        pendingLog = pendingLog.slice(end + 1);
+        ordinaryContinuation = false;
+      }
+      if (final && pendingLog) {
+        stderrLine(pendingLog);
+        pendingLog = '';
+      } else if (pendingLog.startsWith('[skill-log] ') && !ordinaryContinuation) {
+        if (Buffer.byteLength(pendingLog) > 16384) {
+          logLimit();
+          pendingLog = '';
+          discardLog = true;
+        }
+      } else if (ordinaryContinuation || !'[skill-log] '.startsWith(pendingLog)) {
+        ordinaryStderr(pendingLog);
+        pendingLog = '';
+        ordinaryContinuation = true;
+      }
+    };
     const collect = (stream: 'stdout' | 'stderr', chunk: Buffer) => {
+      if (stream === 'stderr') {
+        stderrText(decoders.stderr.write(chunk));
+        return;
+      }
       const remaining = Math.max(0, this.config.outputLimitBytes - used);
       const accepted = chunk.subarray(0, remaining);
       used += accepted.length;
-      const text = decoders[stream].write(accepted);
-      if (stream === 'stdout') stdout += text;
-      else stderr += text;
-      if (chunk.length > remaining) stop('output_limit');
+      stdout += decoders.stdout.write(accepted);
+      if (chunk.length > remaining) outputLimit();
     };
     child.stdout!.on('data', (chunk: Buffer) => collect('stdout', chunk));
     child.stderr!.on('data', (chunk: Buffer) => collect('stderr', chunk));
-    child.on('error', () => stop('failed'));
-    child.on('exit', (code) => {
+    child.on('error', (error) => {
+      this.diagnostics.write('skills', 'process.error', { ...trace, error: error.message });
+      stop('failed');
+    });
+    child.on('exit', (code, exitSignal) => {
+      this.diagnostics.write('skills', 'process.exit', {
+        ...trace,
+        code,
+        signal: exitSignal,
+        platform: process.platform,
+      });
       if (!windows) {
         exitCode = code;
         stop(code === 0 ? 'completed' : 'failed');
@@ -305,6 +450,7 @@ export class ScriptExecutor {
       if (message && typeof message === 'object' && 'exitCode' in message) {
         const code = (message as { exitCode: unknown }).exitCode;
         exitCode = typeof code === 'number' ? code : null;
+        this.diagnostics.write('skills', 'process.result', { ...trace, exitCode });
         stop(code === 0 ? 'completed' : 'failed');
       }
     });
@@ -353,6 +499,7 @@ export class ScriptExecutor {
       });
       tracker.stdin!.on('error', () => stop('unknown'));
       const isReady = await Promise.race([tracked, done.then(() => false)]);
+      this.diagnostics.write('skills', 'process.tracker_ready', { ...trace, ready: isReady });
       if (isReady && !status)
         child.send({ command, args, cwd }, (error) => {
           if (error) stop('failed');
@@ -367,6 +514,7 @@ export class ScriptExecutor {
       if (tracker && trackerDone) {
         tracker.stdin!.end('STOP\n');
         clean = await this.bounded(trackerDone, 15000);
+        this.diagnostics.write('skills', 'process.cleanup', { ...trace, clean });
         if (!clean) {
           tracker.kill();
           child.kill();
@@ -376,12 +524,18 @@ export class ScriptExecutor {
       clean = await this.terminateGroup(child.pid);
     }
     // close waits for buffered output and pipes held by descendants, with a bound.
-    if (child.exitCode === null && child.signalCode === null)
-      await this.bounded(
-        new Promise<boolean>((resolve) => child.once('close', () => resolve(true))),
-        2000,
-      );
-    else await new Promise((resolve) => setImmediate(resolve));
+    const drained = await this.bounded(closed, 2000);
+    if (!drained) {
+      this.diagnostics.write('skills', 'process.output_unconfirmed', trace);
+      status = 'unknown';
+    }
+    stdout += decoders.stdout.end();
+    stderrText(decoders.stderr.end(), true);
+    if (Buffer.byteLength(stdout) + Buffer.byteLength(stderr) > this.config.outputLimitBytes) {
+      if (status === 'completed' || status === 'failed') status = 'output_limit';
+      stdout = clip(stdout, this.config.outputLimitBytes);
+      stderr = clip(stderr, this.config.outputLimitBytes - Buffer.byteLength(stdout));
+    }
     if (!clean) status = 'unknown';
     return { status: status ?? 'unknown', stdout, stderr, exitCode };
   }

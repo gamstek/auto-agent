@@ -33,6 +33,10 @@ export interface ScriptRequest {
   path: string;
   args?: string[];
 }
+export interface ExecutionTrace {
+  runId: string;
+  executionId: string;
+}
 export interface ScriptResult {
   status: 'completed' | 'failed' | 'cancelled' | 'timeout' | 'output_limit' | 'unknown';
   stdout: string;

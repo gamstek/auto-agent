@@ -4,6 +4,7 @@ import type { Wiki } from '../wiki';
 import type { ScriptExecutor } from '../execution';
 import type { Store } from '../storage';
 import { AppError, type ScriptResult } from '../shared/types';
+import type { Diagnostics } from '../shared/diagnostics';
 
 export interface ToolContext {
   skills: Pick<Skills, 'load' | 'list' | 'files' | 'read' | 'resolveScript'>;
@@ -11,6 +12,7 @@ export interface ToolContext {
   executor: Pick<ScriptExecutor, 'execute'>;
   audit: Pick<Store, 'beginExecution' | 'finishExecution'>;
   network: { allowPrivateAddresses: boolean };
+  diagnostics?: Pick<Diagnostics, 'sanitize' | 'write'>;
   run: {
     id: string;
     signal: AbortSignal;
@@ -52,7 +54,10 @@ export function completed<T>(output: T): ToolResult<T> {
 }
 
 export class UncertainToolError extends AppError {
-  constructor(message: string) {
+  constructor(
+    message: string,
+    readonly diagnostic?: Record<string, unknown>,
+  ) {
     super('uncertain_execution', message);
   }
 }

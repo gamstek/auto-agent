@@ -21,6 +21,13 @@ export class ReplRenderer {
     const safe = safeTerminalText(text);
     return this.color ? `\x1b[${colors[role]}m${safe}\x1b[0m` : safe;
   }
+  private markdownRenderer(): TerminalMarkdown {
+    return new TerminalMarkdown(
+      (text) => this.output.write(text),
+      this.color,
+      () => (this.output as NodeJS.WriteStream).columns ?? 80,
+    );
+  }
   private closeText(): void {
     if (this.reasoningOpen) {
       this.reasoningText?.finish();
@@ -47,7 +54,7 @@ export class ReplRenderer {
     }
     this.closeText();
     this.output.write(this.style('assistant: ', 'assistant'));
-    const markdown = new TerminalMarkdown((text) => this.output.write(text), this.color);
+    const markdown = this.markdownRenderer();
     markdown.append(message.content);
     markdown.finish();
     this.output.write('\n');
@@ -86,7 +93,7 @@ export class ReplRenderer {
           this.closeText();
           this.output.write(this.style('assistant > ', 'assistant'));
           this.textOpen = true;
-          this.markdown = new TerminalMarkdown((text) => this.output.write(text), this.color);
+          this.markdown = this.markdownRenderer();
         }
         this.markdown?.append(String(p.delta));
         break;

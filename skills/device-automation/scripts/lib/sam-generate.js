@@ -21,6 +21,8 @@ const outputDirectory = () => {
 async function catalog() {
   const bytes = await readFile(new URL('./sam-profiles.json', import.meta.url));
   const value = JSON.parse(bytes.toString('utf8'));
+  if (value.revision !== 'sam-profiles-v2')
+    fail('INVALID_PROFILE', '配置库版本不匹配；请更新整套技能文件。');
   return { ...value, sha256: createHash('sha256').update(bytes).digest('hex') };
 }
 
@@ -47,13 +49,23 @@ export async function samProfiles(input) {
         clientVersion: profile.configuration.clientVersion,
         methods: Object.keys(data.programs),
         origin: profile.origin,
+        sourceEvidence: profile.sourceEvidence,
+        reportTypes: profile.configuration.reports.map((report) => ({
+          type: report.type,
+          name: report.options.name,
+        })),
         defaults: {
           temperatureK:
             profile.configuration['analysis conditions']['p0 and temperature options'].temperature +
             273.15,
           p0MmHg: profile.configuration['analysis conditions']['p0 and temperature options'].p0,
           freeSpaceMode: 'measured',
+          labType: 0,
+          labMode: 'regular',
           sampleTube: profile.configuration['sample tube'],
+          selectedReports: profile.configuration.reports
+            .filter((report) => report.options.selected)
+            .map((report) => ({ type: report.type, name: report.options.name })),
         },
       })),
     executionVerified: false,
@@ -81,12 +93,15 @@ export async function generateSam(input) {
     'temperatureK',
     'p0MmHg',
     'pressureMode',
+    'collectionMode',
     'pressureProgram',
+    'incrementProgram',
     'preparationEvacuationHours',
     'lowPressureEnabled',
     'lowPressureDoseCm3StpPerG',
     'lowPressureMinHours',
     'lowPressureMaxHours',
+    'reportTypes',
   ];
   if (
     Object.keys(settings).some((key) => !allowed.includes(key)) ||
@@ -162,7 +177,44 @@ export async function generateSam(input) {
       'pressureProgram 需要 pressureMode 和1–256个有序 start/end/step/intervalSeconds 段。',
     );
   if (settings.pressureMode === 'absolute-mmHg' && settings.pressureProgram === undefined)
-    fail('INVALID_INPUT', '改为绝对压力时必须明确给出 mmHg 压力程序，不重解释内置相对压力点。');
+    if (settings.incrementProgram === undefined)
+      fail(
+        'INVALID_INPUT',
+        '改为绝对压力时必须明确给出 mmHg 压力或增量程序，不重解释内置相对压力点。',
+      );
+  if (
+    settings.collectionMode !== undefined &&
+    !['target-pressure', 'dose-increment'].includes(settings.collectionMode)
+  )
+    fail('INVALID_INPUT', 'collectionMode 必须为 target-pressure 或 dose-increment。');
+  if (
+    (settings.pressureProgram !== undefined && settings.collectionMode === 'dose-increment') ||
+    (settings.incrementProgram !== undefined && settings.collectionMode === 'target-pressure') ||
+    (settings.pressureProgram !== undefined && settings.incrementProgram !== undefined)
+  )
+    fail('INVALID_INPUT', '自定义程序必须与选定采集模式一致，一次只提供当前模式的程序。');
+  if (
+    settings.incrementProgram !== undefined &&
+    (!settings.pressureMode ||
+      !Array.isArray(settings.incrementProgram) ||
+      !settings.incrementProgram.length ||
+      settings.incrementProgram.length > 256 ||
+      settings.incrementProgram.some(
+        (row) =>
+          !object(row) ||
+          Object.keys(row).length !== 5 ||
+          typeof row.useDoseIncrement !== 'boolean' ||
+          !['end', 'doseCm3StpPerG', 'percentOfPrevious', 'intervalSeconds'].every(
+            (key) => typeof row[key] === 'number' && Number.isFinite(row[key]) && row[key] >= 0,
+          ) ||
+          !Number.isInteger(row.intervalSeconds) ||
+          row.intervalSeconds <= 0,
+      ))
+  )
+    fail(
+      'INVALID_SEGMENTS',
+      'incrementProgram 需要 pressureMode 和1–256个 end/useDoseIncrement/doseCm3StpPerG/percentOfPrevious/intervalSeconds 段。',
+    );
 
   const data = await catalog();
   const profile = data.profiles.find(
@@ -174,6 +226,7 @@ export async function generateSam(input) {
     fail('UNSUPPORTED_PROFILE', '没有匹配的产品/版本配置；先用 profiles 查询可用配置。');
   const program = data.programs[settings.analysisType];
   const root = structuredClone(profile.configuration);
+  root.labType = 0;
   const conditions = root['analysis conditions'];
   conditions['analysis type'] =
     settings.analysisType === 'bet'
@@ -183,9 +236,15 @@ export async function generateSam(input) {
         : input.product === 'g5'
           ? 5
           : 10;
-  conditions['isotherm collection'] = structuredClone(program.collection);
+  conditions['isotherm collection'] = {
+    ...conditions['isotherm collection'],
+    ...structuredClone(program.collection),
+  };
   const collection = conditions['isotherm collection'];
+  if (settings.collectionMode !== undefined)
+    collection['use target pressure'] = settings.collectionMode === 'target-pressure';
   if (settings.pressureProgram !== undefined) {
+    collection['use target pressure'] = true;
     const scale = settings.pressureMode === 'absolute-mmHg' ? 1000 : 1;
     collection['absolute pressure dosing'] = scale === 1000;
     collection.pressures = settings.pressureProgram.map((row) => ({
@@ -195,16 +254,29 @@ export async function generateSam(input) {
       interval: row.intervalSeconds,
     }));
   }
+  if (settings.incrementProgram !== undefined) {
+    const scale = settings.pressureMode === 'absolute-mmHg' ? 1000 : 1;
+    collection['absolute pressure dosing'] = scale === 1000;
+    collection['use target pressure'] = false;
+    collection.increments = settings.incrementProgram.map((row) => ({
+      end_p: row.end / scale,
+      'use dose increment': row.useDoseIncrement,
+      'dose increment': row.doseCm3StpPerG,
+      'percent of previous': row.percentOfPrevious,
+      interval: row.intervalSeconds,
+    }));
+  }
   const thermal = conditions['p0 and temperature options'];
   if (settings.temperatureK !== undefined) thermal.temperature = settings.temperatureK - 273.15;
   if (settings.p0MmHg !== undefined) thermal.p0 = settings.p0MmHg;
   if (settings.preparationEvacuationHours !== undefined)
     conditions['preparation options']['evacuation time'] = settings.preparationEvacuationHours;
+  const prefix = collection['use target pressure'] ? 'T_' : 'D_';
   for (const [field, raw] of Object.entries({
-    lowPressureEnabled: 'T_LPressIncrementalDoseMode',
-    lowPressureDoseCm3StpPerG: 'T_DoseAmount',
-    lowPressureMinHours: 'T_MinEquilibrationDelay',
-    lowPressureMaxHours: 'T_MaxEquilibrationDelay',
+    lowPressureEnabled: prefix + 'LPressIncrementalDoseMode',
+    lowPressureDoseCm3StpPerG: prefix + 'DoseAmount',
+    lowPressureMinHours: prefix + 'MinEquilibrationDelay',
+    lowPressureMaxHours: prefix + 'MaxEquilibrationDelay',
   }))
     if (settings[field] !== undefined) collection.options[raw] = settings[field];
   root.mass = {
@@ -218,9 +290,27 @@ export async function generateSam(input) {
   root.unit = settings.unit ?? 1;
   root.port = settings.port ?? 0;
   root.manuallyImport = false;
-  root['base infos'] = null;
-  root.reports = null;
-  root['review the reports after the test'] = false;
+  if (
+    settings.reportTypes !== undefined &&
+    (!Array.isArray(settings.reportTypes) ||
+      !settings.reportTypes.length ||
+      new Set(settings.reportTypes).size !== settings.reportTypes.length ||
+      settings.reportTypes.some(
+        (type) => !Number.isInteger(type) || !root.reports.some((report) => report.type === type),
+      ))
+  )
+    fail(
+      'INVALID_INPUT',
+      'reportTypes 必须是当前产品版本报告配置中存在的非重复类型编号，且至少选择一项。',
+    );
+  const selectedTypes =
+    settings.reportTypes ??
+    (settings.analysisType === 'bet'
+      ? [1, 5, 6]
+      : root.reports
+          .filter((report) => report.options.selected === true)
+          .map((report) => report.type));
+  for (const report of root.reports) report.options.selected = selectedTypes.includes(report.type);
   let target = input.path;
   if (target === undefined) {
     target = path.join(outputDirectory(), `${settings.analysisType}-${randomUUID()}.SAM`);
@@ -244,6 +334,8 @@ export async function generateSam(input) {
       profile: profile.id,
       catalogSha256: data.sha256,
       configurationOrigin: profile.origin,
+      sourceEvidence: profile.sourceEvidence,
+      normalization: profile.normalization,
       programOrigin: program.origin,
       requestedSettings: settings,
       defaultedFields: [
@@ -253,12 +345,15 @@ export async function generateSam(input) {
         'temperatureK',
         'p0MmHg',
         'pressureProgram',
+        'incrementProgram',
+        'collectionMode',
         'sampleDensityGPerCm3',
         'preparationEvacuationHours',
         'lowPressureEnabled',
         'lowPressureDoseCm3StpPerG',
         'lowPressureMinHours',
         'lowPressureMaxHours',
+        'reportTypes',
       ].filter((key) => settings[key] === undefined),
       pendingInputs,
       sampleInputsComplete: pendingInputs.length === 0,

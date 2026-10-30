@@ -1,18 +1,31 @@
 {
-  "revision": "sam-profiles-v1",
+  "revision": "sam-profiles-v2",
   "profiles": [
     {
-      "id": "g5-n2-2.1.26.0416",
+      "id": "g5-n2-2.11.1.26.1028",
       "product": "g5",
       "gas": "N2",
       "origin": {
-        "path": "三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
-        "sha256": "77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33",
-        "status": 4160
+        "path": "彩虹半导体_球形硅微粉_1_Mesopore_U1P1_20261030105331.SAM",
+        "sha256": "2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4",
+        "status": 4112
       },
+      "sourceEvidence": {
+        "kind": "operator-confirmed-executable-template",
+        "method": "mesopore"
+      },
+      "normalization": [
+        "new task identity/status",
+        "empty acquisition fields",
+        "empty hardware identity",
+        "pending sample masses",
+        "measured free space without historical values",
+        "reset computed report caches",
+        "operator-required labType=0"
+      ],
       "configuration": {
-        "softwareVersion": "2.1",
-        "clientVersion": "2.1.26.0416",
+        "softwareVersion": "2.11.1",
+        "clientVersion": "2.11.1.26.1028",
         "sample tube": {
           "ambient free space": 1,
           "analysis free space": 1,
@@ -78,6 +91,7 @@
             "diameter": 3,
             "diameterAtZeroEnergy": 2.574,
             "dosing method": 0,
+            "fluid properties file": "",
             "gas type": 2,
             "high resolution fluid": false,
             "id": 1,
@@ -95,8 +109,8 @@
             "therm tran hard sphere diameter": 3.86,
             "vapor source temperature": 35
           },
-          "analysis type": 0,
-          "charge template": "",
+          "analysis type": 1,
+          "charge template": "Default",
           "free space options": {
             "ambient free space": 0,
             "analysis free space": 0,
@@ -107,6 +121,368 @@
             "lower dewar for evacuation": false,
             "outgas test": false,
             "outgas test duration": 180
+          },
+          "isotherm collection": {
+            "absolute pressure dosing": false,
+            "increments": [
+              {
+                "dose increment": 1,
+                "end_p": 0.1,
+                "interval": 5,
+                "percent of previous": 10,
+                "use dose increment": true
+              }
+            ],
+            "minimum equilibration delay at p/p0 >= 0.995": 600,
+            "options": {
+              "D_DoseAmount": 0.01,
+              "D_LPressIncrementalDoseMode": false,
+              "D_MaxEquilibrationDelay": 999,
+              "D_MinEquilibrationDelay": 0,
+              "T_DoseAmount": 0.01,
+              "T_LPressIncrementalDoseMode": false,
+              "T_MaxEquilibrationDelay": 999,
+              "T_MinEquilibrationDelay": 0,
+              "absolute pressure tolerance": 5,
+              "first dose isActive": false,
+              "first pressure fixed dose": 0.01,
+              "maximum increment isActive": false,
+              "maximum volume increment": 25,
+              "relative pressure tolerance": 5
+            },
+            "pressures": [
+              {
+                "end_p": 0.01,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0
+              },
+              {
+                "end_p": 0.03,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.01
+              },
+              {
+                "end_p": 0.06,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.03
+              },
+              {
+                "end_p": 0.08,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.06
+              },
+              {
+                "end_p": 0.1,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.08
+              },
+              {
+                "end_p": 0.12,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.1
+              },
+              {
+                "end_p": 0.14,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.12
+              },
+              {
+                "end_p": 0.16,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.14
+              },
+              {
+                "end_p": 0.18,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.16
+              },
+              {
+                "end_p": 0.2,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.18
+              },
+              {
+                "end_p": 0.25,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.2
+              },
+              {
+                "end_p": 0.3,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.25
+              },
+              {
+                "end_p": 0.35,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.3
+              },
+              {
+                "end_p": 0.4,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.35
+              },
+              {
+                "end_p": 0.45,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.4
+              },
+              {
+                "end_p": 0.5,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.45
+              },
+              {
+                "end_p": 0.55,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.5
+              },
+              {
+                "end_p": 0.6,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.55
+              },
+              {
+                "end_p": 0.65,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.6
+              },
+              {
+                "end_p": 0.7,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.65
+              },
+              {
+                "end_p": 0.75,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.7
+              },
+              {
+                "end_p": 0.8,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.75
+              },
+              {
+                "end_p": 0.82,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.8
+              },
+              {
+                "end_p": 0.85,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.82
+              },
+              {
+                "end_p": 0.875,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.85
+              },
+              {
+                "end_p": 0.9,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.875
+              },
+              {
+                "end_p": 0.925,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.9
+              },
+              {
+                "end_p": 0.95,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.925
+              },
+              {
+                "end_p": 0.975,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.95
+              },
+              {
+                "end_p": 0.98,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.975
+              },
+              {
+                "end_p": 0.99,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.98
+              },
+              {
+                "end_p": 0.995,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.99
+              },
+              {
+                "end_p": 0.99,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.995
+              },
+              {
+                "end_p": 0.98,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.99
+              },
+              {
+                "end_p": 0.975,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.98
+              },
+              {
+                "end_p": 0.95,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.975
+              },
+              {
+                "end_p": 0.925,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.95
+              },
+              {
+                "end_p": 0.9,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.925
+              },
+              {
+                "end_p": 0.875,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.9
+              },
+              {
+                "end_p": 0.85,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.875
+              },
+              {
+                "end_p": 0.825,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.85
+              },
+              {
+                "end_p": 0.8,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.825
+              },
+              {
+                "end_p": 0.75,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.8
+              },
+              {
+                "end_p": 0.7,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.75
+              },
+              {
+                "end_p": 0.65,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.7
+              },
+              {
+                "end_p": 0.6,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.65
+              },
+              {
+                "end_p": 0.55,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.6
+              },
+              {
+                "end_p": 0.5,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.55
+              },
+              {
+                "end_p": 0.45,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.5
+              },
+              {
+                "end_p": 0.4,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.45
+              },
+              {
+                "end_p": 0.35,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.4
+              },
+              {
+                "end_p": 0.3,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.35
+              },
+              {
+                "end_p": 0.25,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.3
+              },
+              {
+                "end_p": 0.2,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.25
+              },
+              {
+                "end_p": 0.14,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.2
+              }
+            ],
+            "use target pressure": true
           },
           "p0 and temperature options": {
             "Psat vs Temperature Table": [
@@ -165,7 +541,7 @@
             "evacuation time": 0.1,
             "fast evacuation": false,
             "leak test": false,
-            "leak test duration": 120,
+            "leak test duration": 180,
             "unresticted evac. from": 5
           },
           "sample backfill options": {
@@ -174,15 +550,960 @@
             "backfill sample at start of analysis": true
           }
         },
-        "labType": 1,
+        "labType": 0,
         "originalVolume": true,
         "thermalCorrection": false,
+        "enableNoiseRejection": false,
         "enableReferenceTube": false,
         "systemVolume": 15.220000267028809,
+        "historicalPdfComparison": {
+          "beta0Enabled": false,
+          "mode": "explicit-noise-switch",
+          "policySchema": 1
+        },
+        "base infos": [
+          {
+            "title": "操作人员",
+            "value": ""
+          },
+          {
+            "title": "处理条件",
+            "value": ""
+          },
+          {
+            "title": "Operator",
+            "value": ""
+          },
+          {
+            "title": "Pretreatment",
+            "value": ""
+          }
+        ],
+        "review the reports after the test": true,
         "mass": {
           "density": 1,
           "isEnter": true
-        }
+        },
+        "analysis data": null,
+        "dropDatas": null,
+        "labData": "",
+        "started": "",
+        "serialNO": "",
+        "firmwareVersion": "",
+        "tubeCode": "",
+        "reports": [
+          {
+            "type": 1,
+            "options": {
+              "adsorptionPoresAtPP0": 0.95,
+              "desorptionPoresAtPP0": 0.95,
+              "name": "概要",
+              "selected": true,
+              "showAbnormalDefOption1": false,
+              "showAbnormalDefOption2": false,
+              "showAbnormalDefOption3": false,
+              "showAbnormalDefOption4": false,
+              "showAdsorptionTotalPoreVolume": true,
+              "showAveragePoreDiameter": true,
+              "showBJHAdsorptionAveragePore": true,
+              "showBJHAdsorptionMostProbablePoreWidth": true,
+              "showBJHCumulativeAdsorptionArea": true,
+              "showBJHCumulativeAdsorptionVolume": true,
+              "showBJHCumulativeDesorptionArea": true,
+              "showBJHCumulativeDesorptionVolume": true,
+              "showBJHDesorptionAveragePore": true,
+              "showBJHDesorptionMostProbablePoreWidth": true,
+              "showDALimitingMicroporeVolume": false,
+              "showDAMicroporeSurfaceArea": false,
+              "showDRMicroporeSurfaceArea": false,
+              "showDRMonolayerCapacity": false,
+              "showDesorptionTotalPoreVolume": true,
+              "showHKMaximumPoreVolume": true,
+              "showHKMedianPoreWidth": true,
+              "showLangmuir": true,
+              "showMultiPointBET": true,
+              "showNLDFTPoreSize": false,
+              "showNLDFTPoreVolumePercentage": false,
+              "showSinglePointBET": true,
+              "showt_PlotExternal": true,
+              "showt_PlotMicroporeArea": true,
+              "showt_PlotMicroporeVolume": true,
+              "type": 1
+            }
+          },
+          {
+            "type": 5,
+            "options": {
+              "P0": 0,
+              "Psat vs Temperature Table": null,
+              "adsCalThresholdValue": 0.95,
+              "adsMatchIndex": -1,
+              "chooseOption": -1,
+              "desCalThresholdValue": 0.95,
+              "desMatchIndex": -1,
+              "enteredAmbientSpace": 0,
+              "enteredAnalysisSpace": 0,
+              "excludedPointUuids": [],
+              "freeSpaceType": -1,
+              "linearAbsolutePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "linearPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "logarithmicAbsolutePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "logarithmicPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "name": "等温线",
+              "nonIdealityFactor": 0,
+              "perOtherSurfaceArea": 1,
+              "pressureCompositionPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "pressureType": -1,
+              "sampleMass": 0,
+              "selectPerBetSurfaceArea": false,
+              "selectPerGram": true,
+              "selectPerOtherSurfaceArea": false,
+              "selected": true,
+              "showElapsedTime": true,
+              "showLinearAbsolutePlot": false,
+              "showLinearPlot": true,
+              "showLogarithmicAbsolutePlot": false,
+              "showLogarithmicPlot": true,
+              "showPlotAdsorption": true,
+              "showPlotDesorption": true,
+              "showPlotOverlays": false,
+              "showPressureCompositionPlot": false,
+              "showTabularReport": true,
+              "showTimeBetweenPoints": false,
+              "showWeightPercent": false,
+              "singlePointSurfaceArea": 0,
+              "summaryType": 0,
+              "surfaceAreaCalThresholdValue": 0.3,
+              "surfaceAreaMatchIndex": -1,
+              "temperature": 1000000,
+              "type": 5
+            }
+          },
+          {
+            "type": 6,
+            "options": {
+              "BETSmartPointSelection": false,
+              "ErrorLimit": 15,
+              "MinNumOfPoints": 5,
+              "MinSquaredR": 0.999,
+              "RouquerolCriterion1": true,
+              "RouquerolCriterion2": true,
+              "RouquerolCriterion3": true,
+              "RouquerolCriterion4": true,
+              "RouquerolCriterion5": false,
+              "bet_areas": null,
+              "errorLevel": 0,
+              "error_vector_2d": null,
+              "excludes": null,
+              "fitRange": {
+                "max": 0.31,
+                "min": 0.045
+              },
+              "fitRangeSmart": {
+                "max": 0.31,
+                "min": 0.045
+              },
+              "has_valid_areas": false,
+              "information": "",
+              "isothermPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 0.31,
+                "min": 0.045
+              },
+              "isothermRangeSmart": {
+                "max": 0.31,
+                "min": 1e-9
+              },
+              "min_i": 0,
+              "min_j": 0,
+              "name": "BET",
+              "selected": true,
+              "selectedIndex_max": 0,
+              "selectedIndex_min": 0,
+              "showIsothermPlot": false,
+              "showTabularReport": true,
+              "showTransformPlot": true,
+              "surfaceArea": 0,
+              "transformPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 6,
+              "valid_bet_areas": null,
+              "valid_indices": null,
+              "valid_knee_bet_areas": null,
+              "valid_knee_indices": null,
+              "valid_knee_pc_errors": null,
+              "valid_pc_errors": null,
+              "warnings": ""
+            }
+          },
+          {
+            "type": 7,
+            "options": {
+              "excludes": null,
+              "fitRange": {
+                "max": 760,
+                "min": 0
+              },
+              "isothermPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 760,
+                "min": 0
+              },
+              "name": "Langmuir",
+              "selected": true,
+              "showIsothermPlot": true,
+              "showTabularReport": true,
+              "showTransformPlot": true,
+              "transformPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 7
+            }
+          },
+          {
+            "type": 10,
+            "options": {
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "enteredSurfaceArea": 1,
+              "errorLevel": false,
+              "excludes": null,
+              "halsey": [3.54, -5, 0.333],
+              "hj": [13.99, 0.034, 0.5],
+              "isothermRange": {
+                "max": 0.7,
+                "min": 0.05
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "t-Plot",
+              "reference": [
+                {
+                  "relative pressure": 5.83e-7,
+                  "thickness": 0.0853
+                },
+                {
+                  "relative pressure": 0.000001269,
+                  "thickness": 0.168
+                },
+                {
+                  "relative pressure": 0.000002467,
+                  "thickness": 0.2514
+                },
+                {
+                  "relative pressure": 0.000004337,
+                  "thickness": 0.3348
+                },
+                {
+                  "relative pressure": 0.000006996,
+                  "thickness": 0.4186
+                },
+                {
+                  "relative pressure": 0.000010668,
+                  "thickness": 0.5021
+                },
+                {
+                  "relative pressure": 0.000015595,
+                  "thickness": 0.5857
+                },
+                {
+                  "relative pressure": 0.00002207,
+                  "thickness": 0.6691
+                },
+                {
+                  "relative pressure": 0.000030356,
+                  "thickness": 0.7523
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showTPlot": true,
+              "showTabularReport": true,
+              "surfaceArea": 0,
+              "surfaceAreaCorrectionFactor": 1,
+              "tPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "thicknessFunc": 3,
+              "thicknessRange": {
+                "max": 5,
+                "min": 3.5
+              },
+              "type": 10
+            }
+          },
+          {
+            "type": 13,
+            "options": {
+              "BJHCorrection": 0,
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 9.53,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 10.44,
+                  "id": 8,
+                  "name": "Ar"
+                }
+              ],
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "collectedPoints": true,
+              "cummulativePoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cummulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cumulativeReports": 0,
+              "dA_dlog_w_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "excludes": null,
+              "fixedPoints": [10, 5],
+              "fractionOfPoresOpenAtBothEnds": 0,
+              "hAj": [13.99, 0.034, 0.5],
+              "halsey": [3.54, -5, 0.333],
+              "isothermRange": {
+                "max": 0.995,
+                "min": 0.1
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "BJH 吸附",
+              "poreWidthRange": {
+                "max": 3000,
+                "min": 17
+              },
+              "reference": [
+                {
+                  "relative pressure": 1e-9,
+                  "thickness": 1
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showCummulativePoreAreaPlot": true,
+              "showCummulativePoreVolumePlot": true,
+              "showTabularReport": true,
+              "show_dA_dlog_w_PoreAreaPlot": true,
+              "show_dA_dw_PoreAreaPlot": true,
+              "show_dV_dlog_w_PoreVolumePlot": true,
+              "show_dV_dw_PoreVolumePlot": true,
+              "smoothDifferentials": false,
+              "thicknessFunc": 3,
+              "type": 13
+            }
+          },
+          {
+            "type": 14,
+            "options": {
+              "BJHCorrection": 0,
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 9.53,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 10.44,
+                  "id": 8,
+                  "name": "Ar"
+                }
+              ],
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "collectedPoints": true,
+              "cummulativePoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cummulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cumulativeReports": 0,
+              "dA_dlog_w_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "excludes": null,
+              "fixedPoints": [10, 5],
+              "hAj": [13.99, 0.034, 0.5],
+              "halsey": [3.54, -5, 0.333],
+              "isothermRange": {
+                "max": 0.995,
+                "min": 0.1
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "BJH 脱附",
+              "poreWidthRange": {
+                "max": 3000,
+                "min": 17
+              },
+              "reference": [
+                {
+                  "relative pressure": 1e-9,
+                  "thickness": 1
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showCummulativePoreAreaPlot": true,
+              "showCummulativePoreVolumePlot": true,
+              "showTabularReport": true,
+              "show_dA_dlog_w_PoreAreaPlot": true,
+              "show_dA_dw_PoreAreaPlot": true,
+              "show_dV_dlog_w_PoreVolumePlot": true,
+              "show_dV_dw_PoreVolumePlot": true,
+              "smoothDifferentials": false,
+              "thicknessFunc": 3,
+              "type": 14
+            }
+          },
+          {
+            "type": 17,
+            "options": {
+              "adsorbentList": null,
+              "adsorptiveList": null,
+              "applyChengYangCorrection": false,
+              "computed": true,
+              "computedInteractionParameter": 2.84e-43,
+              "cumulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "currentAdsorbent": 2,
+              "currentAdsorptive": 0,
+              "dvdwPoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "enteredInteractionParameter": 3.49e-43,
+              "errorLevel": 0,
+              "excludes": null,
+              "isothermRange": {
+                "max": 0.18,
+                "min": 1e-9
+              },
+              "name": "Horvath-Kawazoe",
+              "poreGeometry": 0,
+              "selected": false,
+              "showCumulativePoreVolumePlot": true,
+              "showDvDwPoreVolumePlot": true,
+              "showTabularReport": true,
+              "smoothDifferentials": false,
+              "tabularColumns": [1, 2, 3, 4, 5, 6],
+              "type": 17
+            }
+          },
+          {
+            "type": 18,
+            "options": {
+              "curRegularization": 0.2,
+              "dA_dlog_w_AreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_AreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_VolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_VolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "errCode": 0,
+              "excludes": null,
+              "geometry": 0,
+              "geometry_model_array": [
+                {
+                  "geometry": 0,
+                  "model": ""
+                },
+                {
+                  "geometry": 1,
+                  "model": ""
+                },
+                {
+                  "geometry": 2,
+                  "model": ""
+                },
+                {
+                  "geometry": 3,
+                  "model": ""
+                }
+              ],
+              "incrementalAreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "incrementalVolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 1,
+                "min": 1e-9
+              },
+              "name": "DFT 高级 PSD",
+              "optRMSError": 0,
+              "optRegularization": 0,
+              "optRoughness": 0,
+              "poreTableColumns": [1, 3, 2, 7, 6, 0],
+              "poreVolumes": [2, 50],
+              "selected": false,
+              "selectedFile": {
+                "filePathName": "",
+                "geometry": 0,
+                "geometry_model_array": null,
+                "isothermRange": {
+                  "max": 1,
+                  "min": 1e-9
+                },
+                "sampleName": ""
+              },
+              "showGoodnessOfFitGraph": true,
+              "showIncrementalAreaGraph": true,
+              "showIncrementalVolumeGraph": true,
+              "showIsothermTableReport": true,
+              "showLogGoodnessOfFitGraph": true,
+              "showPoreTableReport": true,
+              "show_dA_dlog_w_AreaGraph": true,
+              "show_dA_dw_AreaGraph": true,
+              "show_dV_dlog_w_VolumeGraph": true,
+              "show_dV_dw_VolumeGraph": true,
+              "type": 18,
+              "useVersion2Deconvolution": false,
+              "userRegularization": 0.2
+            }
+          },
+          {
+            "type": 21,
+            "options": {
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 0.33,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 0.267,
+                  "id": 8,
+                  "name": "Ar"
+                },
+                {
+                  "affinityCoefficient": 0.273,
+                  "id": 6,
+                  "name": "CO2"
+                }
+              ],
+              "astakhovSelected": true,
+              "dvdwPoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "errorLevel": 0,
+              "excludes": null,
+              "exponent": 2,
+              "fitRange_da": {
+                "max": 0.05,
+                "min": 0.0001
+              },
+              "fitRange_dr": {
+                "max": 0.05,
+                "min": 0.0001
+              },
+              "isothermRange": {
+                "max": 1,
+                "min": 1e-9
+              },
+              "name": "Dubinin",
+              "optimizeExponent": true,
+              "radushkevichSelected": true,
+              "selected": false,
+              "showDvDwPoreVolumePlot": true,
+              "showTabularReport_DA": true,
+              "showTabularReport_DR": true,
+              "showTransformPlot_DA": true,
+              "showTransformPlot_DR": true,
+              "tabularColumns": [1, 2, 3, 4, 5, 6],
+              "transformPlotOptions_DA": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "transformPlotOptions_DR": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 21
+            }
+          },
+          {
+            "type": 26,
+            "options": {
+              "calibrationVolume": 400,
+              "errorLevel": 0,
+              "name": "Manufacturing",
+              "overlaySamples": true,
+              "selected": false,
+              "showCalibrationVolumePlot": false,
+              "showKryptonBlankPlot": false,
+              "showNitrogenBlankPlot": true,
+              "showUnfoldedIsothermPlot": false,
+              "type": 26
+            }
+          },
+          {
+            "type": 29,
+            "options": {
+              "captureIntervalMs": 5000,
+              "captureMaxSamples": 1200,
+              "dataMode": "equilibrium",
+              "name": "Adsorption kinetics",
+              "selected": false,
+              "singleDoseId": "",
+              "timeUnit": "s",
+              "type": 29
+            }
+          },
+          {
+            "type": 30,
+            "options": {
+              "captureIntervalMs": 5000,
+              "captureMaxSamples": 1200,
+              "dataMode": "single_point",
+              "name": "Single-point kinetics",
+              "selected": false,
+              "singleDoseId": "",
+              "timeUnit": "s",
+              "type": 30
+            }
+          }
+        ]
       }
     },
     {
@@ -190,10 +1511,23 @@
       "product": "g12",
       "gas": "N2",
       "origin": {
-        "path": "多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "path": "文档/自动化/案例库/多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
         "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
         "status": 8208
       },
+      "sourceEvidence": {
+        "kind": "historical-new-template",
+        "method": "micropore"
+      },
+      "normalization": [
+        "new task identity/status",
+        "empty acquisition fields",
+        "empty hardware identity",
+        "pending sample masses",
+        "measured free space without historical values",
+        "reset computed report caches",
+        "operator-required labType=0"
+      ],
       "configuration": {
         "softwareVersion": "2.1",
         "clientVersion": "2.1.26.0416",
@@ -295,6 +1629,375 @@
             "outgas test": false,
             "outgas test duration": 180
           },
+          "isotherm collection": {
+            "absolute pressure dosing": false,
+            "increments": [
+              {
+                "dose increment": 1,
+                "end_p": 1e-9,
+                "interval": 30,
+                "percent of previous": 10,
+                "use dose increment": false
+              },
+              {
+                "dose increment": 15,
+                "end_p": 0.01,
+                "interval": 30,
+                "percent of previous": 10,
+                "use dose increment": true
+              }
+            ],
+            "minimum equilibration delay at p/p0 >= 0.995": 600,
+            "options": {
+              "D_DoseAmount": 20,
+              "D_LPressIncrementalDoseMode": true,
+              "D_MaxEquilibrationDelay": 2,
+              "D_MinEquilibrationDelay": 0,
+              "T_DoseAmount": 20,
+              "T_LPressIncrementalDoseMode": true,
+              "T_MaxEquilibrationDelay": 2,
+              "T_MinEquilibrationDelay": 0,
+              "absolute pressure tolerance": 5,
+              "first dose isActive": false,
+              "first pressure fixed dose": 0.01,
+              "maximum increment isActive": false,
+              "maximum volume increment": 25,
+              "relative pressure tolerance": 5
+            },
+            "pressures": [
+              {
+                "end_p": 0.01,
+                "increment_p": 0,
+                "interval": 30,
+                "start_p": 0
+              },
+              {
+                "end_p": 0.03,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.01
+              },
+              {
+                "end_p": 0.06,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.03
+              },
+              {
+                "end_p": 0.08,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.06
+              },
+              {
+                "end_p": 0.1,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.08
+              },
+              {
+                "end_p": 0.12,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.1
+              },
+              {
+                "end_p": 0.14,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.12
+              },
+              {
+                "end_p": 0.16,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.14
+              },
+              {
+                "end_p": 0.18,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.16
+              },
+              {
+                "end_p": 0.2,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.18
+              },
+              {
+                "end_p": 0.25,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.2
+              },
+              {
+                "end_p": 0.3,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.25
+              },
+              {
+                "end_p": 0.35,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.3
+              },
+              {
+                "end_p": 0.4,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.35
+              },
+              {
+                "end_p": 0.45,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.4
+              },
+              {
+                "end_p": 0.5,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.45
+              },
+              {
+                "end_p": 0.55,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.5
+              },
+              {
+                "end_p": 0.6,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.55
+              },
+              {
+                "end_p": 0.65,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.6
+              },
+              {
+                "end_p": 0.7,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.65
+              },
+              {
+                "end_p": 0.75,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.7
+              },
+              {
+                "end_p": 0.8,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.75
+              },
+              {
+                "end_p": 0.82,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.8
+              },
+              {
+                "end_p": 0.85,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.82
+              },
+              {
+                "end_p": 0.875,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.85
+              },
+              {
+                "end_p": 0.9,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.875
+              },
+              {
+                "end_p": 0.925,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.9
+              },
+              {
+                "end_p": 0.95,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.925
+              },
+              {
+                "end_p": 0.975,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.95
+              },
+              {
+                "end_p": 0.98,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.975
+              },
+              {
+                "end_p": 0.99,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.98
+              },
+              {
+                "end_p": 0.995,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.99
+              },
+              {
+                "end_p": 0.99,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.995
+              },
+              {
+                "end_p": 0.98,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.99
+              },
+              {
+                "end_p": 0.975,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.98
+              },
+              {
+                "end_p": 0.95,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.975
+              },
+              {
+                "end_p": 0.925,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.95
+              },
+              {
+                "end_p": 0.9,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.925
+              },
+              {
+                "end_p": 0.875,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.9
+              },
+              {
+                "end_p": 0.85,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.875
+              },
+              {
+                "end_p": 0.825,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.85
+              },
+              {
+                "end_p": 0.8,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.825
+              },
+              {
+                "end_p": 0.75,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.8
+              },
+              {
+                "end_p": 0.7,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.75
+              },
+              {
+                "end_p": 0.65,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.7
+              },
+              {
+                "end_p": 0.6,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.65
+              },
+              {
+                "end_p": 0.55,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.6
+              },
+              {
+                "end_p": 0.5,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.55
+              },
+              {
+                "end_p": 0.45,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.5
+              },
+              {
+                "end_p": 0.4,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.45
+              },
+              {
+                "end_p": 0.35,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.4
+              },
+              {
+                "end_p": 0.3,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.35
+              },
+              {
+                "end_p": 0.25,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.3
+              },
+              {
+                "end_p": 0.2,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.25
+              },
+              {
+                "end_p": 0.14,
+                "increment_p": 0,
+                "interval": 10,
+                "start_p": 0.2
+              }
+            ],
+            "use target pressure": false
+          },
           "p0 and temperature options": {
             "Psat vs Temperature Table": [
               {
@@ -362,7 +2065,7 @@
             "backfill sample at start of analysis": true
           }
         },
-        "labType": 1,
+        "labType": 0,
         "originalVolume": true,
         "thermalCorrection": false,
         "enableNoiseRejection": false,
@@ -370,17 +2073,1021 @@
         "lowerVolume": 25.688600540161133,
         "leakRateCorrectMode": 0,
         "leakRate": 10,
+        "base infos": [
+          {
+            "title": "操作人员",
+            "value": ""
+          },
+          {
+            "title": "处理条件",
+            "value": ""
+          }
+        ],
+        "review the reports after the test": true,
         "mass": {
           "density": 1,
           "isEnter": true
-        }
+        },
+        "analysis data": null,
+        "dropDatas": null,
+        "labData": "",
+        "started": "",
+        "serialNO": "",
+        "firmwareVersion": "",
+        "reports": [
+          {
+            "type": 1,
+            "options": {
+              "adsorptionPoresAtPP0": 0.9941749870930284,
+              "desorptionPoresAtPP0": 0.994174987,
+              "name": "Summary",
+              "selected": true,
+              "showAbnormalDefOption1": false,
+              "showAbnormalDefOption2": false,
+              "showAbnormalDefOption3": false,
+              "showAbnormalDefOption4": false,
+              "showAdsorptionTotalPoreVolume": true,
+              "showAveragePoreDiameter": true,
+              "showBJHAdsorptionAveragePore": true,
+              "showBJHAdsorptionMostProbablePoreWidth": true,
+              "showBJHCumulativeAdsorptionArea": true,
+              "showBJHCumulativeAdsorptionVolume": true,
+              "showBJHCumulativeDesorptionArea": true,
+              "showBJHCumulativeDesorptionVolume": true,
+              "showBJHDesorptionAveragePore": true,
+              "showBJHDesorptionMostProbablePoreWidth": true,
+              "showDALimitingMicroporeVolume": false,
+              "showDAMicroporeSurfaceArea": false,
+              "showDRMicroporeSurfaceArea": false,
+              "showDRMonolayerCapacity": false,
+              "showDesorptionTotalPoreVolume": true,
+              "showHKMaximumPoreVolume": true,
+              "showHKMedianPoreWidth": true,
+              "showLangmuir": true,
+              "showMultiPointBET": true,
+              "showNLDFTPoreSize": true,
+              "showNLDFTPoreVolumePercentage": true,
+              "showSinglePointBET": true,
+              "showt_PlotExternal": true,
+              "showt_PlotMicroporeArea": true,
+              "showt_PlotMicroporeVolume": true,
+              "type": 1
+            }
+          },
+          {
+            "type": 5,
+            "options": {
+              "P0": 0,
+              "Psat vs Temperature Table": null,
+              "adsCalThresholdValue": 0.95,
+              "adsMatchIndex": -1,
+              "chooseOption": -1,
+              "desCalThresholdValue": 0.95,
+              "desMatchIndex": -1,
+              "enteredAmbientSpace": 0,
+              "enteredAnalysisSpace": 0,
+              "freeSpaceType": -1,
+              "linearAbsolutePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "linearPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "logarithmicAbsolutePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "logarithmicPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "name": "Isotherm",
+              "nonIdealityFactor": 0,
+              "perOtherSurfaceArea": 1,
+              "pressureCompositionPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "pressureType": -1,
+              "sampleMass": 0,
+              "selectPerBetSurfaceArea": false,
+              "selectPerGram": true,
+              "selectPerOtherSurfaceArea": false,
+              "selected": true,
+              "showElapsedTime": true,
+              "showLinearAbsolutePlot": false,
+              "showLinearPlot": true,
+              "showLogarithmicAbsolutePlot": false,
+              "showLogarithmicPlot": true,
+              "showPlotAdsorption": true,
+              "showPlotDesorption": true,
+              "showPlotOverlays": false,
+              "showPressureCompositionPlot": false,
+              "showTabularReport": true,
+              "showTimeBetweenPoints": false,
+              "showWeightPercent": false,
+              "singlePointSurfaceArea": 0,
+              "summaryType": 0,
+              "surfaceAreaCalThresholdValue": 0.3,
+              "surfaceAreaMatchIndex": -1,
+              "temperature": 1000000,
+              "type": 5
+            }
+          },
+          {
+            "type": 6,
+            "options": {
+              "BETSmartPointSelection": true,
+              "ErrorLimit": 15,
+              "MinNumOfPoints": 5,
+              "MinSquaredR": 0.999,
+              "RouquerolCriterion1": true,
+              "RouquerolCriterion2": true,
+              "RouquerolCriterion3": true,
+              "RouquerolCriterion4": true,
+              "RouquerolCriterion5": false,
+              "bet_areas": null,
+              "errorLevel": 0,
+              "error_vector_2d": null,
+              "excludes": null,
+              "fitRange": {
+                "max": 0.31,
+                "min": 0.045
+              },
+              "fitRangeSmart": {
+                "max": 0.13089679396977466,
+                "min": 0.021070608728290276
+              },
+              "has_valid_areas": false,
+              "information": "",
+              "isothermPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 0.31,
+                "min": 0.045
+              },
+              "isothermRangeSmart": {
+                "max": 0.35,
+                "min": 1e-9
+              },
+              "min_i": 0,
+              "min_j": 0,
+              "name": "BET",
+              "selected": true,
+              "selectedIndex_max": 6,
+              "selectedIndex_min": 2,
+              "showIsothermPlot": false,
+              "showTabularReport": true,
+              "showTransformPlot": true,
+              "surfaceArea": 0,
+              "transformPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 6,
+              "valid_bet_areas": null,
+              "valid_indices": null,
+              "valid_knee_bet_areas": null,
+              "valid_knee_indices": null,
+              "valid_knee_pc_errors": null,
+              "valid_pc_errors": null,
+              "warnings": ""
+            }
+          },
+          {
+            "type": 7,
+            "options": {
+              "excludes": null,
+              "fitRange": {
+                "max": 97.1924475517062,
+                "min": 16.742328120909026
+              },
+              "isothermPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 760,
+                "min": 0
+              },
+              "name": "Langmuir",
+              "selected": true,
+              "showIsothermPlot": true,
+              "showTabularReport": true,
+              "showTransformPlot": true,
+              "transformPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 7
+            }
+          },
+          {
+            "type": 10,
+            "options": {
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "enteredSurfaceArea": 1,
+              "errorLevel": false,
+              "excludes": null,
+              "halsey": [3.54, -5, 0.333],
+              "hj": [13.99, 0.034, 0.5],
+              "isothermRange": {
+                "max": 0.7,
+                "min": 0.05
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "t-Plot",
+              "reference": [
+                {
+                  "relative pressure": 5.83e-7,
+                  "thickness": 0.0853
+                },
+                {
+                  "relative pressure": 0.000001269,
+                  "thickness": 0.168
+                },
+                {
+                  "relative pressure": 0.000002467,
+                  "thickness": 0.2514
+                },
+                {
+                  "relative pressure": 0.000004337,
+                  "thickness": 0.3348
+                },
+                {
+                  "relative pressure": 0.000006996,
+                  "thickness": 0.4186
+                },
+                {
+                  "relative pressure": 0.000010668,
+                  "thickness": 0.5021
+                },
+                {
+                  "relative pressure": 0.000015595,
+                  "thickness": 0.5857
+                },
+                {
+                  "relative pressure": 0.00002207,
+                  "thickness": 0.6691
+                },
+                {
+                  "relative pressure": 0.000030356,
+                  "thickness": 0.7523
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showTPlot": true,
+              "showTabularReport": true,
+              "surfaceArea": 0,
+              "surfaceAreaCorrectionFactor": 1,
+              "tPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "thicknessFunc": 3,
+              "thicknessRange": {
+                "max": 6.154086948544014,
+                "min": 4.6830498581869495
+              },
+              "type": 10
+            }
+          },
+          {
+            "type": 13,
+            "options": {
+              "BJHCorrection": 0,
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 9.53,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 10.44,
+                  "id": 8,
+                  "name": "Ar"
+                }
+              ],
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "collectedPoints": true,
+              "cummulativePoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cummulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cumulativeReports": 1,
+              "dA_dlog_w_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "excludes": null,
+              "fixedPoints": [10, 5],
+              "fractionOfPoresOpenAtBothEnds": 0,
+              "hAj": [13.99, 0.034, 0.5],
+              "halsey": [3.54, -5, 0.333],
+              "isothermRange": {
+                "max": 0.995,
+                "min": 0.1
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "BJH Adsorption",
+              "poreWidthRange": {
+                "max": 3000,
+                "min": 20
+              },
+              "reference": [
+                {
+                  "relative pressure": 1e-9,
+                  "thickness": 1
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showCummulativePoreAreaPlot": true,
+              "showCummulativePoreVolumePlot": true,
+              "showTabularReport": true,
+              "show_dA_dlog_w_PoreAreaPlot": true,
+              "show_dA_dw_PoreAreaPlot": true,
+              "show_dV_dlog_w_PoreVolumePlot": true,
+              "show_dV_dw_PoreVolumePlot": true,
+              "smoothDifferentials": true,
+              "thicknessFunc": 3,
+              "type": 13
+            }
+          },
+          {
+            "type": 14,
+            "options": {
+              "BJHCorrection": 0,
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 9.53,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 10.44,
+                  "id": 8,
+                  "name": "Ar"
+                }
+              ],
+              "bdb": [-16.11, 0.1682, -0.1137],
+              "carbonBlack": [2.98, 6.45, 0.88],
+              "collectedPoints": true,
+              "cummulativePoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cummulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "cumulativeReports": 1,
+              "dA_dlog_w_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_PoreAreaPlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_PoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "excludes": null,
+              "fixedPoints": [10, 5],
+              "hAj": [13.99, 0.034, 0.5],
+              "halsey": [3.54, -5, 0.333],
+              "isothermRange": {
+                "max": 0.995,
+                "min": 0.1
+              },
+              "kjs": [60.65, 0.03071, 0.3968],
+              "name": "BJH Desorption",
+              "poreWidthRange": {
+                "max": 3000,
+                "min": 20
+              },
+              "reference": [
+                {
+                  "relative pressure": 1e-9,
+                  "thickness": 1
+                }
+              ],
+              "referenceFile": "",
+              "selected": true,
+              "showCummulativePoreAreaPlot": true,
+              "showCummulativePoreVolumePlot": true,
+              "showTabularReport": true,
+              "show_dA_dlog_w_PoreAreaPlot": true,
+              "show_dA_dw_PoreAreaPlot": true,
+              "show_dV_dlog_w_PoreVolumePlot": true,
+              "show_dV_dw_PoreVolumePlot": true,
+              "smoothDifferentials": true,
+              "thicknessFunc": 3,
+              "type": 14
+            }
+          },
+          {
+            "type": 17,
+            "options": {
+              "adsorbentList": [
+                {
+                  "density": 1480000000000000,
+                  "diameter": 2.6,
+                  "diameterAtZeroEnergy": 2.232,
+                  "magneticSusceptibility": 1.3e-29,
+                  "mnemonic": "Aluminophosphere",
+                  "polarizability": 2.5e-24,
+                  "type": 0
+                },
+                {
+                  "density": 1310000000000000,
+                  "diameter": 2.76,
+                  "diameterAtZeroEnergy": 2.369,
+                  "magneticSusceptibility": 1.3e-29,
+                  "mnemonic": "Aluminosilicate",
+                  "polarizability": 2.5e-24,
+                  "type": 1
+                },
+                {
+                  "density": 3845000000000000,
+                  "diameter": 3.4,
+                  "diameterAtZeroEnergy": 2.918,
+                  "magneticSusceptibility": 1.0500000000000001e-29,
+                  "mnemonic": "Carbon-Grahite(Ross/Olivier)",
+                  "polarizability": 1.0199999999999999e-24,
+                  "type": 2
+                },
+                {
+                  "density": 3845000000000000,
+                  "diameter": 3.4,
+                  "diameterAtZeroEnergy": 2.918,
+                  "magneticSusceptibility": 1.35e-28,
+                  "mnemonic": "Carbon-Graphite(HK)",
+                  "polarizability": 1.0199999999999999e-24,
+                  "type": 3
+                },
+                {
+                  "density": 3750000000000000,
+                  "diameter": 3.04,
+                  "diameterAtZeroEnergy": 2.609,
+                  "magneticSusceptibility": 1.9400000000000002e-29,
+                  "mnemonic": "Zeolite",
+                  "polarizability": 8.5e-25,
+                  "type": 4
+                }
+              ],
+              "adsorptiveList": [
+                {
+                  "density": 760800000000000,
+                  "diameter": 2.95,
+                  "diameterAtZeroEnergy": 2.53,
+                  "magneticSusceptibility": 3.22e-29,
+                  "mnemonic": "Ar",
+                  "polarizability": 1.63e-24,
+                  "type": 8
+                },
+                {
+                  "density": 545000000000000,
+                  "diameter": 3.23,
+                  "diameterAtZeroEnergy": 2.77,
+                  "magneticSusceptibility": 5.0000000000000004e-29,
+                  "mnemonic": "CO2",
+                  "polarizability": 2.6999999999999997e-24,
+                  "type": 6
+                },
+                {
+                  "density": 100000000000000,
+                  "diameter": 2,
+                  "diameterAtZeroEnergy": 1,
+                  "magneticSusceptibility": 1.0000000000000001e-29,
+                  "mnemonic": "Kr",
+                  "polarizability": 1.0000000000000001e-24,
+                  "type": 7
+                },
+                {
+                  "density": 671000000000000,
+                  "diameter": 3,
+                  "diameterAtZeroEnergy": 2.574,
+                  "magneticSusceptibility": 3.6e-29,
+                  "mnemonic": "N2",
+                  "polarizability": 1.7599999999999998e-24,
+                  "type": 2
+                },
+                {
+                  "density": 100000000000000,
+                  "diameter": 2,
+                  "diameterAtZeroEnergy": 1,
+                  "magneticSusceptibility": 1.0000000000000001e-29,
+                  "mnemonic": "O2",
+                  "polarizability": 1.0000000000000001e-24,
+                  "type": 4
+                },
+                {
+                  "density": 100000000000000,
+                  "diameter": 2,
+                  "diameterAtZeroEnergy": 1,
+                  "magneticSusceptibility": 1.0000000000000001e-29,
+                  "mnemonic": "CH4",
+                  "polarizability": 1.0000000000000001e-24,
+                  "type": 9
+                }
+              ],
+              "applyChengYangCorrection": false,
+              "computed": true,
+              "computedInteractionParameter": 2.8425807965739126e-43,
+              "cumulativePoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "currentAdsorbent": 2,
+              "currentAdsorptive": 2,
+              "dvdwPoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "enteredInteractionParameter": 3.49e-43,
+              "errorLevel": 0,
+              "excludes": null,
+              "isothermRange": {
+                "max": 0.18,
+                "min": 1e-9
+              },
+              "name": "Horvath-Kawazoe",
+              "poreGeometry": 0,
+              "selected": true,
+              "showCumulativePoreVolumePlot": true,
+              "showDvDwPoreVolumePlot": true,
+              "showTabularReport": true,
+              "smoothDifferentials": true,
+              "tabularColumns": [1, 2, 3, 4, 5, 6],
+              "type": 17
+            }
+          },
+          {
+            "type": 18,
+            "options": {
+              "curRegularization": 316.22776601683796,
+              "dA_dlog_w_AreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dA_dw_AreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dlog_w_VolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "dV_dw_VolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "errCode": 0,
+              "excludes": null,
+              "geometry": 0,
+              "geometry_model_array": [
+                {
+                  "geometry": 0,
+                  "model": "model003"
+                },
+                {
+                  "geometry": 1,
+                  "model": ""
+                },
+                {
+                  "geometry": 2,
+                  "model": ""
+                },
+                {
+                  "geometry": 3,
+                  "model": ""
+                }
+              ],
+              "incrementalAreaGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "incrementalVolumeGraphOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlay_y_axis": 0,
+                "scaleType": 0,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "variable_y_axis": 3,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "isothermRange": {
+                "max": 1,
+                "min": 1e-9
+              },
+              "name": "DFT Advanced PSD",
+              "optRMSError": 0,
+              "optRegularization": 0,
+              "optRoughness": 0,
+              "poreTableColumns": [1, 3, 2, 7, 6, 0],
+              "poreVolumes": [2, 50],
+              "selected": true,
+              "selectedFile": {
+                "filePathName": "",
+                "geometry": 0,
+                "geometry_model_array": null,
+                "isothermRange": {
+                  "max": 1,
+                  "min": 1e-9
+                },
+                "sampleName": ""
+              },
+              "showGoodnessOfFitGraph": true,
+              "showIncrementalAreaGraph": true,
+              "showIncrementalVolumeGraph": true,
+              "showIsothermTableReport": true,
+              "showLogGoodnessOfFitGraph": true,
+              "showPoreTableReport": true,
+              "show_dA_dlog_w_AreaGraph": true,
+              "show_dA_dw_AreaGraph": true,
+              "show_dV_dlog_w_VolumeGraph": true,
+              "show_dV_dw_VolumeGraph": true,
+              "type": 18,
+              "useVersion2Deconvolution": false,
+              "userRegularization": 0.2
+            }
+          },
+          {
+            "type": 21,
+            "options": {
+              "adsorptiveOptions": [
+                {
+                  "affinityCoefficient": 0.33,
+                  "id": 2,
+                  "name": "N2"
+                },
+                {
+                  "affinityCoefficient": 0.267,
+                  "id": 8,
+                  "name": "Ar"
+                },
+                {
+                  "affinityCoefficient": 0.273,
+                  "id": 6,
+                  "name": "CO2"
+                }
+              ],
+              "astakhovSelected": true,
+              "dvdwPoreVolumePlotOptions": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": true,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "errorLevel": 0,
+              "excludes": null,
+              "exponent": 2,
+              "fitRange_da": {
+                "max": 0.05,
+                "min": 0.0001
+              },
+              "fitRange_dr": {
+                "max": 0.05,
+                "min": 0.0001
+              },
+              "isothermRange": {
+                "max": 1,
+                "min": 1e-9
+              },
+              "name": "Dubinin",
+              "optimizeExponent": true,
+              "radushkevichSelected": true,
+              "selected": false,
+              "showDvDwPoreVolumePlot": true,
+              "showTabularReport_DA": true,
+              "showTabularReport_DR": true,
+              "showTransformPlot_DA": true,
+              "showTransformPlot_DR": true,
+              "tabularColumns": [1, 2, 3, 4, 5, 6],
+              "transformPlotOptions_DA": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "transformPlotOptions_DR": {
+                "autoScale_x_axis": true,
+                "autoScale_y_axis": true,
+                "overlays": false,
+                "showPlotCurve": false,
+                "showPlotPoints": true,
+                "x_axis_max": 1,
+                "x_axis_min": 0,
+                "y_axis_max": 1,
+                "y_axis_min": 0
+              },
+              "type": 21
+            }
+          },
+          {
+            "type": 26,
+            "options": {
+              "calibrationVolume": 400,
+              "errorLevel": 0,
+              "name": "Manufacturing",
+              "overlaySamples": true,
+              "selected": false,
+              "showCalibrationVolumePlot": false,
+              "showKryptonBlankPlot": false,
+              "showNitrogenBlankPlot": true,
+              "showUnfoldedIsothermPlot": false,
+              "type": 26
+            }
+          }
+        ]
       }
     }
   ],
   "programs": {
     "bet": {
       "origin": {
-        "path": "三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
+        "path": "文档/自动化/案例库/三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
         "sha256": "77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33",
         "status": 4160
       },
@@ -420,7 +3127,15 @@
             "start_p": 0.2375
           }
         ],
-        "increments": null,
+        "increments": [
+          {
+            "dose increment": 1,
+            "end_p": 0.1,
+            "interval": 10,
+            "percent of previous": 10,
+            "use dose increment": true
+          }
+        ],
         "options": {
           "D_DoseAmount": 0.01,
           "D_LPressIncrementalDoseMode": false,
@@ -441,13 +3156,13 @@
     },
     "micropore": {
       "origin": {
-        "path": "多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "path": "文档/自动化/案例库/多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
         "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
         "status": 8208
       },
       "collection": {
         "absolute pressure dosing": false,
-        "use target pressure": true,
+        "use target pressure": false,
         "minimum equilibration delay at p/p0 >= 0.995": 600,
         "pressures": [
           {
@@ -781,7 +3496,22 @@
             "start_p": 0.2
           }
         ],
-        "increments": null,
+        "increments": [
+          {
+            "dose increment": 1,
+            "end_p": 1e-9,
+            "interval": 30,
+            "percent of previous": 10,
+            "use dose increment": false
+          },
+          {
+            "dose increment": 15,
+            "end_p": 0.01,
+            "interval": 30,
+            "percent of previous": 10,
+            "use dose increment": true
+          }
+        ],
         "options": {
           "D_DoseAmount": 20,
           "D_LPressIncrementalDoseMode": true,
@@ -802,9 +3532,9 @@
     },
     "mesopore": {
       "origin": {
-        "path": "氧化镁-氢氧化镁/2026.7.24-上海实业振泰/氧化镁-1_介孔_U1P1_20260723120245.SAM",
-        "sha256": "db1139ed9d33fef6b5a92f844e1d906271f17eee79cd25316bcea544378c62da",
-        "status": 4160
+        "path": "彩虹半导体_球形硅微粉_1_Mesopore_U1P1_20261030105331.SAM",
+        "sha256": "2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4",
+        "status": 4112
       },
       "collection": {
         "absolute pressure dosing": false,
@@ -1142,7 +3872,15 @@
             "start_p": 0.2
           }
         ],
-        "increments": null,
+        "increments": [
+          {
+            "dose increment": 1,
+            "end_p": 0.1,
+            "interval": 5,
+            "percent of previous": 10,
+            "use dose increment": true
+          }
+        ],
         "options": {
           "D_DoseAmount": 0.01,
           "D_LPressIncrementalDoseMode": false,

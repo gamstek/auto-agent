@@ -163,13 +163,28 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
           return json(service.store.createSession(input.title as string | undefined), 201);
         }
       }
-      const match = /^\/session\/([^/]+)(?:\/(message|prompt_async|abort))?$/.exec(path);
+      const match =
+        /^\/session\/([^/]+)(?:\/(message|prompt_async|abort|review|resolve_review))?$/.exec(path);
       if (!match) throw new AppError('not_found', 'Route not found', 404);
       const [, id, action] = match;
       service.store.getSession(id);
       if (request.method === 'GET' && !action) return json(service.store.getSession(id));
       if (request.method === 'GET' && action === 'message')
         return json(service.store.messages(id, ...page()));
+      if (request.method === 'GET' && action === 'review') return json(service.review(id));
+      if (request.method === 'POST' && action === 'resolve_review') {
+        const input = await body();
+        if (
+          typeof input.runId !== 'string' ||
+          typeof input.note !== 'string' ||
+          Object.keys(input).some((key) => !['runId', 'note'].includes(key))
+        )
+          throw new AppError(
+            'invalid_review',
+            'Expected runId and an operator reconciliation note.',
+          );
+        return json(service.resolveReview(id, input.runId, input.note));
+      }
       if (request.method === 'POST' && action === 'abort')
         return json({ aborted: await service.abort(id) });
       if (request.method === 'POST' && (action === 'message' || action === 'prompt_async')) {
@@ -185,6 +200,12 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
       }
       throw new AppError('not_found', 'Route not found', 404);
     } catch (error) {
+      service.diagnostics.write('agent', 'api.failed', {
+        method: request.method,
+        path,
+        code: error instanceof AppError ? error.code : 'internal_error',
+        message: errorText(error),
+      });
       return json(
         {
           error: error instanceof AppError ? error.code : 'internal_error',

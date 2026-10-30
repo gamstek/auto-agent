@@ -49,6 +49,14 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
       }
       const info = JSON.parse(startup.split('\n').find((line) => line.startsWith('{'))!);
       expect(startup).not.toContain('[info]');
+      const fileLog = await readFile(join(f.config.dataDir, 'logs', 'agent.jsonl'), 'utf8');
+      expect(
+        fileLog
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line))
+          .some((entry) => entry.event === 'app.started'),
+      ).toBe(true);
       const builtinsRoot = join(f.config.dataDir, 'builtin-skills');
       const versions = await readdir(builtinsRoot);
       expect(versions).toHaveLength(1);

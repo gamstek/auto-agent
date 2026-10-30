@@ -143,6 +143,7 @@ test('config defaults prefer Node and use per-request input/output token limits'
     const created = await ensureDefaultConfig(home);
     const template = await Bun.file(created.path).json();
     expect(template.interpreters['.js']).toBe('node');
+    expect(template.maxSteps).toBe(24);
     expect(template.maxOutputTokens).toBe(16000);
     expect(template.maxInputTokens).toBe(1000000);
     expect(template.webAllowPrivateAddresses).toBe(true);
@@ -152,12 +153,14 @@ test('config defaults prefer Node and use per-request input/output token limits'
       CLIMBER_TIMEOUT_MS: '5000',
     });
     const config = await loadConfig(created.path, true, true);
+    expect(config.maxSteps).toBe(24);
     expect(config.scriptEnv).toEqual(template.scriptEnv);
     expect(config.interpreters['.js']).toBe('node');
     expect(config.maxOutputTokens).toBe(16000);
     expect(config.maxInputTokens).toBe(1000000);
     await writeFile(created.path, '{}');
     const defaults = await loadConfig(created.path, true, true);
+    expect(defaults.maxSteps).toBe(24);
     expect(defaults.interpreters['.js']).toBe('node');
     expect(defaults.maxOutputTokens).toBe(16000);
     expect(defaults.maxInputTokens).toBe(1000000);

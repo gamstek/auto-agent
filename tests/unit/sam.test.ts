@@ -2,6 +2,7 @@ import { expect, test } from 'bun:test';
 import { readFile, writeFile, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture } from '../helpers';
+import { createHash } from 'node:crypto';
 
 const script = resolve('skills/device-automation/scripts/sam.js');
 const node = Bun.which('node');
@@ -70,6 +71,7 @@ function newTemplate() {
       'sample backfill options': { 'backfill sample at end of analysis': true, 'backfill gas': 2 },
     },
     extension: { retained: [false, 0, null, '未知字段'] },
+    reports: [{ type: 6, options: { type: 6, name: 'BET', selected: true } }],
   };
 }
 function decode(bytes: Buffer) {
@@ -491,8 +493,8 @@ test('new SAM template feeds manufacturer registration followed by a separate Cl
       expect(body.batchId).toBe('NEW-BATCH');
       const experiment = body.experiments[0];
       expect(experiment.tubeNo).toBe(37);
-      expect(experiment.samPath).toBe('//server/share/generated.SAM');
-      // The mock vendor maps its shared path to the file on the agent host.
+      expect(experiment.samPath).toBe('E:\\templates\\generated.SAM');
+      // The mock Windows vendor maps its drive path to the local fixture.
       const root = decode(await readFile(f.path));
       expect(root.mass['sample mass']).toBe(experiment.sampleMassG);
       return Response.json(
@@ -521,7 +523,7 @@ test('new SAM template feeds manufacturer registration followed by a separate Cl
           experimentId: 'NEW-EXP',
           analysisPort: 1,
           tubeNo: 109,
-          samPath: '//server/share/generated.SAM',
+          samPath: 'E:\\templates\\generated.SAM',
           sampleName: '新样品',
           emptyTubeMassG: 29.1,
           sampleMassG: 1.5,
@@ -645,18 +647,21 @@ test('packaged profiles generate complete independent G5/G12 configurations with
           expect(result.value.facts.lowPressureEnabled.value).toBe(analysisType === 'micropore');
         }
         const root = decode(await readFile(target));
+        expect(root.labType).toBe(0);
+        expect(result.value.facts.labType.value).toBe(0);
         uuids.add(root.uuid);
-        expect(root.reports).toBeNull();
-        for (const key of [
-          'started',
-          'completed',
-          'analysis data',
-          'dropDatas',
-          'labData',
-          'serialNO',
-          'firmwareVersion',
-        ])
-          expect(Object.hasOwn(root, key)).toBe(false);
+        expect(root.reports.length).toBeGreaterThan(0);
+        expect(root.reports.some((report: any) => report.options.selected)).toBe(true);
+        expect(root.started).toBe('');
+        expect(root['analysis data']).toBeNull();
+        expect(root.dropDatas).toBeNull();
+        expect(root.labData).toBe('');
+        expect(root.serialNO).toBe('');
+        expect(root.firmwareVersion).toBe('');
+        expect(root.completed).toBeUndefined();
+        expect(result.value.facts.collectionMode.value).toBe(
+          analysisType === 'micropore' ? 'dose-increment' : 'target-pressure',
+        );
         const conditions = root['analysis conditions'];
         expect(conditions['adsorptive properties']['molecular cross sectional area']).toBe(0.162);
         expect(conditions['p0 and temperature options']['p0 and temp dose gas']).toBe(
@@ -668,6 +673,391 @@ test('packaged profiles generate complete independent G5/G12 configurations with
       }
     }
     expect(uuids.size).toBe(6);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('G5 mesopore generation preserves the executable 2.11.1 template schema and selected report option objects', async () => {
+  const f = await setup();
+  try {
+    const catalog = await f.run('profiles');
+    expect(catalog.value.profiles[0]).toMatchObject({
+      id: 'g5-n2-2.11.1.26.1028',
+      softwareVersion: '2.11.1',
+      clientVersion: '2.11.1.26.1028',
+      origin: {
+        sha256: '2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4',
+        status: 0x1010,
+      },
+      sourceEvidence: { kind: 'operator-confirmed-executable-template', method: 'mesopore' },
+    });
+    const result = await f.run('create', {
+      settings: {
+        analysisType: 'mesopore',
+        sampleName: '新球形硅微粉',
+        sampleMassG: 2.2307,
+        tubeMassG: 1,
+      },
+    });
+    expect(result.code).toBe(0);
+    const bytes = await readFile(f.path);
+    const root = decode(bytes);
+    const shape = (value: any): any =>
+      value === null
+        ? 'null'
+        : Array.isArray(value)
+          ? value.map(shape)
+          : typeof value === 'object'
+            ? Object.fromEntries(
+                Object.keys(value)
+                  .sort()
+                  .map((key) => [key, shape(value[key])]),
+              )
+            : typeof value;
+    // Fingerprint measured independently from the operator's known-good file.
+    // Includes every key/type, all array entries and every report options field.
+    expect(
+      createHash('sha256')
+        .update(JSON.stringify(shape(root)))
+        .digest('hex'),
+    ).toBe('91f0d56f1ad8bcc2006650d8c67258d019142881b61d7453adf4417d7057791c');
+    const canonical = (value: any): any =>
+      Array.isArray(value)
+        ? value.map(canonical)
+        : value && typeof value === 'object'
+          ? Object.fromEntries(
+              Object.keys(value)
+                .sort()
+                .map((key) => [key, canonical(value[key])]),
+            )
+          : value;
+    const digest = (value: unknown) =>
+      createHash('sha256')
+        .update(JSON.stringify(canonical(value)))
+        .digest('hex');
+    // Value fingerprints measured independently from the supplied file, with
+    // only the known BET min_i/min_j cache reset for the report fingerprint.
+    expect(digest(root['analysis conditions']['isotherm collection'])).toBe(
+      'ef689826cd7958d066b9441cf27f91667bdce2344cf961d4a4f9b9127c0b7cf0',
+    );
+    expect(digest(root['analysis conditions']['adsorptive properties'])).toBe(
+      '18671e35add5a1bfb700574bef548649825e38b878f28fa6de72487f791bd216',
+    );
+    expect(digest(root.reports)).toBe(
+      '8eddcd5cab75413d1dfe129a851cff537bb82ad0673bfa5b06f8469deb48abc4',
+    );
+    expect(root.reports).toHaveLength(13);
+    expect(root.labType).toBe(0);
+    expect(
+      root.reports
+        .filter((report: any) => report.options.selected)
+        .map((report: any) => report.type),
+    ).toEqual([1, 5, 6, 7, 10, 13, 14]);
+    expect(root.reports.find((report: any) => report.type === 6).options).toMatchObject({
+      surfaceArea: 0,
+      min_i: 0,
+      min_j: 0,
+      has_valid_areas: false,
+      selected: true,
+      fitRange: { min: 0.045, max: 0.31 },
+    });
+    expect(root['analysis conditions']['adsorptive properties']['fluid properties file']).toBe('');
+    expect(root['analysis conditions']['isotherm collection'].increments).toEqual([
+      {
+        'dose increment': 1,
+        end_p: 0.1,
+        interval: 5,
+        'percent of previous': 10,
+        'use dose increment': true,
+      },
+    ]);
+    expect(root.historicalPdfComparison).toEqual({
+      beta0Enabled: false,
+      mode: 'explicit-noise-switch',
+      policySchema: 1,
+    });
+    expect(root['base infos'].map((entry: any) => entry.value)).toEqual(['', '', '', '']);
+    expect(root['review the reports after the test']).toBe(true);
+    expect(root.uuid).toMatch(/^[0-9a-f-]{36}$/);
+    expect(root.analysisStatus).toBe(0x1010);
+    expect(bytes.readInt32BE(0)).toBe(0x1010);
+    expect(result.value.executionVerified).toBe(false);
+    expect(root['sample name']).toBe('新球形硅微粉');
+    expect(root.started).toBe('');
+    expect(root.serialNO).toBe('');
+    expect(result.value.generation.configurationOrigin.sha256).toBe(
+      result.value.generation.programOrigin.sha256,
+    );
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('labType is fixed to numeric zero in packaged profiles and all generated products', async () => {
+  const f = await setup();
+  try {
+    const profiles = JSON.parse(
+      await readFile(resolve('skills/device-automation/scripts/lib/sam-profiles.json'), 'utf8'),
+    );
+    for (const profile of profiles.profiles) {
+      expect(profile.configuration.labType).toBe(0);
+      expect(profile.normalization).toContain('operator-required labType=0');
+      const target = join(f.dir, `${profile.product}-lab-type.SAM`);
+      const result = await f.run('create', {
+        path: target,
+        product: profile.product,
+        settings: { analysisType: 'bet' },
+      });
+      expect(result.code).toBe(0);
+      expect(decode(await readFile(target)).labType).toBe(0);
+      expect(result.value.facts.labType.value).toBe(0);
+      expect(
+        (await f.run('profiles', { product: profile.product })).value.profiles[0].defaults.labType,
+      ).toBe(0);
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('inspection preserves inherited labType while modify and save-as normalize it to zero', async () => {
+  const f = await setup();
+  try {
+    for (const value of [1, undefined]) {
+      const source = { ...newTemplate(), ...(value === undefined ? {} : { labType: value }) };
+      const before = encode(source);
+      await writeFile(f.path, before);
+      const inspected = await f.run();
+      expect(inspected.code).toBe(0);
+      expect(inspected.value.facts.labType.value).toBe(value ?? null);
+      if (value === 1)
+        expect(
+          inspected.value.warnings.some(
+            (warning: { code: string }) => warning.code === 'UNSUPPORTED_LAB_TYPE',
+          ),
+        ).toBe(true);
+      expect(await readFile(f.path)).toEqual(before);
+      const copy = join(f.dir, `lab-normalized-${value ?? 'missing'}.SAM`);
+      const saved = await f.run('save-as', {
+        path: copy,
+        sourcePath: f.path,
+        expectedSha256: inspected.value.file.sha256,
+      });
+      expect(saved.code).toBe(0);
+      expect(saved.value.normalizedFields).toEqual(['labType']);
+      expect(decode(await readFile(copy))).toEqual({ ...source, labType: 0 });
+      expect(await readFile(f.path)).toEqual(before);
+      const modified = await f.run('modify', {
+        expectedSha256: inspected.value.file.sha256,
+        changes: { 'sample name': 'labType 修正' },
+      });
+      expect(modified.code).toBe(0);
+      expect(modified.value.normalizedFields).toEqual(['labType']);
+      expect(decode(await readFile(f.path))).toEqual({
+        ...source,
+        'sample name': 'labType 修正',
+        labType: 0,
+      });
+    }
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('explicit nonzero or nonnumeric labType is rejected without publishing or replacing files', async () => {
+  const f = await setup();
+  try {
+    const created = await f.run('create', { template: newTemplate() });
+    expect(created.code).toBe(0);
+    expect(created.value.normalizedFields).toEqual(['labType']);
+    const before = await readFile(f.path);
+    for (const labType of [1, -1, 0.1, '0', null, false]) {
+      const target = join(f.dir, `invalid-lab-${String(labType)}.SAM`);
+      const result = await f.run('create', {
+        path: target,
+        template: { ...newTemplate(), labType },
+      });
+      expect(result.value.error.code).toBe('INVALID_INPUT');
+      expect(
+        await stat(target).then(
+          () => true,
+          () => false,
+        ),
+      ).toBe(false);
+      const modified = await f.run('modify', {
+        expectedSha256: created.value.file.sha256,
+        changes: { labType },
+      });
+      expect(modified.value.error.code).toBe('INVALID_INPUT');
+      expect(await readFile(f.path)).toEqual(before);
+    }
+    const valid = await f.run('modify', {
+      expectedSha256: created.value.file.sha256,
+      changes: { labType: 0 },
+    });
+    expect(valid.code).toBe(0);
+    expect(valid.value.normalizedFields).toEqual([]);
+    expect(decode(await readFile(f.path)).labType).toBe(0);
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('report selection preserves versioned report bodies and rejects invalid or empty configuration before publishing', async () => {
+  const f = await setup();
+  try {
+    const result = await f.run('create', {
+      settings: { analysisType: 'mesopore', reportTypes: [1, 5, 6, 13, 14] },
+    });
+    expect(result.code).toBe(0);
+    expect(
+      result.value.reports
+        .filter((report: any) => report.selected)
+        .map((report: any) => report.type),
+    ).toEqual([1, 5, 6, 13, 14]);
+    const before = await readFile(f.path);
+    for (const reports of [
+      null,
+      [],
+      [{ type: 6, options: { type: 6, selected: false, name: 'BET' } }],
+      [{ type: 6, options: { type: 7, selected: true, name: 'BET' } }],
+      [{ type: 6 }],
+    ]) {
+      const invalid = await f.run('modify', {
+        expectedSha256: result.value.file.sha256,
+        changes: { reports },
+      });
+      expect(invalid.value.error.code).toBe('INVALID_REPORT_OPTIONS');
+      expect(await readFile(f.path)).toEqual(before);
+    }
+    for (const reportTypes of [[], [999], [6, 6], ['6']])
+      expect(
+        (
+          await f.run('create', {
+            path: resolve(f.dir, 'invalid.SAM'),
+            settings: { analysisType: 'bet', reportTypes },
+          })
+        ).value.error.code,
+      ).toBe('INVALID_INPUT');
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('modify reportTypes toggles only selected flags in place without needing full report options in tool arguments', async () => {
+  const f = await setup();
+  try {
+    const created = await f.run('create', {
+      settings: {
+        analysisType: 'mesopore',
+        sampleName: '原样品',
+        sampleMassG: 1.8,
+        tubeMassG: 29.1,
+      },
+    });
+    expect(created.code).toBe(0);
+    const before = decode(await readFile(f.path));
+    const result = await f.run('modify', {
+      expectedSha256: created.value.file.sha256,
+      reportTypes: [1, 5, 6, 13, 14],
+    });
+    expect(result.code).toBe(0);
+    const after = decode(await readFile(f.path));
+    const expected = structuredClone(before);
+    for (const report of expected.reports)
+      report.options.selected = [1, 5, 6, 13, 14].includes(report.type);
+    expect(after).toEqual(expected);
+    expect(after.uuid).toBe(before.uuid);
+    const copied = await f.run('save-as', {
+      path: join(f.dir, 'report-copy.SAM'),
+      sourcePath: f.path,
+      expectedSha256: result.value.file.sha256,
+      reportTypes: [1, 5, 6],
+    });
+    expect(copied.code).toBe(0);
+    const clone = decode(await readFile(join(f.dir, 'report-copy.SAM')));
+    for (const report of expected.reports)
+      report.options.selected = [1, 5, 6].includes(report.type);
+    expect(clone).toEqual(expected);
+    expect(decode(await readFile(f.path))).toEqual(after);
+    for (const patch of [
+      { reportTypes: [] },
+      { reportTypes: [999] },
+      { reportTypes: [6, 6] },
+      { reportTypes: ['6'] },
+      { reportTypes: [6], changes: { reports: before.reports } },
+    ]) {
+      expect(
+        (await f.run('modify', { expectedSha256: result.value.file.sha256, ...patch })).value.error
+          .code,
+      ).toBe('INVALID_INPUT');
+      expect(decode(await readFile(f.path))).toEqual(after);
+    }
+    expect(
+      (await f.run('modify', { expectedSha256: result.value.file.sha256 })).value.error.code,
+    ).toBe('INVALID_INPUT');
+  } finally {
+    await f.cleanup();
+  }
+});
+
+test('increment acquisition preserves source mode and applies D delay options rather than reinterpreting target-pressure fields', async () => {
+  const f = await setup();
+  try {
+    const result = await f.run('create', {
+      settings: {
+        analysisType: 'micropore',
+        pressureMode: 'absolute-mmHg',
+        incrementProgram: [
+          {
+            end: 760,
+            useDoseIncrement: true,
+            doseCm3StpPerG: 15,
+            percentOfPrevious: 10,
+            intervalSeconds: 30,
+          },
+        ],
+        lowPressureEnabled: true,
+        lowPressureMinHours: 0.5,
+        lowPressureMaxHours: 1,
+      },
+    });
+    expect(result.code).toBe(0);
+    const root = decode(await readFile(f.path));
+    const collection = root['analysis conditions']['isotherm collection'];
+    expect(result.value.facts.collectionMode.value).toBe('dose-increment');
+    expect(collection.increments[0]).toEqual({
+      end_p: 0.76,
+      'use dose increment': true,
+      'dose increment': 15,
+      'percent of previous': 10,
+      interval: 30,
+    });
+    expect(collection.options.D_MinEquilibrationDelay).toBe(0.5);
+    expect(collection.options.T_MinEquilibrationDelay).toBe(0);
+    expect(result.value.facts.lowPressureMinHours.value).toBe(0.5);
+    const before = await readFile(f.path);
+    for (const settings of [
+      { analysisType: 'micropore', collectionMode: 'unknown' },
+      {
+        analysisType: 'micropore',
+        collectionMode: 'target-pressure',
+        pressureMode: 'relative-pp0',
+        incrementProgram: [
+          {
+            end: 0.1,
+            useDoseIncrement: true,
+            doseCm3StpPerG: 1,
+            percentOfPrevious: 10,
+            intervalSeconds: 30,
+          },
+        ],
+      },
+      { analysisType: 'micropore', pressureMode: 'relative-pp0', incrementProgram: [] },
+    ])
+      expect((await f.run('create', { settings })).code).not.toBe(0);
+    expect(await readFile(f.path)).toEqual(before);
   } finally {
     await f.cleanup();
   }

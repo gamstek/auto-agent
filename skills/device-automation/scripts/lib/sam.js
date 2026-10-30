@@ -230,7 +230,10 @@ export async function inspectSam(input, command = 'inspect') {
   const state = family ? states[status - (family === 'g5' ? 0x1000 : 0x2000)] : 'unknown';
   const mismatchedProduct = family && input.product !== 's60pro' && family !== input.product;
   if (mismatchedProduct)
-    warn('PRODUCT_STATUS_MISMATCH', '所选产品与文件状态家族不一致，产品相关枚举不作归一化。');
+    warn(
+      'PRODUCT_STATUS_MISMATCH',
+      '所选产品与文件状态家族不一致，产品相关枚举暂不归一化；null并不证明原始编号在目标产品无效，应核对完整产品与版本结构。',
+    );
   if (state !== 'new')
     warn('NOT_NEW_TEMPLATE', '文件保留已有实验状态；启动时需按目标服务契约核对用途与任务身份。');
   if (status !== null && root.analysisStatus !== undefined && root.analysisStatus !== status)
@@ -315,6 +318,12 @@ export async function inspectSam(input, command = 'inspect') {
   fact('clientVersion', typeof root.clientVersion === 'string' ? root.clientVersion : null, [
     'clientVersion',
   ]);
+  fact('labType', Number.isInteger(root.labType) ? root.labType : null, ['labType']);
+  if (Object.hasOwn(root, 'labType') && root.labType !== 0)
+    warn(
+      'UNSUPPORTED_LAB_TYPE',
+      'labType的0表示常规模式、1表示高通量模式；当前厂家接口仅支持常规模式0，此处保留源文件原值供查看。',
+    );
   fact(
     'analysisType',
     Number.isInteger(conditions['analysis type'])

@@ -36,7 +36,7 @@ const schema = z.object({
   // Loaded only from AUTO_AGENT_API_KEY, not from the JSON configuration.
   apiKey: z.string().optional(),
   // Maximum model/tool-loop steps per generation (1–100).
-  maxSteps: z.number().int().positive().max(100).default(12),
+  maxSteps: z.number().int().positive().max(100).default(24),
   // Maximum input tokens supported by the model; derived from contextWindow minus maxOutputTokens when omitted.
   maxInputTokens: z.number().int().positive().optional(),
   // Maximum output tokens supported by the model.
@@ -98,6 +98,8 @@ export async function ensureDefaultConfig(
     webAllowPrivateAddresses: true,
     // Provider model identifier; credentials come from AUTO_AGENT_API_KEY.
     model: 'deepseek-flash',
+    // Maximum model/tool-loop steps for one user request.
+    maxSteps: 24,
     // Maximum input tokens supported by the model; may be replaced by contextWindow minus maxOutputTokens.
     maxInputTokens: 1000000,
     // Maximum output tokens supported by the model; actual usage is reported by the SDK.

@@ -122,6 +122,18 @@ export class Store {
         CREATE VIRTUAL TABLE wiki_file_search USING fts5(id UNINDEXED, body, tokenize='unicode61');
       `,
       );
+      migrate(
+        db,
+        'store-7-execution-diagnostics',
+        `
+        CREATE TABLE execution_diagnostics (
+          executionId TEXT PRIMARY KEY REFERENCES executions(id), data TEXT NOT NULL
+        );
+        CREATE TABLE run_reviews (
+          runId TEXT PRIMARY KEY REFERENCES runs(id), note TEXT NOT NULL, resolvedAt INTEGER NOT NULL
+        );
+      `,
+      );
       this.recover();
     } catch (error) {
       db?.close();
@@ -371,7 +383,7 @@ export class Store {
       .immediate();
   }
 
-  finishExecution(id: string, result: ScriptResult): void {
+  finishExecution(id: string, result: ScriptResult, diagnostic?: Record<string, unknown>): void {
     this.db
       .transaction(() => {
         const execution = this.db
@@ -388,6 +400,79 @@ export class Store {
         this.db
           .query('UPDATE executions SET status = ?, exitCode = ?, finishedAt = ? WHERE id = ?')
           .run(result.status, result.exitCode, Date.now(), id);
+        if (diagnostic) {
+          let data = JSON.stringify(diagnostic);
+          if (Buffer.byteLength(data) > 16384)
+            data = JSON.stringify({
+              truncated: true,
+              ...Object.fromEntries(
+                ['code', 'message', 'batchId', 'stage', 'status']
+                  .filter((key) => ['string', 'number', 'boolean'].includes(typeof diagnostic[key]))
+                  .map((key) => [
+                    key,
+                    typeof diagnostic[key] === 'string'
+                      ? diagnostic[key].slice(0, 2000)
+                      : diagnostic[key],
+                  ]),
+              ),
+            });
+          this.db.query('INSERT INTO execution_diagnostics VALUES (?, ?)').run(id, data);
+        }
+      })
+      .immediate();
+  }
+
+  pendingReview(sessionId: string) {
+    this.getSession(sessionId);
+    const run = this.db
+      .query<{ id: string; createdAt: number }, [string]>(
+        "SELECT id, createdAt FROM runs WHERE sessionId=? AND status='waiting_for_operator' ORDER BY createdAt DESC LIMIT 1",
+      )
+      .get(sessionId);
+    if (!run) return null;
+    const executions = this.db
+      .query<
+        {
+          id: string;
+          skill: string;
+          path: string;
+          status: string;
+          exitCode: number | null;
+          createdAt: number;
+          finishedAt: number | null;
+          data: string | null;
+        },
+        [string]
+      >(
+        'SELECT e.*, d.data FROM executions e LEFT JOIN execution_diagnostics d ON d.executionId=e.id WHERE e.runId=? ORDER BY e.createdAt DESC LIMIT 16',
+      )
+      .all(run.id)
+      .map(({ data, ...execution }) => ({
+        ...execution,
+        diagnostic: data ? (JSON.parse(data) as Record<string, unknown>) : null,
+      }));
+    return { ...run, executions };
+  }
+
+  resolveReview(sessionId: string, runId: string, note: string): void {
+    if (typeof note !== 'string' || !note.trim() || Buffer.byteLength(note) > 2000)
+      throw new AppError(
+        'invalid_review',
+        'An operator reconciliation note is required (up to 2000 bytes).',
+      );
+    this.db
+      .transaction(() => {
+        const pending = this.pendingReview(sessionId);
+        if (!pending || pending.id !== runId)
+          throw new AppError(
+            'review_conflict',
+            'The run is not awaiting review in this session.',
+            409,
+          );
+        this.finishRun(runId, 'failed');
+        this.db
+          .query('INSERT INTO run_reviews VALUES (?, ?, ?)')
+          .run(runId, note.trim(), Date.now());
       })
       .immediate();
   }

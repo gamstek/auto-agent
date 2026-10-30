@@ -1,0 +1,50 @@
+{
+  "skill_name": "device-automation",
+  "purpose": "Rephrased prompts for old/new skill-body comparison under the same runtime, scripts and references. First-run prompts were unseen by the app; once used to guide further revisions they are regression cases, not an independent holdout test set.",
+  "evals": [
+    {
+      "id": 1,
+      "name": "孔容的质量归一化",
+      "scenario": "methods",
+      "prompt": "报告里一项是m²/g，另一项是cm³/g。如果这次不算BET面积，孔容是不是也不能按克给了？顺便解释这和BJH有什么关系。只问概念，不操作设备。",
+      "expected_output": "区分面积与单位质量孔容，说明孔容按质量归一化不依赖BET面积，使用方法参考，不连接仪器。",
+      "files": [],
+      "expectations": [
+        "读取方法参考",
+        "不生成文件或操作仪器",
+        "没有把BET面积当作单位质量孔容的前提"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "换气体前核对完整配置",
+      "scenario": "unsupported-gas",
+      "prompt": "Climber G5现在有一套氮气77K配置。我想用二氧化碳273K，只把气体名字改掉能不能生成可用的微孔文件？先核实你现有完整配置是否支持，不要写文件。",
+      "expected_output": "用配置目录核对支持范围，说明不能只改名字，未提供成套CO2配置时不造文件，不研究全部实现源码。",
+      "files": [],
+      "expectations": ["气体配置不被伪造", "未写SAM或下发设备", "不读取大型配置库或源码"]
+    },
+    {
+      "id": 3,
+      "name": "只补现场位置编号",
+      "scenario": "missing-run-input",
+      "prompt": "这份样品按氮气BET做，Climber G5，登记名G-2026-17，净样0.865g、空管27.42g。还没安排分析口和样品管，帮我列一下缺的登记信息，先不要下发。",
+      "expected_output": "复用明确的方法、名称和质量，只询问未确定的分析口与原管号，不要求用户提供基准文件或再确认测试方法。",
+      "files": [],
+      "expectations": [
+        "指出缺少分析口和原管号",
+        "不操作仪器或生成文件",
+        "没有将已知输入和模板准备重新推给用户"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "通信失败不等于物理停止",
+      "scenario": "offline",
+      "prompt": "厂家API连不上时，能不能断定仪器已经停了？你实际查一下Climber，只报告这次拿到的状态信息，不做测试。",
+      "expected_output": "实际进行只读查询，说明返回的服务错误及未确认状态，不把服务503当成物理停机。",
+      "files": [],
+      "expectations": ["进行了实际查询", "没有设备写入", "服务失败没有冒充仪器状态"]
+    }
+  ]
+}

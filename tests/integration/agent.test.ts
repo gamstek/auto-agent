@@ -188,6 +188,48 @@ test('unknown script outcomes stop dependent tools and require operator reconcil
   }
 });
 
+test('model request deadline is reported as a timeout and does not execute later tools', async () => {
+  const events: AgentEvent[] = [];
+  let calls = 0;
+  const a = await app({
+    async generate(_messages, signal) {
+      calls++;
+      if (calls === 1) return call('skill', { name: 'sum-values' });
+      await new Promise<never>((_resolve, reject) => {
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+      throw new Error('unreachable');
+    },
+  });
+  a.config.modelTimeoutMs = 500;
+  a.service.events.subscribe((event) => events.push(event));
+  try {
+    const session = a.store.createSession();
+    await expect(
+      a.service.submit(session.id, 'Compute only after valid model output'),
+    ).rejects.toThrow('Model request timed out after 500 ms');
+    expect(calls).toBe(2);
+    expect(
+      events.some(
+        (event) =>
+          event.type === 'model.failed' &&
+          event.properties.code === 'model_timeout' &&
+          event.properties.status === 'timeout',
+      ),
+    ).toBe(true);
+    expect(a.store.db.query('SELECT COUNT(*) AS count FROM executions').get()).toEqual({
+      count: 0,
+    });
+    expect(a.store.messages(session.id).at(-1)?.content).toContain(
+      'No additional tools were executed',
+    );
+    expect(a.store.messages(session.id).at(-1)?.content).not.toContain('Internal operation failed');
+  } finally {
+    await a.dispose();
+  }
+});
+
 test('both web handlers and system context receive the operator address policy', async () => {
   for (const enabled of [true, false]) {
     const fetch = spyOn(web, 'fetchWeb').mockResolvedValue({

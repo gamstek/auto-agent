@@ -29,7 +29,7 @@ test('agent generates a BET SAM from packaged configuration through the loaded s
       input: {
         skill: 'device-automation',
         path: 'scripts/sam.js',
-        args: ['profiles', '{"product":"g12"}'],
+        args: ['profiles', '{"product":"g5"}'],
       },
     },
     {
@@ -40,7 +40,7 @@ test('agent generates a BET SAM from packaged configuration through the loaded s
         args: [
           'create',
           JSON.stringify({
-            product: 'g12',
+            product: 'g5',
             settings: {
               analysisType: 'bet',
               sampleName: '石墨',
@@ -78,15 +78,21 @@ test('agent generates a BET SAM from packaged configuration through the loaded s
   try {
     const reply = await service.submit(
       store.createSession().id,
-      '用 G12 为石墨样品生成 BET 模板，净样1.5g、空管29.1g。',
+      '用 Climber G5 为石墨样品生成 BET 模板，净样1.5g、空管29.1g。',
     );
     expect(reply.content).toBe('已生成石墨 BET 模板。');
     expect(target.startsWith(config.scriptEnv.SAM_OUTPUT_DIR)).toBe(true);
     const bytes = await readFile(target);
-    expect(bytes.readInt32BE(0)).toBe(0x2010);
+    expect(bytes.readInt32BE(0)).toBe(0x1010);
     const root = JSON.parse(new TextDecoder('utf-16be').decode(bytes.subarray(8)));
     expect(root['analysis conditions']['isotherm collection'].pressures).toHaveLength(5);
-    expect(root['analysis data']).toBeUndefined();
+    expect(root['analysis data']).toBeNull();
+    expect(root.clientVersion).toBe('2.11.1.26.1028');
+    expect(
+      root.reports
+        .filter((report: { options: { selected: boolean } }) => report.options.selected)
+        .map((report: { type: number }) => report.type),
+    ).toEqual([1, 5, 6]);
     expect(store.db.query('SELECT status FROM executions').all()).toEqual([
       { status: 'completed' },
       { status: 'completed' },

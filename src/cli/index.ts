@@ -45,9 +45,12 @@ Examples
 
 Chat controls
   /exit              Quit
+  /review            Show pending execution diagnostics and file log paths
+  /resolve ID NOTE   Record operator reconciliation for the pending run
   Ctrl+C             Cancel the current reply, or exit when idle
 
-Diagnostics and progress go to stderr; replies and JSON go to stdout.`;
+Diagnostics and progress go to stderr; replies and JSON go to stdout.
+Persistent JSONL logs are stored under dataDir/logs (agent.jsonl and skills.jsonl).`;
 export async function cli(
   args: ReturnType<typeof argumentsFor>,
   config: Config,

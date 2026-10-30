@@ -2,6 +2,8 @@ node_modules/
 .bun-cache/
 dist/
 .auto-agent/
+.auto-agent-evaluations/
+logs/
 .env
 *.sqlite*
 !wiki/indexes/library.sqlite

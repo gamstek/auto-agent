@@ -12,7 +12,7 @@ const submission = () => ({
       experimentId: 'EXP-001',
       analysisPort: 1,
       tubeNo: 109,
-      samPath: '//server/share/existing.SAM',
+      samPath: 'E:\\templates\\MESO_SILICA_01.SAM',
       sampleName: '样品A',
       emptyTubeMassG: 29.1,
       sampleMassG: 1.5,
@@ -176,6 +176,11 @@ test('Climber rejects invalid vendor inputs and removed subservice commands befo
       { tubeNo: Number.MAX_SAFE_INTEGER + 1 },
       { sampleMassG: 0 },
       { samPath: 'existing.SAM' },
+      { samPath: 'E:templates\\example.SAM' },
+      { samPath: '\\templates\\example.SAM' },
+      { samPath: '/templates/example.SAM' },
+      { samPath: 'E:\\templates' },
+      { samPath: 'E:\\templates\\' },
       { sampleName: 'bad/name' },
       { tubeCode: '00109' },
     ]) {
@@ -227,6 +232,31 @@ test('Climber rejects invalid vendor inputs and removed subservice commands befo
   }
 }, 30000);
 
+test('Climber rejects UNC file paths before HTTP', async () => {
+  let requests = 0;
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch() {
+      requests++;
+      return Response.json({});
+    },
+  });
+  try {
+    for (const samPath of ['\\\\server\\share\\example.SAM', '//server/share/example.SAM']) {
+      const input = submission();
+      input.experiments[0]!.samPath = samPath;
+      const result = await run(`${server.url.origin}/api/v1`, 'register', input);
+      expect(result.code).not.toBe(0);
+      expect(result.value.error).toMatchObject({ code: 'INVALID_INPUT' });
+      expect(result.value.error.message).toContain('Windows盘符');
+    }
+    expect(requests).toBe(0);
+  } finally {
+    server.stop(true);
+  }
+}, 30000);
+
 test('Climber preserves batch and stage for uncertain registration/start and never retries a write', async () => {
   let requests = 0;
   let mode = 'rejected';
@@ -247,6 +277,12 @@ test('Climber preserves batch and stage for uncertain registration/start and nev
         );
       const task = { batchId: mode === 'identity' ? 'OTHER' : 'BATCH-001', state: 'STARTING' };
       const register = new URL(request.url).pathname === '/api/v1/tasks';
+      if (mode === 'missing-task') return Response.json({ ok: true, data: {} }, { status: 202 });
+      if (mode === 'conflict')
+        return Response.json(
+          { ok: true, data: { ...task, state: 'READY', task } },
+          { status: 202 },
+        );
       const data = register !== (mode === 'envelope') ? { task } : task;
       return Response.json({ ok: true, data }, { status: mode === 'contradiction' ? 500 : 202 });
     },
@@ -256,7 +292,7 @@ test('Climber preserves batch and stage for uncertain registration/start and nev
       for (const value of [
         'rejected',
         'identity',
-        'envelope',
+        ...(command === 'register' ? ['envelope'] : ['missing-task', 'conflict']),
         'invalid',
         'contradiction',
         'timeout',
@@ -277,6 +313,9 @@ test('Climber preserves batch and stage for uncertain registration/start and nev
         });
         if (value === 'rejected')
           expect(result.value.error.response.error.code).toBe('LOCAL_CONTROL_CONFLICT');
+        expect(result.value.error.diagnostic.operation).toBe(command);
+        if (value === 'identity')
+          expect(result.value.error.diagnostic.reason).toBe('task_identity');
         if (value === 'timeout') expect(requests - before).toBeLessThanOrEqual(1);
         else expect(requests - before).toBe(1);
       }
@@ -285,6 +324,33 @@ test('Climber preserves batch and stage for uncertain registration/start and nev
     server.stop(true);
   }
 }, 30000);
+
+test('Climber accepts both documented v1 start envelopes with the same batch and retains raw response evidence', async () => {
+  let nested = true;
+  const server = Bun.serve({
+    port: 0,
+    hostname: '127.0.0.1',
+    fetch() {
+      const task = { batchId: 'BATCH-001', state: 'STARTING', analysisStarted: false };
+      return Response.json({ ok: true, data: nested ? { task } : task }, { status: 202 });
+    },
+  });
+  try {
+    for (const value of [true, false]) {
+      nested = value;
+      const result = await run(`${server.url.origin}/api/v1`, 'start', { batchId: 'BATCH-001' });
+      expect(result.code).toBe(0);
+      const task = value ? result.value.response.data.task : result.value.response.data;
+      expect(task).toMatchObject({
+        batchId: 'BATCH-001',
+        state: 'STARTING',
+        analysisStarted: false,
+      });
+    }
+  } finally {
+    server.stop(true);
+  }
+});
 
 test('Climber read responses require vendor evidence envelopes rather than subservice snapshots', async () => {
   let response: unknown = { workStatus: 'IDLE' };

@@ -36,8 +36,31 @@ function merge(target, patch) {
 }
 
 function validate(root, product, allowPendingMasses = false) {
+  if (root.labType !== 0)
+    fail('INVALID_INPUT', '当前厂家接口仅支持常规模式 labType=0，高通量模式1暂不支持。');
   if (typeof root['sample name'] !== 'string' || !root['sample name'].trim())
     fail('INVALID_INPUT', '样品名称必须为非空文本；待填草案使用明确占位名称。');
+  if (
+    !Array.isArray(root.reports) ||
+    !root.reports.length ||
+    root.reports.length > 64 ||
+    new Set(root.reports.map((report) => report?.type)).size !== root.reports.length ||
+    root.reports.some(
+      (report) =>
+        !object(report) ||
+        !Number.isInteger(report.type) ||
+        !object(report.options) ||
+        report.options.type !== report.type ||
+        typeof report.options.selected !== 'boolean' ||
+        typeof report.options.name !== 'string' ||
+        !report.options.name.trim(),
+    ) ||
+    !root.reports.some((report) => report.options.selected === true)
+  )
+    fail(
+      'INVALID_REPORT_OPTIONS',
+      '模板需要1–64项完整 reports[].options，type需一致且至少勾选一项；不能清空报告配置。',
+    );
   const conditions = root['analysis conditions'];
   if (!object(conditions) || !object(conditions['isotherm collection']))
     fail('NOT_SAMPLE_TEMPLATE', '需要完整的样品实验配置。');
@@ -104,9 +127,9 @@ export async function writeSam(input, command) {
     command === 'create'
       ? ['path', 'product', 'template']
       : command === 'modify'
-        ? ['path', 'product', 'expectedSha256', 'changes']
+        ? ['path', 'product', 'expectedSha256']
         : ['path', 'product', 'sourcePath', 'expectedSha256'];
-  const optional = command === 'save-as' ? ['changes'] : [];
+  const optional = command === 'create' ? [] : ['changes', 'reportTypes'];
   if (
     required.some((k) => !Object.hasOwn(input, k)) ||
     Object.keys(input).some((k) => ![...required, ...optional].includes(k)) ||
@@ -114,6 +137,14 @@ export async function writeSam(input, command) {
     !['g5', 'g12'].includes(input.product)
   )
     fail('INVALID_INPUT', '需要绝对 SAM/SMP 路径、g5/g12 产品及命令要求的字段。');
+  if (command === 'modify' && input.changes === undefined && input.reportTypes === undefined)
+    fail('INVALID_INPUT', 'modify 需要 changes 或 reportTypes。');
+  if (
+    input.reportTypes !== undefined &&
+    object(input.changes) &&
+    Object.hasOwn(input.changes, 'reports')
+  )
+    fail('INVALID_INPUT', 'reportTypes 与 changes.reports 不能同时提供。');
   if (
     command !== 'create' &&
     (!/^[a-f0-9]{64}$/.test(input.expectedSha256) ||
@@ -125,6 +156,12 @@ export async function writeSam(input, command) {
     (input.changes !== undefined && !object(input.changes))
   )
     fail('INVALID_INPUT', 'template/changes 必须为对象。');
+  const requested = command === 'create' ? input.template : input.changes;
+  if (requested && Object.hasOwn(requested, 'labType') && requested.labType !== 0)
+    fail(
+      'INVALID_INPUT',
+      '当前厂家接口仅支持常规模式 labType=0；高通量模式1暂不支持，不能指定非0值。',
+    );
 
   let root, status, source;
   if (command === 'create') {
@@ -144,8 +181,8 @@ export async function writeSam(input, command) {
         ((!object(root[key]) && !Array.isArray(root[key])) || Object.keys(root[key]).length)
       )
         fail('HISTORICAL_DATA', '新建配置应提供实验前配置，不携带历史运行时间或结果。');
-    if (root.reports !== undefined && root.reports !== null && !Array.isArray(root.reports))
-      fail('INVALID_INPUT', 'reports 必须为数组或 null。');
+    if (!Array.isArray(root.reports))
+      fail('INVALID_REPORT_OPTIONS', '新建模板必须提供完整 reports 数组，不能清为 null。');
     if (root.reports?.some((report) => report?.result != null))
       fail('HISTORICAL_DATA', '新建配置不能携带报告结果。');
     for (const key of ['mass', 'sample tube'])
@@ -196,7 +233,29 @@ export async function writeSam(input, command) {
     )
       fail('INVALID_INPUT', '修改保留实验身份、状态和运行证据；新实验使用 create。');
     merge(root, input.changes ?? {});
+    if (input.reportTypes !== undefined) {
+      const types = input.reportTypes;
+      if (
+        !Array.isArray(types) ||
+        !types.length ||
+        new Set(types).size !== types.length ||
+        !Array.isArray(root.reports) ||
+        types.some(
+          (type) =>
+            !Number.isInteger(type) ||
+            !root.reports.some((report) => report?.type === type && object(report.options)),
+        )
+      )
+        fail('INVALID_INPUT', 'reportTypes 必须为源文件已有报告类型的非空、无重复整数数组。');
+      for (const report of root.reports) {
+        if (!object(report.options))
+          fail('INVALID_REPORT_OPTIONS', '源报告缺少完整 options，不能仅补 selected。');
+        report.options.selected = types.includes(report.type);
+      }
+    }
   }
+  const normalizedFields = root.labType === 0 ? [] : ['labType'];
+  root.labType = 0;
   validate(root, input.product, Boolean(generated) || source?.status.state === 'new');
   const body = Buffer.from(JSON.stringify(root), 'utf16le').swap16();
   const header = Buffer.alloc(8);
@@ -241,6 +300,7 @@ export async function writeSam(input, command) {
         : {}),
       pendingInputs,
       sampleInputsComplete: pendingInputs.length === 0,
+      normalizedFields,
       written: true,
       executionVerified: false,
     };

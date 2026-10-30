@@ -73,6 +73,7 @@ test('formal built-in skill loads host-independent interface guidance and preser
     ).toEqual([
       'device-automation/scripts/automation.js',
       'device-automation/scripts/climber.js',
+      'device-automation/scripts/lib/log.js',
       'device-automation/scripts/lib/sam-generate.js',
       'device-automation/scripts/lib/sam-write.js',
       'device-automation/scripts/lib/sam.js',

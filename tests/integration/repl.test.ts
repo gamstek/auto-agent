@@ -127,6 +127,56 @@ test('REPL JSON replies do not mix in process events or ANSI codes', async () =>
     await f.cleanup();
   }
 });
+
+test('REPL review and operator reconciliation work without model calls or script replay', async () => {
+  const f = await fixture();
+  const store = new Store(f.config.dataDir);
+  const skills = new Skills(f.config);
+  await skills.discover();
+  const session = store.createSession();
+  const message = store.addMessage(session.id, 'user', 'Original operation');
+  const run = store.beginRun(session.id, message.id);
+  const execution = store.beginExecution(run, 'hello-world', 'scripts/main.js');
+  store.finishExecution(
+    execution,
+    { status: 'unknown', stdout: '', stderr: '', exitCode: 1 },
+    {
+      code: 'OUTCOME_UNKNOWN',
+      message: 'Vendor response identity mismatch',
+      stage: 'start',
+      batchId: 'batch-1',
+    },
+  );
+  store.finishRun(run, 'waiting_for_operator');
+  const service = new AgentService(f.config, store, skills, new ScriptExecutor(f.config, skills), {
+    async generate() {
+      throw new Error('Review must not call the model');
+    },
+  });
+  try {
+    const c = capture(
+      Readable.from([`看下哪里报错了\n/review\n/resolve ${run} 已核对厂家状态\n/review\n/exit\n`]),
+    );
+    await cli(argumentsFor(['--json', '--session', session.id]), f.config, service, c.io);
+    const replies = c
+      .output()
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line));
+    expect(replies.some((reply) => reply.content.includes('OUTCOME_UNKNOWN'))).toBe(true);
+    expect(replies.some((reply) => reply.content.includes('Operator review recorded'))).toBe(true);
+    expect(replies.some((reply) => reply.content.includes('No operator review is pending'))).toBe(
+      true,
+    );
+    expect(c.errors()).not.toContain('[error]');
+    expect(store.pendingReview(session.id)).toBeNull();
+    expect(store.db.query('SELECT status FROM executions').all()).toEqual([{ status: 'unknown' }]);
+  } finally {
+    await service.shutdown();
+    store.close();
+    await f.cleanup();
+  }
+});
 test('Ctrl+C during generation aborts it and keeps REPL available', async () => {
   const f = await fixture();
   const store = new Store(f.config.dataDir);

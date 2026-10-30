@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { skillLog } from './lib/log.js';
+
 async function main() {
   const [command, argument, ...extra] = process.argv.slice(2);
   if (
@@ -24,15 +26,32 @@ async function main() {
     throw Object.assign(new Error('参数不是有效 JSON。'), { publicCode: 'INVALID_INPUT' });
   }
   const { inspectSam } = await import('./lib/sam.js');
+  skillLog('sam.started', { operation: command, product: input.product });
   const result =
     command === 'profiles'
       ? await (await import('./lib/sam-generate.js')).samProfiles(input)
       : ['inspect', 'compare'].includes(command)
         ? await inspectSam(input, command)
         : await (await import('./lib/sam-write.js')).writeSam(input, command);
+  skillLog('sam.completed', {
+    operation: command,
+    file: result.file,
+    profile: result.generation?.profile,
+    configurationOrigin: result.generation?.configurationOrigin,
+    programOrigin: result.generation?.programOrigin,
+    catalogSha256: result.generation?.catalogSha256,
+    sampleInputsComplete: result.sampleInputsComplete,
+    pendingInputs: result.pendingInputs,
+    labType: result.facts?.labType?.value,
+    normalizedFields: result.normalizedFields,
+  });
   console.log(JSON.stringify(result));
 }
 main().catch((error) => {
+  skillLog('sam.failed', {
+    code: error.publicCode ?? 'FILE_OPERATION_FAILED',
+    message: error.message,
+  });
   console.log(
     JSON.stringify({
       error: {

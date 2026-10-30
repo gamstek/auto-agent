@@ -37,6 +37,9 @@ export async function repl(
   const history: Message[] = args.values.session ? local.store.messages(sessionId) : [];
   renderer.line(`Session: ${sessionId}`);
   renderer.line('Type a message; /exit to quit. Ctrl+C cancels a reply, or exits when idle.');
+  renderer.line(
+    '/review shows pending execution diagnostics; /resolve <runId> <note> records operator reconciliation.',
+  );
   for (const message of history) {
     if (args.values.json) console.json(message);
     else renderer.history(message);
@@ -72,10 +75,21 @@ export async function repl(
       renderer.event(event);
     });
     try {
-      const reply = await local.submit(sessionId, content);
+      let reply: Message;
+      if (content.trim() === '/review') reply = local.reviewMessage(sessionId);
+      else if (/^\/resolve(?:\s|$)/.test(content.trim())) {
+        const match = /^\/resolve\s+(\S+)\s+([\s\S]+)$/.exec(content.trim());
+        if (!match)
+          throw new AppError(
+            'usage',
+            'Use /resolve <runId> <reconciliation note> after verifying external effects.',
+          );
+        reply = local.resolveReview(sessionId, match[1]!, match[2]!);
+      } else reply = await local.submit(sessionId, content);
       if (args.values.json) console.json(reply);
       else renderer.reply(reply, streamed);
     } catch (error) {
+      local.diagnostics.write('agent', 'cli.failed', { sessionId, message: errorText(error) });
       renderer.failure(errorText(error));
     } finally {
       unsubscribe?.();
