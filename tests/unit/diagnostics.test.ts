@@ -18,6 +18,7 @@ test('Agent and skill diagnostics are correlated JSONL files with bounded record
       totalTokens: 42,
       args: ['private-argument'],
       stdout: 'private-output',
+      stderr: 'private-stderr-payload',
     });
     logs.write('skills', 'http.failed', {
       runId: 'run-1',
@@ -37,6 +38,7 @@ test('Agent and skill diagnostics are correlated JSONL files with bounded record
       'other-token',
       'private-argument',
       'private-output',
+      'private-stderr-payload',
     ])
       expect(app + skill).not.toContain(value);
     expect(JSON.parse(app)).toMatchObject({

@@ -24,6 +24,7 @@ export const executeScriptTool = defineTool({
     stdout: z.string(),
     stderr: z.string(),
     exitCode: z.number().int().nullable(),
+    started: z.boolean().optional(),
   }),
   async execute(input, { skills, executor, audit, run, diagnostics }) {
     const entry = await skills.resolveScript(input.skill, input.path);
@@ -65,6 +66,12 @@ export const executeScriptTool = defineTool({
       if (uncertain) throw new UncertainToolError(errorText(error));
       throw error;
     }
+    const processStatus = result.status;
+    if (
+      result.started !== false &&
+      ['timeout', 'cancelled', 'output_limit'].includes(result.status)
+    )
+      result = { ...result, status: 'unknown' };
     // A confirmed process exit does not resolve an external write. Portable
     // scripts report this explicitly through the single-JSON error contract.
     {
@@ -124,8 +131,8 @@ export const executeScriptTool = defineTool({
     }
     if (!diagnostic && result.status !== 'completed')
       diagnostic = {
-        code: `SCRIPT_${result.status.toUpperCase()}`,
-        message: `Script finished with status ${result.status}; inspect the correlated skills log for process/stream details.`,
+        code: `SCRIPT_${processStatus.toUpperCase()}`,
+        message: `Script process status ${processStatus}; effect status ${result.status}. Inspect correlated skill logs; process termination does not establish external effects.`,
         exitCode: result.exitCode,
         ...(observed ? { observed } : {}),
       };
@@ -134,6 +141,7 @@ export const executeScriptTool = defineTool({
       runId: run.id,
       executionId,
       status: result.status,
+      processStatus,
       exitCode: result.exitCode,
       diagnosticCode: diagnostic?.code,
     });

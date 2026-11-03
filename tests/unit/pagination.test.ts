@@ -36,10 +36,13 @@ test('bounded history, stable pagination and health version', async () => {
     expect(store.messages(session.id, 2, 2).map((m) => m.id)).toEqual(
       messages.slice(-4, -2).map((m) => m.id),
     );
-    expect(
-      store.contextMessages(session.id, Buffer.byteLength('104中文') * 2).map((m) => m.id),
-    ).toEqual(messages.slice(-2).map((m) => m.id));
-    expect(store.contextMessages(session.id, 1)).toEqual([]);
+    expect(() => store.contextMessages(session.id, Buffer.byteLength('104中文') * 2)).toThrow(
+      'byte budget',
+    );
+    expect(() => store.contextMessages(session.id, 1)).toThrow('byte budget');
+    const window = store.contextWindow(session.id, 0, 1024);
+    expect(window.truncated).toBe(true);
+    expect(window.messages.at(-1)?.id).toBe(messages.at(-1)?.id);
     expect(store.firstUserContent(session.id)).toBe('0中文');
     expect(store.listSessions()).toHaveLength(100);
     expect(store.listSessions(2, 1).map((s) => s.id)).toEqual([sessions[104].id, sessions[103].id]);

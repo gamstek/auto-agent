@@ -182,27 +182,69 @@ export class TerminalMarkdown {
   private candidate?: { text: string; newline: boolean };
   private table?: string[];
   private written = false;
+  private partialLine = false;
+  private flushTimer?: ReturnType<typeof setTimeout>;
+  private sanitizer = new TerminalText((text) => this.ingest(text));
   constructor(
     private write: (text: string) => void,
     private color: boolean,
     private columns: number | (() => number) = 80,
   ) {}
   append(text: string): void {
+    this.sanitizer.append(text);
+  }
+  private ingest(text: string): void {
     this.pending += text;
     let end: number;
     while ((end = this.pending.indexOf('\n')) >= 0) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = undefined;
       const line = this.pending.slice(0, end).replace(/\r$/, '');
       this.pending = this.pending.slice(end + 1);
-      this.accept(line, true);
+      if (this.partialLine) {
+        this.emit(line + '\n');
+        this.partialLine = false;
+      } else this.accept(line, true);
+    }
+    if (this.partialLine && this.pending) {
+      this.emit(this.pending);
+      this.pending = '';
+    }
+    if (this.pending && !this.table && !this.candidate && !this.fence) {
+      const plain =
+        !/[|*_`\[\]<>~\x1b]/.test(this.pending) && !/^\s*(?:#|>|[-+]|\d+[.)])/.test(this.pending);
+      // A short lookahead retains Markdown/table recognition. Plain paragraphs
+      // stream without waiting for a newline; unresolved markup falls back to
+      // literal text after a bounded wait rather than hiding the whole reply.
+      if (!this.flushTimer) {
+        this.flushTimer = setTimeout(() => this.flushPartial(), plain ? 60 : 1000);
+        this.flushTimer.unref?.();
+      }
+      if (this.pending.length > 8192) this.flushPartial();
     }
   }
+  private flushPartial(): void {
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
+    if (!this.pending || this.table || this.candidate || this.fence) return;
+    this.emit(this.pending);
+    this.pending = '';
+    this.partialLine = true;
+  }
   finish(): void {
-    if (this.pending) this.accept(this.pending.replace(/\r$/, ''), false);
+    this.sanitizer.finish();
+    clearTimeout(this.flushTimer);
+    this.flushTimer = undefined;
+    if (this.pending) {
+      if (this.partialLine) this.emit(this.pending.replace(/\r$/, ''));
+      else this.accept(this.pending.replace(/\r$/, ''), false);
+    }
     this.flushTable(false);
     this.flushCandidate();
     this.pending = '';
     this.fence = undefined;
     this.written = false;
+    this.partialLine = false;
   }
   private emit(text: string): void {
     if (text) this.written = true;

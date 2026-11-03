@@ -14,6 +14,10 @@ const HISTORY_SUMMARY_PROMPT = `Summarize the supplied historical conversation a
 
 const MAX_SUMMARY_CALLS = 8;
 
+export function historicalSummaryMessage(text: string): ModelMessage {
+  return { role: 'user', content: `${HISTORY_SUMMARY_MARKER}\n${text}\n${HISTORY_SUMMARY_END}` };
+}
+
 export interface ContextOptions {
   signal: AbortSignal;
   summarize?: ModelAdapter['summarize'];
@@ -180,12 +184,7 @@ export async function fitModelContext(
       if (abort) options.signal.removeEventListener('abort', abort);
     }
   }
-  const summary: ModelMessage = {
-    // This is synthetic historical data, not an assistant protocol turn with
-    // provider reasoning. Keep it out of assistant reasoning/tool sequences.
-    role: 'user',
-    content: `${HISTORY_SUMMARY_MARKER}\n${summaries.join('\n\n')}\n${HISTORY_SUMMARY_END}`,
-  };
+  const summary = historicalSummaryMessage(summaries.join('\n\n'));
   const fitted = [...system, summary, ...retained];
   const finalSize = estimatedTokens(fitted) + toolTokens;
   if (finalSize > limit) throw budgetError(finalSize);

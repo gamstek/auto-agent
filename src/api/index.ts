@@ -107,7 +107,13 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
       if (request.method === 'GET' && sourceId)
         return json(
           await service.wiki.read(
-            { id: sourceId[1], query: url.searchParams.get('query') ?? '' },
+            {
+              id: sourceId[1],
+              query: url.searchParams.get('query') ?? '',
+              ...(url.searchParams.has('sections')
+                ? { sections: url.searchParams.get('sections')!.split(',') }
+                : {}),
+            },
             request.signal,
           ),
         );

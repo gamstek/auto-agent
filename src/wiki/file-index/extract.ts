@@ -1,14 +1,18 @@
-import { inspectSam } from '../../../skills/device-automation/scripts/lib/sam.js';
+import { createHash } from 'node:crypto';
+import { decodeSam, summarizeSam } from './sam';
 import { normalizeSearch, queryTokens } from '../search';
 import type { IndexedSource, Evidence } from './schema';
 import { AppError } from '../../shared/types';
+import { extractReference, referenceEvidence } from './reference';
 
 export function searchBody(record: IndexedSource): string {
   const text = [
     record.path,
     record.metadata.materialHint,
     ...Object.values(record.metadata).filter((v) => typeof v === 'string'),
-    ...record.evidence.map((e) => e.text),
+    ...record.evidence
+      .filter((e) => e.active !== false && e.scope !== 'uninterpreted')
+      .map((e) => e.text),
   ].join('\n');
   const tokens = new Set<string>();
   for (const chunk of text.match(/[\s\S]{1,100}/gu) ?? [])
@@ -37,33 +41,22 @@ export function chooseEvidence(evidence: Evidence[], query: string, limit: numbe
 }
 export async function extract(
   record: IndexedSource,
-  absolutePath: string,
   bytes: Uint8Array,
   signal: AbortSignal,
 ): Promise<IndexedSource> {
   signal.throwIfAborted();
-  const status =
-    bytes.length >= 8
-      ? new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getInt32(0, false)
-      : 0;
-  const product =
-    status >= 0x2000 && status < 0x3000 ? 'g12' : status >= 0x1000 && status < 0x2000 ? 'g5' : null;
-  if (!product) {
-    record.state = 'unsupported';
-    record.issues.push(
-      'UNSUPPORTED_TEMPLATE: a documented SAM/SMP product profile could not be determined',
-    );
-    return record;
-  }
-  const result = await inspectSam({ path: absolutePath, product });
-  if (result.file.sha256 !== record.sha256)
+  if (createHash('sha256').update(bytes).digest('hex') !== record.sha256)
     throw new AppError(
       'wiki_index_changed',
-      'Template changed during extraction; previous index retained',
+      'Template byte snapshot does not match its source hash; previous index retained',
     );
+  const decoded = decodeSam(bytes);
+  const { root, product } = decoded;
+  const result = summarizeSam(decoded, bytes, record.path);
   const value = (field: string) =>
     typeof result.facts[field]?.value === 'string' ? (result.facts[field]!.value as string) : null;
-  record.configuration = result;
+  const referenceSettings = extractReference(root, product);
+  record.configuration = { ...result, referenceSettings };
   record.metadata = {
     ...record.metadata,
     product,
@@ -77,6 +70,14 @@ export async function extract(
     fileState: result.status.state,
     sampleName: typeof result.identity.sampleName === 'string' ? result.identity.sampleName : null,
     uuid: result.identity.uuid,
+    labType: Number.isInteger(root.labType) ? root.labType : null,
+    collectionMode: value('collectionMode'),
+    hasPretreatment: Object.values(referenceSettings.groups.pretreatment!.fields).some(
+      (field) => typeof field.value === 'string' && field.value.trim().length > 0,
+    ),
+    selectedReports: referenceSettings.reports
+      .filter((report) => report.selected === true)
+      .map(({ type, name }) => ({ type, name })),
   };
   record.evidence = Object.values(result.facts)
     .filter(
@@ -89,6 +90,8 @@ export async function extract(
       text: String(fact.rawValue).slice(0, 1000),
       path: fact.source,
     }));
+  record.evidence.push(...referenceEvidence(referenceSettings));
+  record.issues.push(...referenceSettings.issues);
   record.issues.push(...result.warnings.map((v) => `${v.code}: ${v.message}`));
   record.state = 'parsed';
   signal.throwIfAborted();

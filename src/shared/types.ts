@@ -38,6 +38,8 @@ export interface ExecutionTrace {
   executionId: string;
 }
 export interface ScriptResult {
+  /** False only when the executor confirms the script was never launched. */
+  started?: boolean;
   status: 'completed' | 'failed' | 'cancelled' | 'timeout' | 'output_limit' | 'unknown';
   stdout: string;
   stderr: string;

@@ -152,8 +152,12 @@ export async function main(
       if (stopping) return;
       stopping = true;
       server.stop();
-      await service.shutdown();
-      store.close();
+      try {
+        await service.shutdown();
+      } finally {
+        server.stop(true);
+        store.close();
+      }
     };
     process.once('SIGINT', () => void stop());
     process.once('SIGTERM', () => void stop());

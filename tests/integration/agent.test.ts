@@ -1,6 +1,6 @@
 import { Readable, Writable } from 'node:stream';
 import { join } from 'node:path';
-import { writeFile } from 'node:fs/promises';
+import { writeFile, readFile } from 'node:fs/promises';
 import { test, expect, spyOn } from 'bun:test';
 import { fixture } from '../helpers';
 import { Skills } from '../../src/skill';
@@ -56,6 +56,100 @@ const call = (name: string, input: unknown): ModelTurn => ({
   text: '',
   usage: { totalTokens: 1 },
   toolCalls: [{ id: crypto.randomUUID(), name, input }],
+});
+
+test('a launched script timeout preserves unknown effects and blocks the next write', async () => {
+  const a = await app(
+    sequence([
+      call('skill', { name: 'hello-world' }),
+      {
+        text: '',
+        usage: { totalTokens: 1 },
+        toolCalls: [
+          ...call('execute_script', { skill: 'hello-world', path: 'scripts/timeout.js' }).toolCalls,
+          ...call('execute_script', { skill: 'hello-world', path: 'scripts/next.js' }).toolCalls,
+        ],
+      },
+    ]),
+  );
+  a.config.scriptTimeoutMs = 5000;
+  const directory = join(a.root, 'hello-world');
+  await writeFile(
+    join(directory, 'scripts/timeout.js'),
+    "require('node:fs').writeFileSync('effect.txt','committed'); process.stderr.write('raw-stderr-must-not-persist'); setInterval(()=>{},1000);",
+  );
+  await writeFile(
+    join(directory, 'scripts/next.js'),
+    "require('node:fs').writeFileSync('dependent.txt','bad');",
+  );
+  try {
+    const session = a.store.createSession();
+    await expect(a.service.submit(session.id, 'Run local test')).rejects.toThrow(
+      'Manual reconciliation',
+    );
+    expect(await readFile(join(directory, 'effect.txt'), 'utf8')).toBe('committed');
+    await expect(readFile(join(directory, 'dependent.txt'))).rejects.toThrow();
+    expect(a.store.db.query('SELECT status FROM executions').all()).toEqual([
+      { status: 'unknown' },
+    ]);
+    expect(a.store.pendingReview(session.id)?.executions[0]?.diagnostic?.code).toBe(
+      'SCRIPT_TIMEOUT',
+    );
+    expect(await readFile(join(a.config.dataDir, 'logs/skills.jsonl'), 'utf8')).not.toContain(
+      'raw-stderr-must-not-persist',
+    );
+  } finally {
+    await a.dispose();
+  }
+}, 30000);
+
+test('confirmed tool failure skips the rest of the same turn and returns all protocol results for replanning', async () => {
+  let step = 0;
+  const a = await app({
+    async generate(messages) {
+      if (++step === 1) return call('skill', { name: 'hello-world' });
+      if (step === 2)
+        return {
+          text: '',
+          usage: { totalTokens: 1 },
+          toolCalls: [
+            ...call('execute_script', { skill: 'hello-world', path: 'scripts/fail.js' }).toolCalls,
+            ...call('execute_script', { skill: 'hello-world', path: 'scripts/next.js' }).toolCalls,
+          ],
+        };
+      expect(JSON.stringify(messages)).toContain('dependency_blocked');
+      return { text: 'Failure inspected; no retry', usage: { totalTokens: 1 }, toolCalls: [] };
+    },
+  });
+  const directory = join(a.root, 'hello-world');
+  await writeFile(join(directory, 'scripts/fail.js'), 'process.exit(2);');
+  await writeFile(
+    join(directory, 'scripts/next.js'),
+    "require('node:fs').writeFileSync('dependent.txt','bad');",
+  );
+  try {
+    await a.service.submit(a.store.createSession().id, 'Run local test');
+    expect(a.store.db.query('SELECT status FROM executions').all()).toEqual([{ status: 'failed' }]);
+    await expect(readFile(join(directory, 'dependent.txt'))).rejects.toThrow();
+    expect(step).toBe(3);
+  } finally {
+    await a.dispose();
+  }
+}, 30000);
+
+test('service shutdown closes SSE subscribers and refuses new streams', async () => {
+  const a = await app(sequence([]));
+  const stream = a.service.events.stream(new AbortController().signal).getReader();
+  try {
+    await stream.read();
+    await a.service.shutdown();
+    expect(await stream.read()).toEqual({ done: true, value: undefined });
+    expect(() => a.service.events.stream(new AbortController().signal)).toThrow('closed');
+    await a.service.shutdown();
+  } finally {
+    await stream.cancel();
+    await a.dispose();
+  }
 });
 
 test('each model request refreshes builtin facts without accumulating snapshots or replacing custom instructions', async () => {

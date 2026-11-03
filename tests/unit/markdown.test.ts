@@ -157,3 +157,29 @@ test('plain reasoning emits immediately and consumes split terminal controls wit
   renderer.append('完成');
   expect(output).toEndWith('下一行完成');
 });
+
+test('ordinary response text becomes visible before newline or completion and partial lines are not duplicated', async () => {
+  let output = '';
+  const renderer = new TerminalMarkdown((text) => (output += text), false);
+  renderer.append('无换行的回复');
+  await Bun.sleep(30);
+  renderer.append('持续生成');
+  await Bun.sleep(65);
+  expect(output).toBe('无换行的回复持续生成');
+  renderer.append('后续\n');
+  renderer.append('| 标题 | 值 |\n| --- | --- |\n| x | y |');
+  renderer.finish();
+  expect(output).toStartWith('无换行的回复持续生成后续\n┌');
+  expect(output.match(/无换行的回复/g)).toHaveLength(1);
+});
+
+test('streamed terminal controls remain stripped when a paragraph has already flushed', async () => {
+  let output = '';
+  const renderer = new TerminalMarkdown((text) => (output += text), false);
+  renderer.append('visible');
+  await Bun.sleep(90);
+  for (const char of '\x1b]52;c;private-payload\x07') renderer.append(char);
+  renderer.append(' end');
+  renderer.finish();
+  expect(output).toBe('visible end');
+});

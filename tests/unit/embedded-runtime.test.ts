@@ -221,7 +221,13 @@ test('automatic fallback keeps the global concurrency slot and queued cancellati
       const controller = new AbortController();
       const queued = executor.execute(request('not-present.js'), controller.signal);
       controller.abort();
-      expect(await queued).toEqual({ status: 'cancelled', stdout: '', stderr: '', exitCode: null });
+      expect(await queued).toEqual({
+        status: 'cancelled',
+        started: false,
+        stdout: '',
+        stderr: '',
+        exitCode: null,
+      });
       const result = await first;
       expect(result.status, result.stderr).toBe('completed');
       expect(result.stdout.trim()).toBe('first-only');

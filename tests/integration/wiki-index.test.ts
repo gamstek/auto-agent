@@ -2,7 +2,7 @@ import { expect, test, spyOn } from 'bun:test';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture } from '../helpers';
-import { samFixture } from '../case-helpers';
+import { samFixture, referenceSamFixture } from '../case-helpers';
 import { Store } from '../../src/storage';
 import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
@@ -14,7 +14,7 @@ test('Wiki source API and tool authenticate, explicitly index, search and read c
   const f = await fixture();
   const root = join(f.dir, 'cases');
   await mkdir(join(root, '石墨'), { recursive: true });
-  await writeFile(join(root, '石墨', 'case.SAM'), samFixture());
+  await writeFile(join(root, '石墨', 'case.SAM'), referenceSamFixture());
   const config = { ...f.config, wikiIndexRoots: [root], resourceLimitBytes: 65536 };
   const store = new Store(config.dataDir),
     skills = new Skills(config);
@@ -39,7 +39,7 @@ test('Wiki source API and tool authenticate, explicitly index, search and read c
               input: {
                 skill: 'hello-world',
                 action: 'search',
-                query: '石墨',
+                query: 'REFERENCE_PRETREATMENT',
                 filters: { product: 'g5' },
               },
             },
@@ -61,12 +61,17 @@ test('Wiki source API and tool authenticate, explicitly index, search and read c
                 skill: 'hello-world',
                 action: 'read',
                 id: last.content[0].output.value.results[0].id,
+                sections: ['sample', 'reports'],
+                query: '预处理',
               },
             },
           ],
         };
       }
       expect(content).toContain('"sourceVerified":true');
+      expect(content).toContain('REFERENCE_PRETREATMENT');
+      expect(content).toContain('fitRange');
+      expect(content).toContain('sample-context');
       return {
         text: 'Found a historical case, not a runnable template.',
         usage: { totalTokens: 1 },
@@ -92,6 +97,18 @@ test('Wiki source API and tool authenticate, explicitly index, search and read c
     const read = await (await call('/wiki/source/' + search.results[0].id)).json();
     expect(read.sourceVerified).toBe(true);
     expect(read.record.configuration.executionVerified).toBe(false);
+    expect(read.record.metadata).toMatchObject({ labType: 1, hasPretreatment: true });
+    const focused = await (
+      await call('/wiki/source/' + search.results[0].id + '?sections=sample,reports')
+    ).json();
+    expect(focused.sections).toEqual(['sample', 'reports']);
+    expect(
+      focused.record.configuration.referenceSettings.reports[0].parameters.fitRange.value,
+    ).toEqual({ min: 0.045, max: 0.31 });
+    expect(focused.record.configuration.referenceSettings.groups.gas).toBeUndefined();
+    expect(
+      (await call('/wiki/source/' + search.results[0].id + '?sections=not-a-section')).status,
+    ).toBe(400);
     expect((await call('/wiki/search?limit=bad')).status).toBe(400);
     expect((await call('/wiki/search?filters=%5B%5D')).status).toBe(400);
     expect(

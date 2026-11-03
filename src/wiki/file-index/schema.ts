@@ -1,6 +1,8 @@
 import { z } from 'zod';
+import { referenceSections } from './reference';
 
-export const INDEX_REVISION = 'wiki-templates-v1';
+export const INDEX_REVISION = 'wiki-templates-v3';
+export const sectionSchema = z.enum(referenceSections);
 export const MAX_FILES = 5000;
 export const MAX_FILE_BYTES = 32 * 1024 * 1024;
 export const warning =
@@ -17,6 +19,8 @@ export const filtersSchema = z
     temperatureMaxK: z.number().nonnegative().optional(),
     kind: z.literal('sam').optional(),
     state: z.enum(['parsed', 'partial', 'unsupported', 'error']).optional(),
+    labType: z.number().int().optional(),
+    hasPretreatment: z.boolean().optional(),
   })
   .strict()
   .refine(
@@ -38,6 +42,7 @@ export const readSchema = z
     id: z.string().regex(/^[a-f0-9]{64}$/),
     query: z.string().trim().max(1000).default(''),
     maxEvidence: z.number().int().min(1).max(12).default(4),
+    sections: z.array(sectionSchema).min(1).max(referenceSections.length).optional(),
   })
   .strict();
 export const metadataSchema = z.object({
@@ -53,11 +58,21 @@ export const metadataSchema = z.object({
   fileState: z.string().nullable(),
   sampleName: z.string().nullable(),
   uuid: z.string().nullable(),
+  labType: z.number().int().nullable(),
+  collectionMode: z.string().nullable(),
+  hasPretreatment: z.boolean().nullable(),
+  selectedReports: z.array(
+    z.object({ type: z.number().int().nullable(), name: z.string().nullable() }),
+  ),
 });
 export const evidenceSchema = z.object({
   kind: z.literal('json-path'),
   text: z.string().max(1000),
   path: z.array(z.union([z.string(), z.number()])).optional(),
+  section: sectionSchema.optional(),
+  scope: z.enum(['setting', 'sample-context', 'device-context', 'uninterpreted']).optional(),
+  active: z.boolean().nullable().optional(),
+  truncated: z.boolean().optional(),
 });
 export const originSchema = z.object({
   path: z
@@ -104,4 +119,5 @@ export const readResultSchema = z.object({
   sourceVerified: z.boolean(),
   evidenceTruncated: z.boolean(),
   warning: z.string(),
+  sections: z.array(sectionSchema).optional(),
 });

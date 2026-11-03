@@ -7,6 +7,7 @@ import type { Config } from '../../config';
 import { AppError } from '../../shared/types';
 import { normalizeSearch } from '../search';
 import { extract, searchBody, tokensFor, chooseEvidence } from './extract';
+import { projectConfiguration } from './reference';
 import {
   INDEX_REVISION,
   MAX_FILES,
@@ -257,6 +258,10 @@ export class SourceIndex {
             fileState: null,
             sampleName: null,
             uuid: null,
+            labType: null,
+            collectionMode: null,
+            hasPretreatment: null,
+            selectedReports: [],
           },
           issues: [],
           evidence: [],
@@ -290,7 +295,7 @@ export class SourceIndex {
               }
             }
             extractionSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
-            record = await extract(record, entry.path, bytes, extractionSignal);
+            record = await extract(record, bytes, extractionSignal);
           }
         } catch (error) {
           signal.throwIfAborted();
@@ -301,8 +306,8 @@ export class SourceIndex {
             throw error;
           const code = extractionSignal?.aborted
             ? 'EXTRACTION_TIMEOUT'
-            : error && typeof error === 'object' && 'publicCode' in error
-              ? String(error.publicCode)
+            : error instanceof AppError
+              ? error.code
               : 'EXTRACTION_FAILED';
           record.state = code === 'UNSUPPORTED_FORMAT' ? 'unsupported' : 'error';
           record.configuration = null;
@@ -402,6 +407,9 @@ export class SourceIndex {
       } else if (field === 'temperatureMaxK') {
         where.push('f.temperatureK <= ?');
         args.push(value as number);
+      } else if (field === 'labType' || field === 'hasPretreatment') {
+        where.push(`json_extract(f.data, '$.metadata.${field}') = ?`);
+        args.push(typeof value === 'boolean' ? Number(value) : (value as number));
       } else {
         where.push(`f.${field === 'material' ? 'material' : field} = ?`);
         args.push(
@@ -508,12 +516,22 @@ export class SourceIndex {
           'Template changed; explicitly rebuild before reading evidence',
         );
     }
-    const selected = chooseEvidence(record.evidence, input.query, input.maxEvidence);
+    const relevant = input.sections
+      ? record.evidence.filter((item) =>
+          item.section
+            ? input.sections!.includes(item.section)
+            : input.sections!.includes('overview'),
+        )
+      : record.evidence;
+    const selected = chooseEvidence(relevant, input.query, input.maxEvidence);
+    if (input.sections && record.configuration)
+      record.configuration = projectConfiguration(record.configuration, input.sections);
     const response = {
       indexedAt,
       record: { ...record, evidence: selected },
       sourceVerified,
-      evidenceTruncated: selected.length < record.evidence.length,
+      evidenceTruncated: selected.length < relevant.length,
+      ...(input.sections ? { sections: input.sections } : {}),
       warning,
     };
     while (
@@ -526,7 +544,7 @@ export class SourceIndex {
     if (Buffer.byteLength(JSON.stringify(response)) > this.config.resourceLimitBytes)
       throw new AppError(
         'wiki_index_output_limit',
-        'Wiki source configuration exceeds resourceLimitBytes; increase the configured resource limit',
+        'Wiki source configuration exceeds resourceLimitBytes; read explicit sections (sample, collection, gas, reports, etc.) or increase resourceLimitBytes',
       );
     return response;
   }

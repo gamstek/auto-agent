@@ -134,6 +134,14 @@ export class Store {
         );
       `,
       );
+      migrate(
+        db,
+        'store-8-session-context',
+        `CREATE TABLE session_context (
+        sessionId TEXT PRIMARY KEY REFERENCES sessions(id), throughRow INTEGER NOT NULL,
+        summary TEXT NOT NULL, updatedAt INTEGER NOT NULL
+      );`,
+      );
       this.recover();
     } catch (error) {
       db?.close();
@@ -255,7 +263,11 @@ export class Store {
     try {
       for (const message of statement.iterate(id)) {
         bytes += Buffer.byteLength(message.content) + Buffer.byteLength(message.reasoning ?? '');
-        if (bytes > maxBytes) break;
+        if (bytes > maxBytes)
+          throw new AppError(
+            'context_history_limit',
+            'History exceeds the requested byte budget; load a context window and summarize the omitted prefix.',
+          );
         const { reasoning, ...publicMessage } = message;
         history.push(reasoning ? { ...publicMessage, reasoning } : publicMessage);
       }
@@ -263,6 +275,87 @@ export class Store {
       statement.finalize();
     }
     return history.reverse();
+  }
+
+  contextSummary(sessionId: string) {
+    this.getSession(sessionId);
+    return (
+      this.db
+        .query<{ throughRow: number; summary: string }, [string]>(
+          'SELECT throughRow,summary FROM session_context WHERE sessionId=?',
+        )
+        .get(sessionId) ?? { throughRow: 0, summary: '' }
+    );
+  }
+
+  /** Read either the recent tail or the next prefix batch; never hide omitted rows. */
+  contextWindow(sessionId: string, afterRow: number, maxBytes: number, beforeRow?: number) {
+    this.getSession(sessionId);
+    type Row = Message & { reasoning: string | null; row: number };
+    const statement = this.db.prepare<Row, (string | number)[]>(
+      `SELECT m.*,m.rowid AS row,r.content AS reasoning FROM messages m
+       LEFT JOIN message_reasoning r ON r.messageId=m.id
+       WHERE m.sessionId=? AND m.rowid>? ${beforeRow === undefined ? '' : 'AND m.rowid<?'}
+       ORDER BY m.rowid ${beforeRow === undefined ? 'DESC' : 'ASC'}`,
+    );
+    const messages: Row[] = [];
+    let bytes = 0,
+      truncated = false;
+    try {
+      for (const message of statement.iterate(
+        sessionId,
+        afterRow,
+        ...(beforeRow === undefined ? [] : [beforeRow]),
+      )) {
+        const size = Buffer.byteLength(JSON.stringify(message));
+        if (bytes + size > maxBytes) {
+          if (!messages.length)
+            throw new AppError(
+              'context_history_limit',
+              'A historical message exceeds the context loading budget; increase maxInputTokens. No history was discarded.',
+            );
+          truncated = true;
+          break;
+        }
+        bytes += size;
+        messages.push(message);
+      }
+    } finally {
+      statement.finalize();
+    }
+    if (beforeRow === undefined) messages.reverse();
+    return { messages, truncated, bytes };
+  }
+
+  saveContextSummary(
+    sessionId: string,
+    expectedRow: number,
+    throughRow: number,
+    summary: string,
+  ): void {
+    if (!summary.trim() || Buffer.byteLength(summary) > 1024 * 1024)
+      throw new AppError('context_summary', 'Historical summary is empty or exceeds 1 MiB');
+    this.db
+      .transaction(() => {
+        if (
+          this.contextSummary(sessionId).throughRow !== expectedRow ||
+          throughRow <= expectedRow ||
+          !this.db
+            .query('SELECT id FROM messages WHERE sessionId=? AND rowid=?')
+            .get(sessionId, throughRow)
+        )
+          throw new AppError(
+            'context_summary_conflict',
+            'History changed during summarization',
+            409,
+          );
+        this.db
+          .query(
+            'INSERT INTO session_context VALUES (?,?,?,?) ON CONFLICT(sessionId) DO UPDATE SET throughRow=excluded.throughRow,summary=excluded.summary,updatedAt=excluded.updatedAt',
+          )
+          .run(sessionId, throughRow, summary, Date.now());
+      })
+      .immediate();
   }
 
   firstUserContent(id: string): string {

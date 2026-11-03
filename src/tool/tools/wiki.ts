@@ -2,10 +2,12 @@ import { z } from 'zod';
 import { completed, defineTool } from '../context';
 import { knowledgeSchema, revision } from '../../wiki/knowledge';
 import { filtersSchema, searchResultSchema, readResultSchema } from '../../wiki/file-index';
+import { sectionSchema } from '../../wiki/file-index/schema';
+import { referenceSections } from '../../wiki/file-index/reference';
 
 export const wikiTool = defineTool({
   description:
-    'Read-only Wiki for a currently loaded skill. query returns compiled recommendations; search filters historical SAM/SMP template settings; read returns one ID with parameters and source-field citations. Bundled SQLite provides recorded historical settings and source hashes. Index maintenance is operator-only.',
+    'Read-only Wiki for a currently loaded skill. query returns compiled recommendations; search filters historical SAM/SMP references; read returns core pretreatment, acquisition and report-calculation settings with source-field citations. Use sections to focus a read. Bundled SQLite preserves historical settings and hashes, not executable templates. Index maintenance is operator-only.',
   effects: ['read'],
   requiresLoadedSkill: true,
   // Providers require a JSON Schema object root. The pipe retains strict
@@ -37,6 +39,14 @@ export const wikiTool = defineTool({
         .optional()
         .describe('read only; use an ID returned by search.'),
       maxEvidence: z.number().int().min(1).max(12).optional().describe('read only; defaults to 4.'),
+      sections: z
+        .array(sectionSchema)
+        .min(1)
+        .max(referenceSections.length)
+        .optional()
+        .describe(
+          'read only; select reference groups when focusing a question or the full record exceeds output limits. sample includes pretreatment; reports includes calculation settings.',
+        ),
     })
     .strict()
     .pipe(
@@ -65,6 +75,7 @@ export const wikiTool = defineTool({
             id: z.string().regex(/^[a-f0-9]{64}$/),
             query: z.string().trim().max(1000).default(''),
             maxEvidence: z.number().int().min(1).max(12).default(4),
+            sections: z.array(sectionSchema).min(1).max(referenceSections.length).optional(),
           })
           .strict(),
       ]),
@@ -106,7 +117,12 @@ export const wikiTool = defineTool({
     if (input.action === 'read')
       return completed(
         await wiki.read(
-          { id: input.id, query: input.query, maxEvidence: input.maxEvidence },
+          {
+            id: input.id,
+            query: input.query,
+            maxEvidence: input.maxEvidence,
+            sections: input.sections,
+          },
           run.signal,
         ),
       );

@@ -29,7 +29,7 @@ Wiki提供三种只读操作，具体工具名称以宿主提供的能力为准�
 
 query最多1000字符，可为空以按条件浏览；limit为1–10，默认3。数值范围必须来自明确需求，不能为了得到匹配自行放宽。
 
-支持material（目录分类线索）、product（g5/g12/s60pro）、gas、analysisType、pressureMode（relative-pp0/absolute-mmHg）、clientVersion、temperatureMinK/temperatureMaxK、state（parsed/partial/unsupported/error）。条件共同生效，未知值不当成满足；materialBasis=directory-hint和productBasis=status-family明确标明其证据边界，不证明科学适用性或仪器版本兼容。
+支持material（目录分类线索）、product（g5/g12/s60pro）、gas、analysisType、pressureMode（relative-pp0/absolute-mmHg）、clientVersion、temperatureMinK/temperatureMaxK、state（parsed/partial/unsupported/error）、labType（历史模式原值）和hasPretreatment（是否有非空处理条件）。条件共同生效，未知值不当成满足；materialBasis=directory-hint和productBasis=status-family明确标明其证据边界，不证明科学适用性或仪器版本兼容。结果还列出采集模式和已选报告。
 
 搜索按来源内容哈希去重，只返回有界摘要。truncated和matchedRecords说明结果限额，sourceVerified=false表示尚未核对原始文件。
 
@@ -37,7 +37,13 @@ query最多1000字符，可为空以按条件浏览；limit为1–10，默认3�
 
 读取数据形式：`{"id":"搜索返回ID","query":"关注的参数","maxEvidence":4}`。maxEvidence为1–12，默认4，不接受任意文件路径。
 
+可选 sections 数组按问题读取字段组：overview、sample、gas、temperature、collection、preparation、freeSpace、backfill、tube、corrections、reports。例如 `{"id":"搜索返回ID","query":"预处理与BET拟合","sections":["sample","reports"]}`。不指定时返回完整已提取记录；超限时按组读取，不猜测被省略的内容。
+
 record.configuration是解析后的模板参数，record.evidence保留原始JSON字段路径，record.issues保留枚举未知、版本未确认等限制。
+
+其中 referenceSettings 保存核心参考设置：sample/pretreatment中的历史称量、处理条件原文及标题，气体/物性、P0取得方式、采集和平衡、准备/检漏、自由空间、回填、样品管及修正选项；reports保存报告选择和类型对应的计算参数。BET拟合与选点、BJH/t-Plot模型和系数、DFT模型引用等可供比较，不只返回报告名称。字段的presence区分缺失/null/有值，scope区分实验设置、样品/设备上下文和未解释项，active=false表示未启用；原值与已确认的归一化值/单位分开。
+
+处理条件原文不是仪器准备抽真空时长。历史模式1仍保留为高通量证据，当前厂家执行限制另按Climber契约处理。历史称量、自由空间/校准体积、端口和UUID不作为新实验默认值。模型文件引用不代表文件已经安装，未解释的区间单位不猜测；绘图样式、计算缓存、人员信息和完整采集曲线不属于核心参考设置。
 
 - 本地外部索引：按原始文件哈希核验，变化或缺失时要求操作者显式更新。
 - 内置SQLite快照：离线读取历史参数，不要求原件存在；sourceVerified=false，record.origin保留原始相对路径、哈希和提取时间。它不声称原件当前仍有效，也不能把配置中的相对路径当作厂家可读取的SAM路径。

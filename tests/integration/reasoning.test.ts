@@ -83,7 +83,9 @@ test('reasoning survives a real SDK tool round trip and session restart without 
     expect(JSON.stringify(store.messages(session.id))).not.toContain('Explain the skill.');
     expect(store.contextMessages(session.id, 4096).at(-1)?.reasoning).toBe('Explain the skill.');
     // The reasoning bytes count towards the bounded history read.
-    expect(store.contextMessages(session.id, Buffer.byteLength(first.content))).toEqual([]);
+    expect(() => store.contextMessages(session.id, Buffer.byteLength(first.content))).toThrow(
+      'byte budget',
+    );
 
     await service.shutdown();
     store.close();

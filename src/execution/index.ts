@@ -184,6 +184,7 @@ export class ScriptExecutor {
     trace?: ExecutionTrace,
   ): Promise<ScriptResult> {
     const empty = (status: ScriptResult['status']): ScriptResult => ({
+      started: false,
       status,
       stdout: '',
       stderr: '',
@@ -250,7 +251,6 @@ export class ScriptExecutor {
           durationMs: Date.now() - started,
           stdoutBytes: Buffer.byteLength(result.stdout),
           stderrBytes: Buffer.byteLength(result.stderr),
-          ...(result.stderr ? { stderr: result.stderr } : {}),
         });
         return result;
       } catch (error) {
@@ -325,6 +325,10 @@ export class ScriptExecutor {
       stderr = '',
       used = 0;
     let exitCode: number | null = null;
+    let started = false;
+    child.once('spawn', () => {
+      if (!windows) started = true;
+    });
     let finish!: () => void;
     const done = new Promise<void>((resolve) => {
       finish = resolve;
@@ -500,11 +504,13 @@ export class ScriptExecutor {
       tracker.stdin!.on('error', () => stop('unknown'));
       const isReady = await Promise.race([tracked, done.then(() => false)]);
       this.diagnostics.write('skills', 'process.tracker_ready', { ...trace, ready: isReady });
-      if (isReady && !status)
+      if (isReady && !status) {
+        // Once handed to the anchor, conservatively assume launch may have occurred.
+        started = true;
         child.send({ command, args, cwd }, (error) => {
           if (error) stop('failed');
         });
-      else if (!status) stop('unknown');
+      } else if (!status) stop('unknown');
     }
     await done;
     clearTimeout(timer);
@@ -537,7 +543,7 @@ export class ScriptExecutor {
       stderr = clip(stderr, this.config.outputLimitBytes - Buffer.byteLength(stdout));
     }
     if (!clean) status = 'unknown';
-    return { status: status ?? 'unknown', stdout, stderr, exitCode };
+    return { status: status ?? 'unknown', stdout, stderr, exitCode, started };
   }
 
   private async bounded(promise: Promise<boolean>, milliseconds: number): Promise<boolean> {

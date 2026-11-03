@@ -6,6 +6,19 @@ import { toolFixture } from '../tool-helpers';
 const registry = new BuiltinToolRegistry();
 const input = { skill: 'example', path: 'scripts/main.js', args: ['one'] };
 
+test('confirmed pre-launch cancellation is not an unknown external effect', async () => {
+  const f = toolFixture();
+  f.context.run.loadedSkills.add('example');
+  f.context.executor.execute = async () => ({
+    status: 'cancelled',
+    started: false,
+    stdout: '',
+    stderr: '',
+    exitCode: null,
+  });
+  expect((await registry.execute('execute_script', input, f.context)).status).toBe('cancelled');
+});
+
 for (const status of [
   'completed',
   'failed',
@@ -28,7 +41,8 @@ for (const status of [
       launches++;
       return value;
     };
-    if (status === 'unknown') {
+    const uncertain = ['unknown', 'timeout', 'cancelled', 'output_limit'].includes(status);
+    if (uncertain) {
       await expect(registry.execute('execute_script', input, f.context)).rejects.toBeInstanceOf(
         UncertainToolError,
       );
@@ -40,7 +54,10 @@ for (const status of [
     }
     expect(f.calls.filter((call) => call.name === 'begin')).toHaveLength(1);
     expect(f.calls.filter((call) => call.name === 'finish')).toEqual([
-      { name: 'finish', input: { id: 'execution-1', result: value } },
+      {
+        name: 'finish',
+        input: { id: 'execution-1', result: uncertain ? { ...value, status: 'unknown' } : value },
+      },
     ]);
     expect(f.context.run.failedScripts.size).toBe(status === 'completed' ? 0 : 1);
     if (status !== 'completed') {

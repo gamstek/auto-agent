@@ -22,6 +22,8 @@ import { DEFAULT_SYSTEM_PROMPT } from './prompt';
 import { builtinInstructions } from './builtins';
 import { fitModelContext } from './context';
 import { Diagnostics } from '../shared/diagnostics';
+import { loadSessionHistory } from './history';
+import { ModelRequestError } from '../llm/errors';
 const State = Annotation.Root({
   messages: Annotation<ModelMessage[]>(),
   turn: Annotation<ModelTurn>(),
@@ -241,6 +243,7 @@ export class AgentService {
       ...(this.wikiIndexUpdate ? [this.wikiIndexUpdate.done] : []),
     ]);
     this.wiki.close();
+    this.events.close();
     this.diagnostics.write('agent', 'service.stopped');
   }
   private startTitle(sessionId: string, reply: Message): void {
@@ -447,6 +450,16 @@ export class AgentService {
                   504,
                 )
               : error;
+          if (failure instanceof ModelRequestError)
+            this.diagnostics.write('agent', 'model.diagnostic', {
+              sessionId,
+              runId,
+              messageId,
+              step: state.steps + 1,
+              model: this.config.model,
+              code: failure.code,
+              ...failure.diagnostic,
+            });
           emit('model.failed', {
             step: state.steps + 1,
             status: signal.aborted
@@ -523,8 +536,35 @@ export class AgentService {
         };
         if (state.turn.toolCalls.length > 16)
           throw new AppError('budget', 'Too many tool calls in one model turn');
+        let blockedByFailure = false;
         for (const call of state.turn.toolCalls) {
           check();
+          if (blockedByFailure) {
+            messages.push({
+              role: 'tool',
+              content: [
+                {
+                  type: 'tool-result',
+                  toolCallId: call.id,
+                  toolName: call.name,
+                  output: {
+                    type: 'json',
+                    value: {
+                      error: 'dependency_blocked',
+                      message:
+                        'Not executed: an earlier tool in this turn failed. Inspect its result and plan the next step in a new model turn.',
+                    },
+                  },
+                },
+              ],
+            });
+            emit('tool.skipped', {
+              name: call.name,
+              toolCallId: call.id,
+              status: 'dependency_blocked',
+            });
+            continue;
+          }
           const startedAt = Date.now();
           const identity = { name: call.name, toolCallId: call.id };
           const details =
@@ -573,6 +613,7 @@ export class AgentService {
             };
           }
           output = JSON.parse(redact(JSON.stringify(output ?? null)));
+          if (status !== 'completed') blockedByFailure = true;
           messages.push({
             role: 'tool',
             content: [
@@ -601,19 +642,21 @@ export class AgentService {
       .compile({ checkpointer: new SQLiteSaver(this.store.db) });
     emit('session.status', { status: 'busy' });
     try {
-      const history: ModelMessage[] = this.store
-        .contextMessages(sessionId, this.config.requestLimitBytes * this.config.maxSteps)
-        .map((message) =>
-          message.role === 'assistant' && message.reasoning
-            ? {
-                role: 'assistant',
-                content: [
-                  { type: 'reasoning', text: redact(message.reasoning) },
-                  { type: 'text', text: message.content },
-                ],
-              }
-            : { role: message.role, content: message.content },
-        );
+      let historyTokens = 0;
+      const history = await loadSessionHistory({
+        store: this.store,
+        sessionId,
+        maxInputTokens: this.config.maxInputTokens,
+        toolTokens: this.toolRegistry.contextTokenEstimate(),
+        timeoutMs: this.config.modelTimeoutMs,
+        signal,
+        model: this.model,
+        redact,
+        onSummary: (details) => {
+          historyTokens += Number(details.totalTokens);
+          emit('context.compressed', { ...details, runTokens: historyTokens });
+        },
+      });
       const system: ModelMessage = {
         role: 'system',
         content: redact(
@@ -627,7 +670,7 @@ export class AgentService {
         {
           messages: [system, ...history],
           steps: 0,
-          tokens: 0,
+          tokens: historyTokens,
           loaded: [],
           turn: { text: '', toolCalls: [], usage: { totalTokens: 0 } },
         },

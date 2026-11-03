@@ -13,7 +13,8 @@ import { output } from './console';
 
 const sensitive =
   /authorization|cookie|password|secret|credential|api[_-]?key|(?:^|[_-])(?:access[_-]?|refresh[_-]?|auth[_-]?|bearer[_-]?|api[_-]?)?token$/i;
-const omitted = /^(args|arguments|input|payload|stdout|prompt|reasoning|delta|content|body)$/i;
+const omitted =
+  /^(args|arguments|input|payload|stdout|stderr|prompt|reasoning|delta|content|body)$/i;
 export function sanitizeDiagnostic(
   value: unknown,
   secrets: readonly string[] = [],

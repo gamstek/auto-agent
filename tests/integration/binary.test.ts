@@ -26,7 +26,16 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
       throw error;
     }
     const file = join(f.dir, 'config.json');
-    await writeFile(file, JSON.stringify({ ...f.config, skillRoots: [], builtinSkills: true }));
+    await writeFile(
+      file,
+      JSON.stringify({
+        ...f.config,
+        skillRoots: [],
+        builtinSkills: true,
+        builtinWiki: true,
+        resourceLimitBytes: 65536,
+      }),
+    );
     const proc = Bun.spawn([binary, 'serve', '--config', file], {
       cwd: f.dir,
       env: { ...process.env, AUTO_AGENT_TOKEN: f.config.token },
@@ -112,6 +121,35 @@ test.skipIf(!process.env.AUTO_AGENT_TEST_BINARY)(
         await fetch(base + '/session', { method: 'POST', headers, body: '{}' })
       ).json();
       expect(session.id).toBeTruthy();
+      const cases = await (
+        await fetch(
+          base +
+            '/wiki/search?filters=' +
+            encodeURIComponent('{"hasPretreatment":true}') +
+            '&limit=1',
+          { headers },
+        )
+      ).json();
+      expect(cases.results[0].metadata.hasPretreatment).toBe(true);
+      const referenceResponse = await fetch(
+        base + '/wiki/source/' + cases.results[0].id + '?sections=sample,reports',
+        { headers },
+      );
+      expect(referenceResponse.status).toBe(200);
+      const reference = await referenceResponse.json();
+      expect(reference.sourceVerified).toBe(false);
+      expect(reference.record.configuration.referenceSettings.revision).toBe(
+        'reference-settings-v1',
+      );
+      expect(
+        Object.keys(reference.record.configuration.referenceSettings.groups.pretreatment.fields)
+          .length,
+      ).toBeGreaterThan(0);
+      expect(
+        reference.record.configuration.referenceSettings.reports.some(
+          (report: any) => Object.keys(report.parameters).length > 0,
+        ),
+      ).toBe(true);
       proc.kill();
       await proc.exited;
       expect(await new Response(proc.stderr).text()).toContain('device-automation (built-in)');

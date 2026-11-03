@@ -53,14 +53,19 @@ async function build(
     entries.push({ path: source.path, hash: source.hash, knowledge });
     rebuilt++;
   }
-  if (!rebuilt && previous && entries.length === previous.sources.length)
-    return { sources: entries.length, rebuilt: 0, builtAt: previous.builtAt };
   const latest = await readSources(config);
   if (
     JSON.stringify(latest.map((s) => [s.path, s.hash])) !==
     JSON.stringify(sources.map((s) => [s.path, s.hash]))
   )
     throw new AppError('wiki_changed', 'Sources changed during build; update again');
+  signal.throwIfAborted();
+  if (
+    !rebuilt &&
+    previous?.root === sourceRoot(config) &&
+    JSON.stringify(entries) === JSON.stringify(previous.sources)
+  )
+    return { sources: entries.length, rebuilt: 0, builtAt: previous.builtAt };
   const snapshot: Snapshot = {
     revision,
     root: sourceRoot(config),

@@ -6,10 +6,25 @@ import type { Config } from '../config';
 import { KNOWLEDGE_PROMPT } from '../wiki/prompt';
 import { SESSION_TITLE_PROMPT } from './prompt';
 import { AppError, requireTokenUsage, type ModelAdapter, type ModelTurn } from '../shared/types';
+import { modelErrorDiagnostic, ModelRequestError } from './errors';
 const toolRegistry = new BuiltinToolRegistry();
 export function modelFailure(error: unknown): AppError {
-  const status =
-    error && typeof error === 'object' && 'statusCode' in error ? Number(error.statusCode) : 0;
+  if (error instanceof AppError) return error;
+  const diagnostic = modelErrorDiagnostic(error);
+  const classified = classifyModelFailure(error, diagnostic);
+  return new ModelRequestError(classified.code, classified.message, diagnostic);
+}
+function classifyModelFailure(
+  error: unknown,
+  diagnostic: ReturnType<typeof modelErrorDiagnostic>,
+): AppError {
+  const status = diagnostic.httpStatus ?? 0;
+  if (status === 402)
+    return new AppError(
+      'model_billing',
+      'Cloud model request rejected (HTTP 402): check the provider account balance or billing status for this API key.',
+      502,
+    );
   if (status === 401 || status === 403)
     return new AppError(
       'model_auth',
@@ -46,6 +61,30 @@ export function modelFailure(error: unknown): AppError {
     return new AppError(
       'model_unavailable',
       'Cloud model request failed: provider unavailable. Retry later.',
+      502,
+    );
+  if (diagnostic.transportCode) {
+    const code = diagnostic.transportCode;
+    const dns = ['ENOTFOUND', 'EAI_AGAIN'].includes(code);
+    const tls = /CERT|TLS|ISSUER|SIGNATURE/.test(code);
+    return new AppError(
+      dns ? 'model_dns' : tls ? 'model_tls' : 'model_network',
+      dns
+        ? 'Cloud model hostname resolution failed. Check DNS and proxy settings on the agent host.'
+        : tls
+          ? 'Cloud model TLS verification failed. Check system time, certificates and proxy configuration.'
+          : 'Cloud model connection failed. Check network/proxy connectivity on the agent host.',
+      502,
+    );
+  }
+  if (
+    diagnostic.errorNames.some((name) =>
+      ['AI_JSONParseError', 'AI_TypeValidationError', 'AI_InvalidResponseDataError'].includes(name),
+    )
+  )
+    return new AppError(
+      'model_response',
+      'Cloud model returned an invalid or unsupported response. Check provider compatibility and the correlated model diagnostic log.',
       502,
     );
   return new AppError(
@@ -159,47 +198,52 @@ export class CloudModel implements ModelAdapter {
         'AUTO_AGENT_API_KEY is required. Set it and restart the application; check model/baseURL in configuration.',
         503,
       );
-    const provider = this.provider();
-    const tools = toolRegistry.modelTools();
-    const result = streamText({
-      model: provider.chatModel(this.config.model),
-      instructions:
-        messages
-          .filter((message) => message.role === 'system')
-          .map((message) => message.content)
-          .join('\n\n') || undefined,
-      messages: messages.filter((message) => message.role !== 'system'),
-      tools,
-      onError: () => {},
-      abortSignal: signal,
-      maxRetries: 0,
-      maxOutputTokens: this.config.maxOutputTokens,
-    });
-    let text = '';
-    let reasoning = '';
-    for await (const part of result.fullStream) {
-      signal.throwIfAborted();
-      if (part.type === 'text-delta') {
-        text += part.text;
-        onDelta(part.text);
+    try {
+      const provider = this.provider();
+      const tools = toolRegistry.modelTools();
+      const result = streamText({
+        model: provider.chatModel(this.config.model),
+        instructions:
+          messages
+            .filter((message) => message.role === 'system')
+            .map((message) => message.content)
+            .join('\n\n') || undefined,
+        messages: messages.filter((message) => message.role !== 'system'),
+        tools,
+        onError: () => {},
+        abortSignal: signal,
+        maxRetries: 0,
+        maxOutputTokens: this.config.maxOutputTokens,
+      });
+      let text = '';
+      let reasoning = '';
+      for await (const part of result.fullStream) {
+        signal.throwIfAborted();
+        if (part.type === 'text-delta') {
+          text += part.text;
+          onDelta(part.text);
+        }
+        if (part.type === 'reasoning-delta') {
+          reasoning += part.text;
+          onReasoningDelta?.(part.text);
+        }
+        if (part.type === 'error') throw modelFailure(part.error);
       }
-      if (part.type === 'reasoning-delta') {
-        reasoning += part.text;
-        onReasoningDelta?.(part.text);
-      }
-      if (part.type === 'error') throw modelFailure(part.error);
+      const calls = await result.toolCalls;
+      const usage = await result.totalUsage;
+      return {
+        text,
+        ...(reasoning ? { reasoning } : {}),
+        toolCalls: calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input })),
+        usage: {
+          totalTokens: requireTokenUsage(usage),
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+        },
+      };
+    } catch (error) {
+      if (signal.aborted || error instanceof AppError) throw error;
+      throw modelFailure(error);
     }
-    const calls = await result.toolCalls;
-    const usage = await result.totalUsage;
-    return {
-      text,
-      ...(reasoning ? { reasoning } : {}),
-      toolCalls: calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input })),
-      usage: {
-        totalTokens: requireTokenUsage(usage),
-        inputTokens: usage.inputTokens,
-        outputTokens: usage.outputTokens,
-      },
-    };
   }
 }

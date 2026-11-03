@@ -235,6 +235,10 @@ Events include session.status, model.started/completed/failed, message.part.delt
 
 Reasoning 作为独立的 SDK 协议内容保留在工具调用上下文和检查点中，完成回答的 reasoning 另存于 SQLite 私有元数据，后续对话及重启恢复时随对应 assistant 消息回传，以满足 DeepSeek thinking 工具调用合同。它计入上下文及历史读取预算，但不混入回答正文，也不出现在公开消息历史、同步最终回复或 `--json` 中。压缩保留的工具调用/结果组包含原 reasoning；合成的历史摘要使用标记为不可信数据的 user 消息，不冒充缺失 reasoning 的模型输出。是否有内容取决于模型及服务商实际返回，本功能不会额外开启服务商的 thinking 模式。
 
+跨轮历史加载按模型输入容量预留近期消息窗口；超出窗口的连续旧消息会通过独立、无工具的摘要请求压缩，摘要与覆盖位置存入 SQLite `session_context`，重启后复用。原消息和执行审计不删除，缺少摘要能力、超时、用量无效或摘要过大时明确停止，不静默丢弃历史。每次请求最多处理8批旧历史；已成功保存的前缀摘要保留，可在后续请求继续处理。摘要调用使用模型凭据并计入该轮用量。
+
+终端普通回复采用短暂Markdown前瞻后增量显示，无需一直等待换行；表格和代码块保留结构化排版，无法及时闭合的普通行标记会退化为字面文本。HTTP/SSE与JSON回复仍保留原始Markdown。
+
 No event replay exists. Each client has a 64-frame queue; subscriber capacity is maxConcurrent * 8. Disconnecting SSE does not cancel generation. Read history after reconnecting; **do not blindly resubmit ambiguous side-effecting tasks**. A synchronous response contains only the final reply. Client applications must render raw Markdown safely, not as trusted HTML.
 
 There is no /v1/chat/completions, business /runs, /devices, or /skills endpoint, third-party browser CORS configuration, or OpenAPI service.
@@ -264,7 +268,17 @@ Internally, `src/shared/builtin.ts` collects and releases skill/wiki resources; 
 
 ### 历史模板案例 SQLite
 
-已提取的历史模板保存在 `wiki/indexes/library.sqlite`，共178条SAM配置参考，含结构化参数、JSON字段引用、原始文件相对路径/哈希、产品版本和FTS5索引；没有聊天数据、模型凭据、原始SAM二进制或PDF/报告/曲线。目录职责见 [wiki/README.md](wiki/README.md)。
+已提取的历史模板保存在 `wiki/indexes/library.sqlite`，共178条SAM配置参考，含结构化参数、JSON字段引用、原始文件相对路径/哈希、产品版本和FTS5索引；没有聊天数据、模型凭据、原始SAM二进制、PDF报告或采集曲线。目录职责见 [wiki/README.md](wiki/README.md)。
+
+`wiki-templates-v3` 保留核心实验参考字段：129份文件的133条非空预处理原文、历史labType、气体/物性关联、P0取得方式、采集/平衡、准备/检漏、自由空间、回填、样品管及报告计算参数。`record.configuration.referenceSettings` 保留原值、来源、单位、启用状态和样品/设备上下文；报告不仅包含type/name/selected，还包含已识别的拟合范围、选点、模型和修正设置。未知语义保持标记，绘图样式、历史计算缓存和逐点结果不进入参考设置。Wiki 的 `file-index/sam.ts` 独立解析索引器已读取的字节，不导入技能源码、不重复读取源文件；技能的 SAM 命令保持独立可移植。字段范围见 [核心字段清单](docs/template-reference-fields.md)。
+
+维护者可显式从案例目录重建发布快照（不调用模型、不修改源文件；目标已存在时需 `--replace`）：
+
+```powershell
+bun scripts/export-library.ts --root "案例库绝对路径" --output "wiki/indexes/library.sqlite" --replace
+```
+
+导出在临时数据库中完成提取、完整性和读取限额校验后原子发布；解析错误保留原快照，当前不支持的其他厂家SMP不混入已解析记录。字段提取规则更新时提升索引修订号并重新导出，不能仅凭源哈希未变复用旧摘要。
 
 Wiki统一提供推荐知识和历史模板参考。`builtinWiki=true`且未配置外部wikiIndexRoots时，直接只读加载内置SQLite，无需原件或首次建库；数据库单独嵌入可执行程序，按内容哈希发布到dataDir/builtin-wiki-index/<version>/library.sqlite，修改后的副本拒绝加载。sourceVerified=false和record.origin明确表示原始模板没有重新核验。历史完成案例只作参数参考，不直接作为新建模板启动。
 
@@ -288,16 +302,16 @@ bun src/index.ts --config examples/config.json --wiki-index
 
 本期只扫描SAM/SMP，复用 `scripts/lib/sam.js`，不启动子进程或设备；其他文件跳过。其他厂家SMP明确标为unsupported。最多5000个模板、单文件32 MiB、提取快照64 MiB；符号链接跳过，读取受配置根目录约束。材料目录仅为线索，产品可来自文件状态家族，不冒充已验收的型号或科学条件。
 
-模型在当前轮加载技能后，使用同一个wiki工具：action=query（默认）查询编译推荐，action=search按query/filters/limit筛选历史模板，action=read按id/query/maxEvidence读取参数和字段引用。条件共同生效，未知值不满足；支持材料线索、产品家族、气体、方法、压力模式、版本和温度。搜索按来源哈希去重，默认3条、最多10条。外部本地索引读取会核对原件哈希；内置只读快照不声称原件当前仍有效。完整响应受resourceLimitBytes约束，证据条数可明确减少，配置不默默裁剪。
+模型在当前轮加载技能后，使用同一个wiki工具：action=query（默认）查询编译推荐，action=search按query/filters/limit筛选历史模板，action=read按id/query/maxEvidence读取参数和字段引用。条件共同生效，未知值不满足；支持材料线索、产品家族、气体、方法、压力模式、版本、温度，以及labType和hasPretreatment。搜索按来源哈希去重，默认3条、最多10条。read可指定sections数组读取overview、sample（含预处理）、gas、temperature、collection、preparation、freeSpace、backfill、tube、corrections、reports。外部本地索引读取会核对原件哈希；内置只读快照不声称原件当前仍有效。完整响应受resourceLimitBytes约束，证据条数可明确减少，配置不默默裁剪。
 
 本期不实现PDF、报告关联或结果推理；没有来源的配置原因保持未知。详情见 [Wiki检索契约](skills/device-automation/references/wiki.md)。
 
-| 方法 | 路由                                         | 用途                                       |
-| ---- | -------------------------------------------- | ------------------------------------------ |
-| GET  | `/wiki/index`                                | 根目录配置、文件索引状态及数量，不扫描原件 |
-| POST | `/wiki/index/update`                         | 正文为 `{}`，显式本地索引，等待完成        |
-| GET  | `/wiki/search?query=...&filters=...&limit=3` | filters为URL编码的JSON对象                 |
-| GET  | `/wiki/source/{id}?query=...`                | 按索引ID核验并读取配置和定位证据           |
+| 方法 | 路由                                                  | 用途                                       |
+| ---- | ----------------------------------------------------- | ------------------------------------------ |
+| GET  | `/wiki/index`                                         | 根目录配置、文件索引状态及数量，不扫描原件 |
+| POST | `/wiki/index/update`                                  | 正文为 `{}`，显式本地索引，等待完成        |
+| GET  | `/wiki/search?query=...&filters=...&limit=3`          | filters为URL编码的JSON对象                 |
+| GET  | `/wiki/source/{id}?query=...&sections=sample,reports` | 按索引ID读取；sections可选，逗号分组名     |
 
 这些接口使用与会话接口相同的鉴权。客户端及模型不能传入任意文件路径、目录或解析器命令。启动和聊天不会自动索引；搜索不读取原件，读取仅核验被选择的源文件。
 
@@ -353,6 +367,8 @@ labType 中0为常规模式、1为高通量模式。当前厂家接口仅支持�
 两类文件用 runId/executionId 关联；每个文件最多2 MiB，保留 `.1`、`.2`、`.3` 三份轮转备份。默认屏蔽配置中的模型密钥、HTTP令牌和敏感字段，不记录完整工具参数、原始 stdout、模型提示词或逐 token 思考正文。日志仅为本机诊断，不授予写入或重试权限。结构化技能诊断在宿主落盘，脚本 stdout 仍保持单个 JSON 结果。
 
 结构化技能日志不占用脚本结果的 outputLimitBytes，避免日志使原本正常的操作被误判为输出超限；该诊断通道每次执行最多64 KiB、每行最多16 KiB，超出时写入截断标记。普通 stderr 和 stdout 仍遵守原输出上限。
+
+普通 stdout/stderr 正文不写入文件日志，只记录字节数、退出状态及经过筛选的结构化诊断；技能需要持久化的错误信息通过有界 `[skill-log]` 通道提供。
 
 写入效果未知后，原会话继续输入消息会直接返回诊断报告，不会重新调用模型或脚本，也不会解除待对账状态。REPL 可用：
 
@@ -413,6 +429,8 @@ Script entries are confined to the selected skill's scripts/ directory; traversa
 **Not an OS sandbox.** Trusted scripts retain host filesystem/network permissions and run without per-call approval. Necessary skill resources and tool output can enter cloud model context. SQLite persists session/checkpoint context; protect the data directory. Known configured credentials are redacted, but arbitrary secrets cannot be automatically detected.
 
 Execution intent is persisted first. Failed scripts are not automatically retried. Interrupted scripts without results become unknown and require operator reconciliation; other interrupted generations fail rather than resume automatically. Pending sessions return a diagnostic report without running a model or tools; the authenticated review/resolve_review routes record explicit operator reconciliation, preserving unknown execution audits and never replaying checkpoints. Cleanup tracks owned processes/groups, not deliberately detached scripts. **Aborting the agent does not confirm equipment stopped or effects were undone.**
+
+After launch, executor timeout, cancellation or output-limit termination is audited as an unknown effect even when process cleanup succeeds. Confirmed pre-launch cancellation remains cancelled. A confirmed tool failure skips the remaining calls from that same model turn (returning dependency_blocked tool results), so the next model turn can inspect the failure before planning further actions. Service shutdown closes SSE streams and heartbeats before final connection cleanup.
 
 ## CLI output
 

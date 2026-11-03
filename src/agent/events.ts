@@ -2,6 +2,14 @@ import { AppError, type AgentEvent } from '../shared/types';
 export class Events {
   private streams = 0;
   private listeners = new Set<(event: AgentEvent) => void>();
+  private closers = new Set<() => void>();
+  private closed = false;
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const stop of [...this.closers]) stop();
+    this.listeners.clear();
+  }
   publish(event: AgentEvent): void {
     for (const listener of this.listeners) {
       try {
@@ -10,10 +18,12 @@ export class Events {
     }
   }
   subscribe(listener: (event: AgentEvent) => void): () => void {
+    if (this.closed) return () => {};
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
   }
   stream(signal: AbortSignal, maxClients = 32): ReadableStream<Uint8Array> {
+    if (this.closed) throw new AppError('shutdown', 'Event service is closed', 503);
     if (this.streams >= maxClients)
       throw new AppError('event_capacity', 'Too many event subscribers', 429);
     this.streams++;
@@ -29,6 +39,7 @@ export class Events {
             closed = true;
             this.streams--;
             unsubscribe();
+            this.closers.delete(stop);
             clearInterval(timer);
             signal.removeEventListener('abort', stop);
             try {
@@ -47,6 +58,7 @@ export class Events {
           unsubscribe = this.subscribe((event) => send(`data: ${JSON.stringify(event)}\n\n`));
           signal.addEventListener('abort', stop, { once: true });
           cleanup = stop;
+          this.closers.add(stop);
           send(': connected\n\n');
           if (signal.aborted) stop();
         },
