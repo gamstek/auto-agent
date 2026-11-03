@@ -1,0 +1,57 @@
+name: desktop-windows
+on:
+  workflow_dispatch:
+  push:
+    branches: ['main']
+    paths:
+      [
+        'desktop/**',
+        'src/**',
+        'scripts/build.ts',
+        'skills/**',
+        'wiki/**',
+        'package.json',
+        'bun.lock',
+        '.github/workflows/desktop.yml',
+      ]
+  pull_request:
+    paths:
+      [
+        'desktop/**',
+        'src/**',
+        'scripts/build.ts',
+        'skills/**',
+        'wiki/**',
+        'package.json',
+        'bun.lock',
+        '.github/workflows/desktop.yml',
+      ]
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: bun install --frozen-lockfile
+      - run: bun install --cwd desktop --frozen-lockfile
+      - run: bun run typecheck
+      - run: bun test
+      - run: bun run --cwd desktop prepare:backend
+      - run: bun run --cwd desktop build
+      - run: bunx playwright install chromium
+        working-directory: desktop
+      - run: bun run --cwd desktop test:ui
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
+      - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
+      - run: bun run desktop:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: auto-agent-desktop-windows-x64
+          path: desktop/src-tauri/target/release/bundle/nsis/*-setup.exe

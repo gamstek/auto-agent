@@ -9,7 +9,10 @@ function authorized(request: Request, token: string): boolean {
   const expected = Buffer.from(`Bearer ${token}`);
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
-export function handler(service: AgentService): (request: Request) => Promise<Response> {
+export function handler(
+  service: AgentService,
+  desktopShutdown?: () => void,
+): (request: Request) => Promise<Response> {
   if (service.config.noToken && !['127.0.0.1', 'localhost', '::1'].includes(service.config.host))
     throw new AppError('no_token_remote', '--no-token is only permitted on loopback.');
   return async (request) => {
@@ -52,6 +55,18 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
             },
           },
         );
+      if (request.method === 'GET' && path === '/runtime') return json(service.runtimeStatus());
+      if (request.method === 'POST' && path === '/desktop/shutdown' && desktopShutdown) {
+        const runtime = service.runtimeStatus();
+        if (runtime.runningSessions.length || runtime.updatingWiki)
+          throw new AppError(
+            'service_busy',
+            'A task is still active; wait or explicitly cancel it before restarting or exiting.',
+            409,
+          );
+        setTimeout(desktopShutdown, 50);
+        return json({ stopping: true });
+      }
       const body = async (): Promise<Record<string, unknown>> => {
         const declared = Number(request.headers.get('content-length') ?? 0);
         if (declared > service.config.requestLimitBytes)
@@ -170,7 +185,9 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
         }
       }
       const match =
-        /^\/session\/([^/]+)(?:\/(message|prompt_async|abort|review|resolve_review))?$/.exec(path);
+        /^\/session\/([^/]+)(?:\/(message|prompt_async|abort|review|resolve_review|state))?$/.exec(
+          path,
+        );
       if (!match) throw new AppError('not_found', 'Route not found', 404);
       const [, id, action] = match;
       service.store.getSession(id);
@@ -178,6 +195,7 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
       if (request.method === 'GET' && action === 'message')
         return json(service.store.messages(id, ...page()));
       if (request.method === 'GET' && action === 'review') return json(service.review(id));
+      if (request.method === 'GET' && action === 'state') return json(service.sessionState(id));
       if (request.method === 'POST' && action === 'resolve_review') {
         const input = await body();
         if (
@@ -222,12 +240,12 @@ export function handler(service: AgentService): (request: Request) => Promise<Re
     }
   };
 }
-export function serve(service: AgentService) {
+export function serve(service: AgentService, desktopShutdown?: () => void) {
   return Bun.serve({
     hostname: service.config.host,
     port: service.config.port,
     idleTimeout: 0,
     maxRequestBodySize: service.config.requestLimitBytes,
-    fetch: handler(service),
+    fetch: handler(service, desktopShutdown),
   });
 }

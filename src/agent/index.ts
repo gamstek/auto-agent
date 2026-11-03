@@ -103,6 +103,25 @@ export class AgentService {
     this.wikiService = new Wiki(config, store.db);
   }
   private readonly wikiService: Wiki;
+  runtimeStatus() {
+    return {
+      closing: this.closing,
+      runningSessions: [...this.active.keys()],
+      updatingWiki: !!this.wikiUpdate || !!this.wikiIndexUpdate,
+    };
+  }
+  sessionState(sessionId: string) {
+    this.store.getSession(sessionId);
+    const run = this.store.db
+      .query<
+        { id: string; status: string; createdAt: number; finishedAt: number | null },
+        [string]
+      >(
+        'SELECT id,status,createdAt,finishedAt FROM runs WHERE sessionId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1',
+      )
+      .get(sessionId);
+    return { running: this.active.has(sessionId), run, ...this.review(sessionId) };
+  }
   review(sessionId: string) {
     const pending = this.store.pendingReview(sessionId);
     return {

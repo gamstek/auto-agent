@@ -31,10 +31,40 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: auto-agent-${{ runner.os }}-x64
-          path: dist/*
+          path: ${{ runner.os == 'Windows' && 'dist/auto-agent.exe' || 'dist/auto-agent' }}
+  desktop:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+      - run: bun install --frozen-lockfile
+      - run: bun install --cwd desktop --frozen-lockfile
+      - run: bun run --cwd desktop prepare:backend
+      - run: bun run --cwd desktop build
+      - run: bunx playwright install chromium
+        working-directory: desktop
+      - run: bun run desktop:test
+        env:
+          PLAYWRIGHT_CHANNEL: chromium
+      - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
+      - run: bun run desktop:build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: auto-agent-Desktop-Windows-x64
+          path: desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
   release:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
-    needs: test
+    needs: [test, desktop]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -46,6 +76,11 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Publish GitHub Release
-        run: gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease --latest=false)
+          fi
+          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes "${flags[@]}"
         env:
           GH_TOKEN: ${{ github.token }}

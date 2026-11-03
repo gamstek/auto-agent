@@ -1,0 +1,260 @@
+/* Page layout only. Shared controls and state colors live in components/ui.css. */
+.settings-sidebar-content {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: -3px -7px 0;
+}
+.settings-sidebar-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 9px 17px;
+}
+.settings-sidebar-heading strong {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.settings-sidebar-content > .ui-search {
+  margin-bottom: 12px;
+}
+.settings-menu {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+  padding-right: 2px;
+}
+.settings-menu section {
+  margin: 5px 0 24px;
+}
+.session-sidebar .settings-menu h2 {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin: 5px 9px 8px;
+  padding: 0;
+}
+.settings-no-results {
+  padding: 15px 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.settings-page.settings-form {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  height: auto;
+  flex: 1;
+  min-height: 0;
+  background: #fff;
+}
+.settings-page.settings-form[hidden] {
+  display: none !important;
+}
+.settings-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  flex: 1;
+  scrollbar-gutter: stable;
+  padding: 40px clamp(28px, 7vw, 92px);
+}
+.settings-body {
+  max-width: 760px;
+  margin: 0 auto;
+}
+.settings-page-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  margin: 0 0 32px;
+}
+.autosave-indicator {
+  color: var(--text-muted);
+}
+.pending-apply {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+}
+.settings-group {
+  margin: 0 0 32px;
+}
+.settings-group > h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+}
+.setting-rows {
+  border: 1px solid var(--control-border);
+  border-radius: 15px;
+  padding: 0 15px;
+  overflow: hidden;
+  background: white;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 16px 0;
+  min-height: 66px;
+  border-bottom: 1px solid var(--control-border);
+}
+.setting-row:last-child {
+  border-bottom: 0;
+}
+.setting-copy {
+  min-width: 0;
+  flex: 1;
+}
+.setting-copy label {
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  font-weight: 450;
+}
+.setting-copy p {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-top: 4px;
+  max-width: 360px;
+}
+.setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 43%;
+  max-width: 320px;
+  min-width: 0;
+}
+.setting-control .setting-number {
+  width: 116px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.setting-control input[type='number']::-webkit-inner-spin-button {
+  opacity: 0;
+}
+.setting-control input[type='number']:hover::-webkit-inner-spin-button,
+.setting-control input[type='number']:focus::-webkit-inner-spin-button {
+  opacity: 1;
+}
+.setting-control .password-field {
+  width: 100%;
+  min-width: 0;
+}
+.setting-control .password-field .ui-icon {
+  height: 27px;
+  width: 27px;
+  top: 4px;
+  right: 4px;
+}
+.setting-control .password-field input {
+  padding-right: 34px !important;
+}
+.setting-control .password-field button:focus-visible {
+  outline-offset: 0;
+}
+.setting-value {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.directory-control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.directory-control code,
+.directory-value {
+  font-family: Consolas, monospace;
+  font-size: 10px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  min-width: 0;
+}
+.setting-paths {
+  padding: 0 0 12px;
+}
+.setting-paths > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0;
+  background: var(--control-bg);
+  border-radius: 6px;
+  padding: 5px 8px;
+}
+.setting-paths code {
+  font-size: 11px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+.setting-paths .ui-icon {
+  width: 22px;
+  height: 22px;
+}
+.setting-row.wide-row {
+  display: block;
+}
+.wide-row .setting-control {
+  max-width: none;
+  display: block;
+  margin-top: 12px;
+}
+.wide-row textarea {
+  resize: vertical;
+  min-height: 110px;
+}
+.settings-section-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.8;
+  margin-top: -13px;
+  padding: 0 2px;
+}
+@media (max-width: 1050px) {
+  .settings-scroll {
+    padding: 28px 26px;
+  }
+  .setting-row {
+    gap: 15px;
+  }
+  .setting-control {
+    flex-basis: 46%;
+  }
+}
+@media (max-width: 700px) {
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .setting-control {
+    max-width: none;
+    width: 100%;
+    flex-basis: auto;
+  }
+  .settings-scroll {
+    padding: 22px 18px;
+  }
+}

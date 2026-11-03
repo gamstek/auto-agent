@@ -4,3 +4,11 @@ dist/
 bun.lock
 coverage/
 *.sqlite*
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/src-tauri/binaries/
+desktop/bun.lock
+desktop/test-results/
+desktop/playwright-report/

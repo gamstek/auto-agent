@@ -13,6 +13,22 @@ A local-first automation assistant for specific surface area and pore size analy
 
 ## Quick start
 
+### Desktop (Windows)
+
+Tauri 2 + React 桌面客户端位于 [desktop/](desktop/README.md)，按 `docs/ui` 设计实现聊天、常见问题、会话、设置与悬浮助手入口。首次运行在设置页保存模型 Key；桌面数据和系统凭据与 CLI 分开管理。
+
+```powershell
+bun install --frozen-lockfile
+bun install --cwd desktop --frozen-lockfile
+bun run desktop:dev
+# 生成包含公共后端的 Windows 安装包：
+bun run desktop:build
+```
+
+安装包位置：`desktop/src-tauri/target/release/bundle/nsis/`。开发需要 Rust、Windows C++ Build Tools 和 WebView2，完整说明及原生验收方法见桌面 README。
+
+### CLI
+
 ```powershell
 bun install --frozen-lockfile
 $env:AUTO_AGENT_API_KEY = 'your-cloud-model-key'
@@ -21,7 +37,7 @@ npm run dev -- --config .\examples\config.json
 
 The default entry starts a local readline REPL without HTTP authentication. Enter a message to continue the same session. Use /exit or Ctrl+C while idle to exit; Ctrl+C during generation cancels the reply. Use --session ID to continue history and --json for assistant JSON output. Positional arguments other than serve become the first chat message; there are no one-shot run/session/abort commands or --url/--stream options.
 
-Assistant Markdown supports headings, emphasis, lists, quotes, links, and code fences. Streaming is rendered by complete lines; tables remain plain text. NO_COLOR, TERM=dumb, and redirected output disable colors.
+Assistant Markdown supports headings, emphasis, lists, quotes, links, code fences and terminal GFM tables. Ordinary text streams after bounded lookahead; structural blocks retain their formatting. NO_COLOR, TERM=dumb, and redirected output disable colors.
 
 ### HTTP service
 

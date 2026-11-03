@@ -133,7 +133,10 @@ export async function main(
   if (isServer) {
     let server: ReturnType<typeof serve>;
     try {
-      server = serve(service);
+      server = serve(
+        service,
+        process.env.AUTO_AGENT_DESKTOP === '1' ? () => void stop() : undefined,
+      );
     } catch (error) {
       diagnostics.write('agent', 'startup.failed', {
         stage: 'listen',
@@ -159,6 +162,11 @@ export async function main(
         store.close();
       }
     };
+    if (process.env.AUTO_AGENT_DESKTOP === '1') {
+      // Desktop owns this private stdin pipe; EOF means its supervising shell died.
+      process.stdin.resume();
+      process.stdin.once('end', () => void stop());
+    }
     process.once('SIGINT', () => void stop());
     process.once('SIGTERM', () => void stop());
   } else {

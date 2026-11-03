@@ -1,0 +1,29 @@
+[package]
+name = "auto-agent-desktop"
+version = "2.0.0-beta.1"
+description = "Auto-Agent desktop assistant"
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+futures-util = "0.3"
+uuid = { version = "1", features = ["v4"] }
+keyring = { version = "3", features = ["windows-native", "apple-native", "sync-secret-service"] }
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

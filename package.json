@@ -1,9 +1,12 @@
 {
   "name": "auto-agent",
-  "version": "0.1.11",
+  "version": "2.0.0-beta.1",
   "private": true,
   "type": "module",
   "scripts": {
+    "desktop:dev": "bun run --cwd desktop desktop:dev",
+    "desktop:build": "bun run --cwd desktop desktop:build",
+    "desktop:test": "bun run --cwd desktop test:ui",
     "dev": "bun scripts/dev.ts",
     "start": "bun src/index.ts",
     "test": "bun test",
