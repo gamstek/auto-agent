@@ -1,0 +1,69 @@
+.nav-item[data-selected] {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 11px;
+  margin: 2px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+  text-align: left;
+  transform: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+  cursor: pointer;
+}
+.nav-item[data-selected='true'] {
+  background: var(--accent-selected);
+  color: var(--accent-selected-text);
+}
+.nav-item[data-selected] .nav-item-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: inherit;
+  width: 17px;
+}
+.nav-item[data-selected] .nav-item-icon svg {
+  color: inherit;
+  stroke-width: 1.6;
+}
+.nav-item[data-selected] .nav-item-label {
+  flex: 1;
+  min-width: 0;
+  max-width: none;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font: inherit;
+  color: inherit;
+}
+.nav-item[data-selected] .nav-item-meta {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.nav-item[data-selected]:active {
+  transform: none !important;
+}
+.nav-item:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .nav-item[data-selected='false']:hover {
+    background: var(--accent-soft);
+    color: var(--accent-selected-text);
+  }
+  .nav-item[data-selected='true']:hover {
+    background: var(--accent-selected);
+    color: var(--accent-selected-text);
+  }
+}

@@ -1,0 +1,13 @@
+.response-actions {
+  display: flex;
+  gap: 3px;
+  margin: 14px 0 -5px;
+}
+.response-actions .icon-button {
+  color: #777;
+  width: 29px;
+  height: 29px;
+}
+.response-actions .active {
+  color: var(--blue);
+}

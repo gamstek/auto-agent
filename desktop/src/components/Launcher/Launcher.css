@@ -1,0 +1,82 @@
+.launcher-mode,
+.launcher-mode #root {
+  background: transparent;
+}
+.launcher-mode {
+  overflow: hidden;
+}
+.launcher {
+  height: 100dvh;
+  display: grid;
+  place-items: center;
+  position: relative;
+}
+.launcher button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: white;
+  border-radius: 12px;
+  padding: 4px 6px;
+  box-shadow: 0 4px 16px #0002;
+  color: #0088ff;
+}
+.launcher strong {
+  font-size: 12px;
+  margin: 3px 0;
+}
+.launcher .launcher-drag {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  background: transparent;
+  box-shadow: none;
+  font-size: 16px;
+  color: #a1aab5;
+  cursor: grab;
+  z-index: 2;
+  padding: 0 8px;
+}
+.launcher .launcher-collapse {
+  position: absolute;
+  right: 4px;
+  top: 16px;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  z-index: 3;
+  box-shadow: none;
+}
+.launcher .launcher-open {
+  box-shadow: none;
+  background: transparent;
+  padding: 0;
+}
+.launcher .launcher-open img {
+  width: 60px;
+  height: 60px;
+  object-fit: contain;
+}
+.launcher.compact .launcher-open img {
+  width: 24px;
+  height: 24px;
+}
+.launcher .launcher-open strong {
+  background: white;
+  padding: 3px 7px;
+  border-radius: 5px;
+  box-shadow: 0 3px 10px #233a5010;
+}
+.launcher.compact .launcher-open {
+  background: white;
+  border-radius: 9px;
+  padding: 7px 2px;
+}
+.launcher.compact .launcher-open strong {
+  padding: 2px;
+  box-shadow: none;
+}

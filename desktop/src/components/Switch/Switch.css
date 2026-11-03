@@ -1,0 +1,40 @@
+.ui-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  flex-shrink: 0;
+  width: 32px;
+  height: 19px;
+  margin: 0;
+  border: 0;
+  border-radius: 12px;
+  background: #dce2ea;
+  cursor: pointer;
+  transition: background-color 160ms ease;
+}
+.ui-switch:before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: white;
+  box-shadow: 0 1px 2px #10233c16;
+  transition: transform 160ms var(--ease-out);
+}
+.ui-switch:checked {
+  background: var(--accent);
+}
+.ui-switch:checked:before {
+  transform: translateX(13px);
+}
+.ui-switch:focus-visible:before {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .ui-switch:before {
+    transition: none;
+  }
+}

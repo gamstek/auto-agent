@@ -2,23 +2,17 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { listen } from '@tauri-apps/api/event';
 import {
   Check,
-  Copy,
-  Heart,
   History,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
   Settings2,
   ShieldAlert,
-  ThumbsDown,
   X,
   Minimize2,
   Home,
   BookOpen,
 } from 'lucide-react';
-import Markdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import avatar from './assets/assistant-avatar.png';
 import {
   api,
   desktop,
@@ -29,19 +23,24 @@ import {
   type Session,
   type SessionState,
 } from './bridge';
-import { Settings, SettingsNavigation } from './Settings';
-import { Titlebar } from './Titlebar';
-import { Composer } from './Composer';
-import { Button, IconButton, NavigationItem, SearchField, Textarea } from './components/ui';
+import { Settings, SettingsNavigation } from './components/Settings/Settings';
+import { Titlebar } from './components/Titlebar/Titlebar';
+import { Composer } from './components/Composer/Composer';
+import { Button } from './components/Button/Button';
+import { IconButton } from './components/IconButton/IconButton';
+import { SessionList } from './components/SessionList/SessionList';
+import { useSessions } from './hooks/useSessions';
+import { SearchField } from './components/SearchField/SearchField';
+import { Textarea } from './components/Textarea/Textarea';
+import { MarkdownAnswer } from './components/MarkdownAnswer/MarkdownAnswer';
+import { Avatar } from './components/Avatar/Avatar';
+import { ResponseActions } from './components/ResponseActions/ResponseActions';
+import { Welcome } from './components/Welcome/Welcome';
+import { Conversation } from './components/Conversation/Conversation';
+import './App.css';
 
 const welcome =
   '你好！我是量仔，你的 Climber 专属小助理。可以帮你查阅知识、准备测样方案和跟踪仪器任务。有什么可以帮到你的吗？';
-const questions = [
-  'BET 比表面积和 BJH 孔径分析有什么区别？',
-  'Climber 测试前，应该准备哪些样品信息？',
-  '如何参考历史案例设置压力程序与平衡条件？',
-  '查询一下 Climber 当前的连接和运行状态。',
-];
 type Live = {
   id: string;
   text: string;
@@ -57,76 +56,6 @@ const labels: Record<string, string> = {
   web_search: '搜索网页',
 };
 
-function Answer({ text }: { text: string }) {
-  return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        a: ({ href, children }) => (
-          <a
-            href={href}
-            onClick={(e) => {
-              e.preventDefault();
-              if (href) void native('open_link', { url: href }).catch(() => {});
-            }}
-          >
-            {children}
-          </a>
-        ),
-        img: ({ alt }) => <span>[图片：{alt ?? '外部图片'}]</span>,
-      }}
-    >
-      {text}
-    </Markdown>
-  );
-}
-function Avatar() {
-  return <img className="avatar" src={avatar} alt="量仔" />;
-}
-function ResponseActions({ message }: { message: Message }) {
-  const [copied, setCopied] = useState(false);
-  const [feedback, setFeedback] = useState(
-    () => localStorage.getItem(`feedback:${message.id}`) ?? '',
-  );
-  function vote(value: string) {
-    const next = feedback === value ? '' : value;
-    setFeedback(next);
-    if (next) localStorage.setItem(`feedback:${message.id}`, next);
-    else localStorage.removeItem(`feedback:${message.id}`);
-  }
-  return (
-    <div className="response-actions">
-      <IconButton
-        label="复制回复"
-        title="复制回复"
-        onClick={() => {
-          void navigator.clipboard.writeText(message.content).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1500);
-          });
-        }}
-      >
-        {copied ? <Check size={17} /> : <Copy size={17} />}
-      </IconButton>
-      <IconButton
-        label="标记喜欢（仅本机）"
-        title="标记喜欢（仅本机）"
-        selected={feedback === 'like'}
-        onClick={() => vote('like')}
-      >
-        <Heart size={18} fill={feedback === 'like' ? 'currentColor' : 'none'} />
-      </IconButton>
-      <IconButton
-        label="标记不喜欢（仅本机）"
-        title="标记不喜欢（仅本机）"
-        selected={feedback === 'dislike'}
-        onClick={() => vote('dislike')}
-      >
-        <ThumbsDown size={18} />
-      </IconButton>
-    </div>
-  );
-}
 export function App() {
   const [sidebar, setSidebar] = useState(true),
     [settings, setSettings] = useState(false);
@@ -172,9 +101,10 @@ export function App() {
       layoutAnimation.current = element.animate(
         [
           {
-            transform: `translateX(${before.left - after.left}px) scaleX(${before.width / after.width})`,
+            transform: `translateX(${before.left - after.left}px)`,
+            width: `${before.width}px`,
           },
-          { transform: 'translateX(0) scaleX(1)' },
+          { transform: 'translateX(0)', width: `${after.width}px` },
         ],
         { duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
       );
@@ -199,8 +129,15 @@ export function App() {
     lastPage.current = settings;
     return () => pageAnimation.current?.cancel();
   }, [settings]);
-  const [sessions, setSessions] = useState<Session[]>([]),
-    [sessionId, setSessionId] = useState('');
+  const {
+    sessions,
+    loading: sessionsLoading,
+    hasMore: moreSessions,
+    error: sessionsError,
+    refreshSessions,
+    loadMore: loadMoreSessions,
+  } = useSessions();
+  const [sessionId, setSessionId] = useState('');
   const [messages, setMessages] = useState<Message[]>([]),
     [live, setLive] = useState<Live | null>(null);
   const [state, setState] = useState<SessionState | null>(null),
@@ -243,10 +180,6 @@ export function App() {
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
   }, [settings, sidebar]);
-  const refreshSessions = useCallback(
-    async () => setSessions(await api<Session[]>('/session?limit=100')),
-    [],
-  );
   const sync = useCallback(async () => {
     const id = idRef.current;
     if (!id) return;
@@ -288,8 +221,7 @@ export function App() {
     try {
       await native('backend_start');
       setConnection('connected');
-      const list = await api<Session[]>('/session?limit=100');
-      setSessions(list);
+      const list = await refreshSessions();
       const previous = localStorage.getItem('last-session');
       if (idRef.current) await sync();
       else if (previous && list.some((s) => s.id === previous)) select(previous);
@@ -465,9 +397,6 @@ export function App() {
     }
   }
   const hasConversation = messages.length > 0 || busy || !!state?.pending;
-  const visibleSessions = sessions.filter((session) =>
-    session.title.toLowerCase().includes(sessionFilter.trim().toLowerCase()),
-  );
   const composer = (
     <Composer
       input={input}
@@ -590,28 +519,24 @@ export function App() {
               <History size={14} />
               最近会话
             </h2>
-            <div className="sessions">
-              {visibleSessions.length ? (
-                visibleSessions.map((s) => (
-                  <NavigationItem
-                    key={s.id}
-                    title={s.title}
-                    selected={sessionId === s.id}
-                    label={s.title === 'New session' ? '新的对话' : s.title}
-                    trailing={new Date(s.updatedAt).toLocaleDateString('zh-CN', {
-                      month: 'short',
-                      day: 'numeric',
-                    })}
-                    onClick={() => {
-                      select(s.id);
-                      setSettings(false);
-                    }}
-                  />
-                ))
-              ) : (
-                <p className="muted">{sessionFilter ? '没有匹配的会话' : '你的对话会保存在这里'}</p>
-              )}
-            </div>
+            <SessionList
+              sessions={sessions}
+              selectedId={sessionId}
+              query={sessionFilter}
+              active={sidebar && connection === 'connected'}
+              loading={sessionsLoading}
+              hasMore={moreSessions}
+              error={sessionsError}
+              onSelect={(id) => {
+                select(id);
+                setSettings(false);
+              }}
+              onLoadMore={loadMoreSessions}
+              onRetry={() => {
+                if (moreSessions) void loadMoreSessions();
+                else void refreshSessions().catch(() => {});
+              }}
+            />
           </>
         )}
       </aside>
@@ -698,8 +623,7 @@ export function App() {
                   </Button>
                 </div>
               )}
-              <div
-                className="conversation"
+              <Conversation
                 ref={scroll}
                 onScroll={() => {
                   const element = scroll.current!;
@@ -708,196 +632,122 @@ export function App() {
                   setShowBottom(!stick.current);
                 }}
               >
-                <div className="conversation-inner">
-                  {older && (
-                    <Button
-                      variant="ghost"
-                      className="older-button"
-                      onClick={() => void loadOlder()}
-                    >
-                      加载更早的消息
-                    </Button>
-                  )}
-                  {hasConversation && (
-                    <div className="message assistant welcome">
-                      <Avatar />
-                      <div className="bubble">{welcome}</div>
+                {older && (
+                  <Button variant="ghost" className="older-button" onClick={() => void loadOlder()}>
+                    加载更早的消息
+                  </Button>
+                )}
+                {hasConversation && (
+                  <div className="message assistant welcome">
+                    <Avatar />
+                    <div className="bubble">{welcome}</div>
+                  </div>
+                )}
+                {!hasConversation && (
+                  <Welcome
+                    composer={composer}
+                    disabled={connection !== 'connected' || sending}
+                    onQuestion={(question) => void send(question)}
+                  />
+                )}
+                {messages.map((message) => (
+                  <div className={`message ${message.role}`} key={message.id}>
+                    {message.role === 'assistant' && <Avatar />}
+                    <div className="bubble">
+                      {message.role === 'assistant' ? (
+                        <>
+                          <MarkdownAnswer text={message.content} />
+                          <ResponseActions message={message} />
+                        </>
+                      ) : (
+                        <div className="user-text">{message.content}</div>
+                      )}
                     </div>
-                  )}
-                  {!hasConversation && (
-                    <section className="faq-card">
-                      <div className="landing-identity">
-                        <Avatar />
-                        <span>量仔 · 你的测样小助理</span>
-                      </div>
-                      <h1>随时可以开始。</h1>
-                      <p className="landing-subtitle">从一个问题开始，让实验思路更清晰。</p>
-                      {composer}
-                      <h2>常见问题</h2>
-                      <div className="faq-list">
-                        {questions.map((question) => (
-                          <Button
-                            variant="ghost"
-                            className="faq-item"
-                            key={question}
-                            disabled={connection !== 'connected' || sending}
-                            onClick={() => void send(question)}
-                          >
-                            <BookOpen size={16} />
-                            <span>{question}</span>
-                          </Button>
-                        ))}
-                      </div>
-                    </section>
-                  )}
-                  {messages.map((message) => (
-                    <div className={`message ${message.role}`} key={message.id}>
-                      {message.role === 'assistant' && <Avatar />}
-                      <div className="bubble">
-                        {message.role === 'assistant' ? (
-                          <>
-                            <div className="markdown">
-                              <Answer text={message.content} />
+                  </div>
+                ))}
+                {busy && (
+                  <div className="message assistant">
+                    <Avatar />
+                    <div className="bubble live-bubble">
+                      {live?.reasoning && (
+                        <details className="thinking">
+                          <summary>思考过程</summary>
+                          <p>{live.reasoning}</p>
+                        </details>
+                      )}
+                      {!!live?.steps.length && (
+                        <details className="tool-steps" open={!live.text}>
+                          <summary>处理过程 · {live.steps.length} 项</summary>
+                          {live.steps.map((step) => (
+                            <div key={step.id}>
+                              <span>
+                                {step.status === 'running' ? (
+                                  <LoaderCircle size={13} className="spin" />
+                                ) : step.status === 'completed' ? (
+                                  <Check size={13} />
+                                ) : (
+                                  <ShieldAlert size={13} />
+                                )}
+                              </span>
+                              <strong>{step.name}</strong>
+                              <small>{step.detail || step.status}</small>
                             </div>
-                            <ResponseActions message={message} />
-                          </>
-                        ) : (
-                          <div className="user-text">{message.content}</div>
-                        )}
-                      </div>
+                          ))}
+                        </details>
+                      )}
+                      {live?.text ? (
+                        <MarkdownAnswer text={live.text} />
+                      ) : (
+                        <div className="working">
+                          <LoaderCircle className="spin" size={16} />
+                          量仔正在处理你的请求…
+                        </div>
+                      )}
                     </div>
-                  ))}
-                  {busy && (
-                    <div className="message assistant">
-                      <Avatar />
-                      <div className="bubble live-bubble">
-                        {live?.reasoning && (
-                          <details className="thinking">
-                            <summary>思考过程</summary>
-                            <p>{live.reasoning}</p>
-                          </details>
-                        )}
-                        {!!live?.steps.length && (
-                          <details className="tool-steps" open={!live.text}>
-                            <summary>处理过程 · {live.steps.length} 项</summary>
-                            {live.steps.map((step) => (
-                              <div key={step.id}>
-                                <span>
-                                  {step.status === 'running' ? (
-                                    <LoaderCircle size={13} className="spin" />
-                                  ) : step.status === 'completed' ? (
-                                    <Check size={13} />
-                                  ) : (
-                                    <ShieldAlert size={13} />
-                                  )}
-                                </span>
-                                <strong>{step.name}</strong>
-                                <small>{step.detail || step.status}</small>
-                              </div>
-                            ))}
-                          </details>
-                        )}
-                        {live?.text ? (
-                          <div className="markdown">
-                            <Answer text={live.text} />
-                          </div>
-                        ) : (
-                          <div className="working">
-                            <LoaderCircle className="spin" size={16} />
-                            量仔正在处理你的请求…
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                  {state?.pending && (
-                    <section className="review-card">
-                      <h2>
-                        <ShieldAlert size={20} />
-                        执行结果需要核对
-                      </h2>
-                      <p>
-                        本次操作的外部效果尚未确认。请核对厂家当前任务与批次，再记录处理结果；不会自动重放旧请求。
-                      </p>
-                      {state.pending.executions
-                        .filter((e) => e.status === 'unknown')
-                        .map((e) => (
-                          <div className="review-detail" key={e.id}>
-                            <code>{e.diagnostic?.code ?? 'OUTCOME_UNKNOWN'}</code>
-                            <p>{e.diagnostic?.message ?? '原执行未保留详细诊断，请查看日志。'}</p>
-                            {e.diagnostic?.batchId && <span>批次：{e.diagnostic.batchId}</span>}
-                          </div>
-                        ))}
-                      <label className="field">
-                        <span>操作者核对说明</span>
-                        <Textarea
-                          value={note}
-                          onChange={(e) => setNote(e.target.value)}
-                          placeholder="记录已核对的批次、状态和处理结论"
-                        />
-                      </label>
-                      <Button
-                        variant="primary"
-                        disabled={!note.trim()}
-                        onClick={() => void resolveReview()}
-                      >
-                        记录核对结果
-                      </Button>
-                    </section>
-                  )}
-                  <div ref={bottom} />
-                </div>
-              </div>
+                  </div>
+                )}
+                {state?.pending && (
+                  <section className="review-card">
+                    <h2>
+                      <ShieldAlert size={20} />
+                      执行结果需要核对
+                    </h2>
+                    <p>
+                      本次操作的外部效果尚未确认。请核对厂家当前任务与批次，再记录处理结果；不会自动重放旧请求。
+                    </p>
+                    {state.pending.executions
+                      .filter((e) => e.status === 'unknown')
+                      .map((e) => (
+                        <div className="review-detail" key={e.id}>
+                          <code>{e.diagnostic?.code ?? 'OUTCOME_UNKNOWN'}</code>
+                          <p>{e.diagnostic?.message ?? '原执行未保留详细诊断，请查看日志。'}</p>
+                          {e.diagnostic?.batchId && <span>批次：{e.diagnostic.batchId}</span>}
+                        </div>
+                      ))}
+                    <label className="field">
+                      <span>操作者核对说明</span>
+                      <Textarea
+                        value={note}
+                        onChange={(e) => setNote(e.target.value)}
+                        placeholder="记录已核对的批次、状态和处理结论"
+                      />
+                    </label>
+                    <Button
+                      variant="primary"
+                      disabled={!note.trim()}
+                      onClick={() => void resolveReview()}
+                    >
+                      记录核对结果
+                    </Button>
+                  </section>
+                )}
+                <div ref={bottom} />
+              </Conversation>
               {hasConversation && composer}
             </>
           )}
         </div>
       </main>
-    </div>
-  );
-}
-export function Launcher() {
-  const [compact, setCompact] = useState(false);
-  return (
-    <div
-      className={`launcher ${compact ? 'compact' : ''}`}
-      onContextMenu={(event) => {
-        event.preventDefault();
-        void native('launcher_menu');
-      }}
-    >
-      <button
-        className="launcher-drag"
-        title="拖动悬浮助手"
-        aria-label="拖动悬浮助手"
-        onPointerDown={(e) => {
-          if (e.button === 0) void native('drag_launcher');
-        }}
-      >
-        ···
-      </button>
-      {!compact && (
-        <IconButton
-          className="launcher-collapse"
-          title="收起悬浮助手"
-          label="收起悬浮助手"
-          onClick={() => {
-            setCompact(true);
-            void native('launcher_compact', { compact: true });
-          }}
-        >
-          <X size={12} />
-        </IconButton>
-      )}
-      <button
-        className="launcher-open"
-        title="打开 AI 助理"
-        aria-label="打开 AI 助理"
-        onClick={() => void native('show_main')}
-      >
-        <img src={avatar} alt="量仔" />
-        <strong>{compact ? 'Ai' : 'Ai 助手'}</strong>
-      </button>
     </div>
   );
 }

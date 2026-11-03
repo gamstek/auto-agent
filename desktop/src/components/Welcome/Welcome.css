@@ -1,0 +1,90 @@
+.faq-card {
+  width: min(100%, 700px);
+  margin: auto;
+  padding: 35px 10px 65px;
+  background: white;
+}
+.faq-card h1 {
+  text-align: center;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+.landing-identity {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 18px;
+  color: #9aa8b3;
+  font-size: 12px;
+}
+.landing-identity .avatar {
+  width: 35px;
+  height: 35px;
+}
+.faq-card .landing-subtitle {
+  margin: 12px 0 23px;
+  color: #a8afb6;
+  font-size: 12px;
+}
+.faq-card h2 {
+  font-size: 11px;
+  font-weight: 400;
+  color: #b1b7be;
+  margin: 27px 18px 12px;
+}
+.faq-card .composer-region {
+  padding: 0;
+}
+.faq-card .composer {
+  box-shadow: 0 3px 17px #20304008;
+}
+.faq-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.faq-list .ui-button.faq-item {
+  justify-content: flex-start;
+  width: 100%;
+  white-space: normal;
+  text-align: left;
+  padding: 11px 17px;
+  gap: 12px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  line-height: 1.65;
+  font-size: 12px;
+  color: #8c949c;
+}
+.faq-list button svg {
+  color: #a6bfd4;
+}
+.faq-card > p {
+  margin-top: 21px;
+  text-align: center;
+  color: #bdc3cb;
+  font-size: 11px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .faq-list .ui-button.faq-item:hover {
+    background: #f1f8ff;
+    border-color: #2196f3;
+    color: #2f506b;
+  }
+}
+@media (max-width: 1050px) {
+  .faq-card {
+    padding: 32px;
+    width: calc(100% - 40px);
+  }
+}
+@media (max-width: 700px) {
+  .faq-card {
+    width: 100%;
+    padding: 24px 18px;
+    margin-top: 35px;
+  }
+}

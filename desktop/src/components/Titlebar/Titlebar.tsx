@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { Copy, Square, Minus, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react';
-import { desktop, errorText, native } from './bridge';
-import { IconButton } from './components/ui';
+import { desktop, errorText, native } from '../../bridge';
+import { IconButton } from '../IconButton/IconButton';
+import './Titlebar.css';
 
 export function Titlebar({
   sidebar,

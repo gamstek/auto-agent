@@ -26,6 +26,9 @@
       "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost; script-src 'self'; object-src 'none'; base-uri 'self'; frame-src 'none'"
     }
   },
+  "plugins": {
+    "updater": { "pubkey": "" }
+  },
   "bundle": {
     "active": true,
     "targets": ["nsis"],

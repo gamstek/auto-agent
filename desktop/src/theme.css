@@ -1,0 +1,24 @@
+:root {
+  --accent: #2196f3;
+  --accent-hover: #1976d2;
+  --accent-soft: #f1f8ff;
+  --accent-selected: #e8f3ff;
+  --accent-selected-text: #1688df;
+  --accent-border: #cfe5fa;
+  --focus-ring: #2196f340;
+  --shell-bg: #edf5fd;
+  --sidebar-bg: #f7fbff;
+  --control-bg: #f6f8fb;
+  --control-border: #e5eaf1;
+  --text-primary: #354052;
+  --text-secondary: #697789;
+  --text-muted: #98a3b2;
+  --blue: var(--accent);
+  --blue-dark: var(--accent-hover);
+  --pale: var(--accent-selected);
+  --muted: #89919b;
+  --line: #e8ebef;
+  --surface: #f5f6f8;
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+}

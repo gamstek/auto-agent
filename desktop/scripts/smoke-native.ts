@@ -125,21 +125,28 @@ try {
   await page.getByLabel('服务地址', { exact: false }).fill(`${server.url.origin}/v1`);
   await page.getByLabel('模型名称', { exact: false }).fill('desktop-smoke');
   await page.getByPlaceholder('输入你的 API Key').fill(key);
-  await page
-    .getByText('已保存在系统凭据库。留空保留现有 Key。', { exact: true })
-    .waitFor({ timeout: 30000 });
+  await page.getByText('已配置。留空保留现有 Key。', { exact: true }).waitFor({ timeout: 30000 });
   await page.screenshot({ path: join(output, 'native-settings.png') });
-  const settings = await readFile(join(profile, 'settings.json'), 'utf8');
+  const settings = await readFile(join(profile, 'config.json'), 'utf8');
   if (settings.includes(key)) throw new Error('API key appeared in plaintext settings');
   await page.getByRole('button', { name: '返回聊天', exact: true }).click();
   await page.getByRole('textbox', { name: '输入消息' }).fill('本地桌面联调，请直接回答。');
   await page.getByRole('button', { name: '发送消息', exact: true }).click();
   for (let i = 0; i < 100 && !releaseReply; i++) await Bun.sleep(50);
   if (!releaseReply) throw new Error('Mock generation did not start');
+  let busyExitBlocked = false;
+  try {
+    await invoke('exit_app');
+  } catch {
+    busyExitBlocked = true;
+  }
+  if (!busyExitBlocked || child.exitCode !== null)
+    throw new Error('Active work did not prevent application exit');
   const whileRunning = await invoke<any>('settings_read');
   const nextSteps = whileRunning.settings.maxSteps + 1;
   const deferred = await invoke<any>('settings_save', {
     settings: { ...whileRunning.settings, maxSteps: nextSteps },
+    configRevision: whileRunning.configRevision,
     apiKey: null,
     clearKey: false,
   });
@@ -152,7 +159,7 @@ try {
   });
   if (runtime.runningSessions.length !== 1)
     throw new Error('Saving settings interrupted active generation');
-  if (JSON.parse(await readFile(join(profile, 'settings.json'), 'utf8')).maxSteps !== nextSteps)
+  if (JSON.parse(await readFile(join(profile, 'config.json'), 'utf8')).maxSteps !== nextSteps)
     throw new Error('Deferred settings were not persisted');
   releaseReply();
   await page
@@ -185,10 +192,10 @@ try {
   await page.locator('.app[data-backend-state="connected"]').waitFor({ timeout: 30000 });
   await invoke('window_action', { action: 'minimize' });
   await invoke('show_main');
-  await page.getByRole('button', { name: '关闭窗口', exact: true }).click();
+  await page.getByRole('button', { name: '收起至悬浮助手', exact: true }).click();
   await Bun.sleep(200);
   if ((await invoke<any>('window_action', { action: 'state' })).visible)
-    throw new Error('Custom close did not hide the main window');
+    throw new Error('Dedicated launcher control did not hide the main window');
   await invoke('show_main');
   await page.reload();
   await page.locator('.app[data-backend-state="connected"]').waitFor({ timeout: 30000 });
@@ -196,13 +203,21 @@ try {
     .getByText('桌面联调成功：本次仅连接本地模拟模型。', { exact: true })
     .waitFor({ timeout: 10000 });
   const info = await invoke<any>('settings_read');
-  await invoke('settings_save', { settings: info.settings, apiKey: null, clearKey: true });
+  await invoke('settings_save', {
+    settings: info.settings,
+    configRevision: info.configRevision,
+    apiKey: null,
+    clearKey: true,
+  });
   const noKey = await invoke<any>('settings_read');
   if (noKey.hasApiKey) throw new Error('Test key removal failed');
-  await invoke('exit_app').catch(() => {});
+  await page
+    .getByRole('button', { name: '关闭窗口', exact: true })
+    .click()
+    .catch(() => {});
   const exit = await Promise.race([child.exited, Bun.sleep(15000).then(() => -999)]);
   if (exit !== 0) throw new Error(`Desktop exit failed (${exit})`);
-  const logs = await readFile(join(profile, 'data/logs/agent.jsonl'), 'utf8');
+  const logs = await readFile(join(profile, 'logs/agent.jsonl'), 'utf8');
   if (logs.includes(key)) throw new Error('Test key appeared in logs');
   const result = {
     passed: true,
@@ -217,6 +232,8 @@ try {
     customTitlebar: true,
     nativeDecorationsDisabled: true,
     windowControlsVerified: true,
+    closeButtonExitsApplication: true,
+    busyExitBlocked,
     automaticSettingsSave: true,
     activeTaskPreservedDuringSettingsSave: true,
     deferredSettingsApplied: true,
@@ -240,7 +257,12 @@ try {
   if (child.exitCode === null && page) {
     try {
       const info = await invoke<any>('settings_read');
-      await invoke('settings_save', { settings: info.settings, apiKey: null, clearKey: true });
+      await invoke('settings_save', {
+        settings: info.settings,
+        configRevision: info.configRevision,
+        apiKey: null,
+        clearKey: true,
+      });
       await invoke('exit_app');
     } catch {}
   }

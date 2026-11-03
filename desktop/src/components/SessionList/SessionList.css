@@ -1,0 +1,43 @@
+.sessions {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  margin-right: calc(-1 * var(--sidebar-padding-inline));
+  margin-bottom: -16px;
+  padding-right: 7px;
+  padding-bottom: 16px;
+}
+.sessions:focus-visible {
+  outline-offset: -2px;
+}
+.session-list-status {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.8;
+  padding: 12px 8px;
+}
+.session-list-status svg {
+  flex-shrink: 0;
+}
+.session-list-error {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 12px 8px;
+}
+.session-list-error p {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.session-list-sentinel {
+  height: 1px;
+}

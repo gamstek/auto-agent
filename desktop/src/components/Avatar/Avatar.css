@@ -1,0 +1,12 @@
+.avatar {
+  width: 44px;
+  height: 44px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+@media (max-width: 700px) {
+  .avatar {
+    width: 32px;
+    height: 35px;
+  }
+}

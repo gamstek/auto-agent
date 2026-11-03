@@ -59,6 +59,9 @@ export interface Settings {
   systemPrompt: string;
 }
 export interface SettingsInfo {
+  configPath: string;
+  configRevision: string;
+  apiKeySource?: 'environment' | 'keyring';
   pendingApply?: boolean;
   settings: Settings;
   hasApiKey: boolean;

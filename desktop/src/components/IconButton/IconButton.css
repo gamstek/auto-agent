@@ -1,0 +1,43 @@
+.icon-button.ui-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  height: 32px;
+  width: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  transform: none;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
+}
+.icon-button.ui-icon[data-variant='rail'] {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.icon-button.ui-icon[data-selected='true'] {
+  background: var(--accent-selected);
+  color: var(--accent-selected-text);
+}
+.icon-button.ui-icon:active {
+  transform: none !important;
+}
+.ui-icon:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .icon-button.ui-icon:hover {
+    background: var(--accent-soft);
+    color: var(--accent-selected-text);
+  }
+  .icon-button.ui-icon[data-selected='true']:hover {
+    background: var(--accent-selected);
+    color: var(--accent-selected-text);
+  }
+}

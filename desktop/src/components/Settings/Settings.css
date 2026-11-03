@@ -1,4 +1,4 @@
-/* Page layout only. Shared controls and state colors live in components/ui.css. */
+/* Settings page layout; shared rows and controls own their styles. */
 .settings-sidebar-content {
   height: 100%;
   display: flex;
@@ -84,61 +84,6 @@
   font-weight: 400;
   color: var(--text-muted);
 }
-.settings-group {
-  margin: 0 0 32px;
-}
-.settings-group > h2 {
-  font-size: 13px;
-  font-weight: 600;
-  margin: 0 0 14px;
-  color: var(--text-secondary);
-}
-.setting-rows {
-  border: 1px solid var(--control-border);
-  border-radius: 15px;
-  padding: 0 15px;
-  overflow: hidden;
-  background: white;
-}
-.setting-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 22px;
-  padding: 16px 0;
-  min-height: 66px;
-  border-bottom: 1px solid var(--control-border);
-}
-.setting-row:last-child {
-  border-bottom: 0;
-}
-.setting-copy {
-  min-width: 0;
-  flex: 1;
-}
-.setting-copy label {
-  display: block;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--text-primary);
-  font-weight: 450;
-}
-.setting-copy p {
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.6;
-  margin-top: 4px;
-  max-width: 360px;
-}
-.setting-control {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 0 1 43%;
-  max-width: 320px;
-  min-width: 0;
-}
 .setting-control .setting-number {
   width: 116px;
   text-align: right;
@@ -150,22 +95,6 @@
 .setting-control input[type='number']:hover::-webkit-inner-spin-button,
 .setting-control input[type='number']:focus::-webkit-inner-spin-button {
   opacity: 1;
-}
-.setting-control .password-field {
-  width: 100%;
-  min-width: 0;
-}
-.setting-control .password-field .ui-icon {
-  height: 27px;
-  width: 27px;
-  top: 4px;
-  right: 4px;
-}
-.setting-control .password-field input {
-  padding-right: 34px !important;
-}
-.setting-control .password-field button:focus-visible {
-  outline-offset: 0;
 }
 .setting-value {
   font-size: 12px;
@@ -213,14 +142,6 @@
   width: 22px;
   height: 22px;
 }
-.setting-row.wide-row {
-  display: block;
-}
-.wide-row .setting-control {
-  max-width: none;
-  display: block;
-  margin-top: 12px;
-}
 .wide-row textarea {
   resize: vertical;
   min-height: 110px;
@@ -229,32 +150,33 @@
   font-size: 11px;
   color: var(--text-muted);
   line-height: 1.8;
-  margin-top: -13px;
+  margin: 0 0 24px;
   padding: 0 2px;
 }
 @media (max-width: 1050px) {
   .settings-scroll {
     padding: 28px 26px;
   }
-  .setting-row {
-    gap: 15px;
-  }
-  .setting-control {
-    flex-basis: 46%;
-  }
 }
 @media (max-width: 700px) {
-  .setting-row {
-    align-items: flex-start;
-    flex-direction: column;
-    gap: 10px;
-  }
-  .setting-control {
-    max-width: none;
-    width: 100%;
-    flex-basis: auto;
-  }
   .settings-scroll {
     padding: 22px 18px;
   }
+}
+.settings-page input[type='password']::-ms-reveal {
+  display: none;
+}
+.settings-page .error-banner {
+  padding: 12px 15px;
+  border-radius: 8px;
+  font-size: 12px;
+  margin-bottom: 20px;
+  line-height: 1.8;
+  background: #fff1ee;
+  color: #b56a52;
+}
+.settings-page .empty-state {
+  padding: 60px 20px;
+  color: #a1aab6;
+  text-align: center;
 }

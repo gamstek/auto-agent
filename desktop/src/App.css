@@ -1,0 +1,210 @@
+/* Application shell, workspace navigation and toolbar composition. */
+.app {
+  height: 100dvh;
+  display: grid;
+  --sidebar-width: 260px;
+  grid-template-columns: 52px 0 minmax(0, 1fr);
+  grid-template-rows: 38px minmax(0, 1fr);
+  background: linear-gradient(155deg, var(--shell-bg) 8%, #f4f9ff 100%);
+  border: 1px solid var(--accent-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.app.with-sidebar {
+  grid-template-columns: 52px var(--sidebar-width) minmax(0, 1fr);
+}
+.app.is-maximized {
+  border: 0;
+  border-radius: 0;
+}
+.app:not(.with-sidebar) .session-sidebar {
+  visibility: hidden;
+  pointer-events: none;
+  /* Keep the stationary panel painted until the right pane has covered it. */
+  transition: visibility 0s 220ms;
+}
+.instant-motion .session-sidebar,
+.instant-motion .page-tab-indicator {
+  transition: none !important;
+}
+.navigation-rail {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 5px 12px;
+}
+.rail-spacer {
+  flex: 1;
+}
+.rail-divider {
+  width: 23px;
+  height: 1px;
+  margin: 7px 0;
+  background: var(--control-border);
+}
+.workspace-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 7px;
+  color: var(--text-primary);
+  font-size: 17px;
+  font-weight: 600;
+}
+.workspace-badge {
+  font-size: 10px;
+  font-weight: 400;
+  color: #8e9ea2;
+  border: 1px solid #dde7e8;
+  padding: 2px 6px;
+  border-radius: 5px;
+}
+.session-sidebar {
+  visibility: visible;
+  --sidebar-padding-inline: 15px;
+  width: var(--sidebar-width);
+  grid-column: 2;
+  grid-row: 2;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--control-border);
+  border-radius: 14px 0 0 14px;
+  padding: 20px var(--sidebar-padding-inline) 16px;
+  margin-bottom: 5px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+.session-sidebar .new-session.ui-button {
+  justify-content: flex-start;
+  width: 100%;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text-secondary);
+  gap: 10px;
+  border-radius: 8px;
+  padding: 9px 8px;
+}
+.session-sidebar h2 {
+  font-size: 11px;
+  font-weight: 500;
+  color: #9da3ac;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  padding: 0 10px;
+}
+.main-area {
+  z-index: 1;
+  grid-row: 2;
+  grid-column: 3;
+  transform-origin: top left;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: white;
+  border: 1px solid #e5ebed;
+  border-radius: 15px;
+  margin: 0 5px 5px 0;
+  overflow: hidden;
+}
+.with-sidebar .main-area {
+  border-radius: 0 15px 15px 0;
+  border-left: 0;
+}
+.view-host {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.content-toolbar {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 25px;
+  position: relative;
+  flex-shrink: 0;
+}
+.content-caption {
+  font-size: 12px;
+  color: #9ca5ae;
+  max-width: 30%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.page-tabs {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  background: #f5f6f7;
+  border-radius: 24px;
+  padding: 3px;
+}
+.page-tabs button {
+  min-width: 82px;
+  padding: 7px 18px;
+  border-radius: 22px;
+  background: transparent;
+  color: #8c9299;
+  font-size: 12px;
+  position: relative;
+  z-index: 1;
+}
+.page-tabs .selected {
+  color: #35404a;
+}
+.page-tab-indicator {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  bottom: 3px;
+  width: calc((100% - 6px) / 2);
+  border-radius: 22px;
+  background: white;
+  box-shadow: 0 1px 5px #22304410;
+  transform: translateX(0);
+  transition: transform 180ms var(--ease-out);
+}
+.page-tabs[data-active='settings'] .page-tab-indicator {
+  transform: translateX(100%);
+}
+@media (hover: hover) and (pointer: fine) {
+  .session-sidebar .new-session:hover {
+    background: #e2f1ff;
+  }
+}
+@media (max-width: 1050px) {
+  .app.with-sidebar {
+    grid-template-columns: 48px var(--sidebar-width) minmax(0, 1fr);
+  }
+  .app {
+    --sidebar-width: 228px;
+    grid-template-columns: 48px 0 minmax(0, 1fr);
+  }
+}
+@media (max-width: 700px) {
+  .app.with-sidebar {
+    grid-template-columns: 44px var(--sidebar-width) minmax(0, 1fr);
+  }
+  .app {
+    --sidebar-width: 180px;
+    grid-template-columns: 44px 0 minmax(0, 1fr);
+  }
+  .content-caption {
+    display: none;
+  }
+  .toolbar-new {
+    margin-left: auto;
+  }
+}

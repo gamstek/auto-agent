@@ -1,0 +1,85 @@
+.settings-group {
+  margin: 0 0 32px;
+}
+.settings-group > h2 {
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 14px;
+  color: var(--text-secondary);
+}
+.setting-rows {
+  border: 1px solid var(--control-border);
+  border-radius: 15px;
+  padding: 0 15px;
+  overflow: hidden;
+  background: white;
+}
+.setting-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 22px;
+  padding: 16px 0;
+  min-height: 66px;
+  border-bottom: 1px solid var(--control-border);
+}
+.setting-row:last-child {
+  border-bottom: 0;
+}
+.setting-copy {
+  min-width: 0;
+  flex: 1;
+}
+.setting-copy label,
+.setting-copy .setting-label {
+  display: block;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-primary);
+  font-weight: 450;
+}
+.setting-copy p {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  margin-top: 4px;
+  max-width: 360px;
+  overflow-wrap: anywhere;
+}
+.setting-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 1 43%;
+  max-width: 320px;
+  min-width: 0;
+}
+.setting-row.wide-row {
+  display: block;
+}
+.wide-row .setting-control {
+  max-width: none;
+  display: block;
+  margin-top: 12px;
+}
+@media (max-width: 1050px) {
+  .setting-row {
+    gap: 15px;
+  }
+  .setting-control {
+    flex-basis: 46%;
+  }
+}
+@media (max-width: 700px) {
+  .setting-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .setting-control {
+    max-width: none;
+    width: 100%;
+    flex-basis: auto;
+  }
+}

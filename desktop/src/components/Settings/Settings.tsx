@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { listen } from '@tauri-apps/api/event';
 import {
@@ -6,8 +6,6 @@ import {
   BookOpen,
   Check,
   Cpu,
-  Eye,
-  EyeOff,
   FolderOpen,
   Info,
   LoaderCircle,
@@ -15,17 +13,23 @@ import {
   SlidersHorizontal,
   X,
 } from 'lucide-react';
-import { desktop, errorText, native, type Settings as Config, type SettingsInfo } from './bridge';
-import './settings.css';
 import {
-  Button,
-  IconButton,
-  Input,
-  NavigationItem,
-  SearchField,
-  Switch,
-  Textarea,
-} from './components/ui';
+  desktop,
+  errorText,
+  native,
+  type Settings as Config,
+  type SettingsInfo,
+} from '../../bridge';
+import { Maintenance } from '../Maintenance/Maintenance';
+import { Button } from '../Button/Button';
+import { IconButton } from '../IconButton/IconButton';
+import { Input } from '../Input/Input';
+import { Textarea } from '../Textarea/Textarea';
+import { NavigationItem } from '../NavigationItem/NavigationItem';
+import { SearchField } from '../SearchField/SearchField';
+import { Switch } from '../Switch/Switch';
+import { SettingsSection as Group, SettingsRow as Row } from '../SettingsSection/SettingsSection';
+import './Settings.css';
 
 const categories = [
   {
@@ -59,7 +63,7 @@ const categories = [
   {
     id: 'about',
     label: '关于与诊断',
-    description: '版本 日志 数据存储',
+    description: '版本 更新 日志 诊断 导出 数据存储',
     icon: Info,
     group: '应用',
   },
@@ -111,37 +115,6 @@ export function SettingsNavigation({
     </div>
   );
 }
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="settings-group">
-      <h2>{title}</h2>
-      <div className="setting-rows">{children}</div>
-    </section>
-  );
-}
-function Row({
-  label,
-  description,
-  control,
-  id,
-  wide = false,
-}: {
-  label: string;
-  description?: string;
-  control: ReactNode;
-  id?: string;
-  wide?: boolean;
-}) {
-  return (
-    <div className={`setting-row ${wide ? 'wide-row' : ''}`}>
-      <div className="setting-copy">
-        <label htmlFor={id}>{label}</label>
-        {description && <p id={id ? `${id}-help` : undefined}>{description}</p>}
-      </div>
-      <div className="setting-control">{control}</div>
-    </div>
-  );
-}
 export function Settings({
   initialTab = 'model',
   onSaved,
@@ -155,9 +128,9 @@ export function Settings({
 }) {
   const [info, setInfo] = useState<SettingsInfo>();
   const [draft, setDraft] = useState<Config>();
-  const [key, setKey] = useState(''),
-    [clearKey, setClearKey] = useState(false),
-    [visible, setVisible] = useState(false);
+  const [key, setKey] = useState('');
+  const [editingKey, setEditingKey] = useState(false);
+  const keyConfigured = !!info?.hasApiKey && !editingKey;
   const [saving, setSaving] = useState(false),
     [pendingApply, setPendingApply] = useState(false),
     [error, setError] = useState('');
@@ -169,20 +142,26 @@ export function Settings({
   const content = useRef<HTMLDivElement>(null),
     animation = useRef<Animation | null>(null),
     previousTab = useRef(initialTab);
-  useEffect(() => {
+  function reload() {
     native<SettingsInfo>('settings_read')
       .then((value) => {
         setInfo(value);
         setDraft(value.settings);
         setPendingApply(value.pendingApply ?? false);
+        setError('');
+        lastAttempt.current = '';
+        setKey('');
+        setEditingKey(false);
       })
       .catch((e) => setError(errorText(e)));
-  }, []);
-  const changed =
-    !!draft && (JSON.stringify(draft) !== JSON.stringify(info?.settings) || !!key || clearKey);
+  }
+  useEffect(() => {
+    if (!inFlight.current && (!info || (active && !changed))) reload();
+  }, [active]);
+  const changed = !!draft && (JSON.stringify(draft) !== JSON.stringify(info?.settings) || !!key);
   useEffect(() => {
     if (!changed || !draft) return;
-    const fingerprint = JSON.stringify({ draft, key, clearKey });
+    const fingerprint = JSON.stringify({ draft, key });
     if (lastAttempt.current === fingerprint) return;
     const timer = setTimeout(() => {
       if (inFlight.current) return;
@@ -190,7 +169,7 @@ export function Settings({
       void save();
     }, delay.current);
     return () => clearTimeout(timer);
-  }, [draft, key, clearKey, info, saveEpoch]);
+  }, [draft, key, info, saveEpoch]);
   useEffect(() => {
     if (!desktop) return;
     let disposed = false;
@@ -250,24 +229,32 @@ export function Settings({
     setSaving(true);
     setError('');
     try {
-      const result = await native<{ saved: boolean; applied?: boolean }>('settings_save', {
+      const result = await native<{
+        saved: boolean;
+        applied?: boolean;
+        configRevision: string;
+        error?: string;
+      }>('settings_save', {
         settings: draft,
+        configRevision: info?.configRevision,
         apiKey: key.trim() || null,
-        clearKey,
+        clearKey: false,
       });
       setInfo(
         (previous) =>
           previous && {
             ...previous,
             settings: draft,
-            hasApiKey: clearKey ? false : key.trim() ? true : previous.hasApiKey,
+            configRevision: result.configRevision,
+            hasApiKey: key.trim() ? true : previous.hasApiKey,
           },
       );
       if (revision.current === savedRevision) {
         setKey('');
-        setClearKey(false);
+        setEditingKey(false);
       }
       setPendingApply(result.applied === false);
+      if (result.error) setError(`配置已保存，应用失败：${result.error}`);
       onSaved(result.applied !== false);
     } catch (e) {
       setError(errorText(e));
@@ -393,6 +380,9 @@ export function Settings({
           {error && (
             <div className="error-banner" role="alert">
               {error}
+              <Button variant="subtle" disabled={saving} onClick={reload}>
+                重新读取配置
+              </Button>
             </div>
           )}
           {!draft ? (
@@ -424,60 +414,36 @@ export function Settings({
                       id="modelKey"
                       label="API Key"
                       description={
-                        info?.hasApiKey && !clearKey
-                          ? '已保存在系统凭据库。留空保留现有 Key。'
-                          : '仅保存在系统凭据库，不写入配置文件。'
+                        info?.apiKeySource === 'environment'
+                          ? '已配置 · 来自 AUTO_AGENT_API_KEY 环境变量，与 CLI 一致。'
+                          : info?.hasApiKey
+                            ? '已配置。留空保留现有 Key。'
+                            : '仅保存在系统凭据库，不写入配置文件。'
                       }
                       control={
-                        <div className="password-field">
-                          <Input
-                            id="modelKey"
-                            type={visible ? 'text' : 'password'}
-                            autoComplete="new-password"
-                            spellCheck={false}
-                            value={key}
-                            placeholder={
-                              info?.hasApiKey ? '留空保留已保存的 Key' : '输入你的 API Key'
-                            }
-                            onChange={(event) => {
-                              revision.current++;
-                              delay.current = 700;
-                              setKey(event.target.value);
-                              setClearKey(false);
-                            }}
-                          />
-                          <IconButton
-                            label={visible ? '隐藏 Key' : '显示 Key'}
-                            onClick={() => setVisible((value) => !value)}
-                          >
-                            {visible ? <EyeOff size={16} /> : <Eye size={16} />}
-                          </IconButton>
-                        </div>
+                        <Input
+                          id="modelKey"
+                          type="password"
+                          autoComplete="new-password"
+                          spellCheck={false}
+                          value={keyConfigured ? '••••••••••••' : key}
+                          readOnly={info?.apiKeySource === 'environment'}
+                          aria-describedby="modelKey-help"
+                          placeholder={info?.hasApiKey ? '输入新的 API Key' : '输入你的 API Key'}
+                          onFocus={() => {
+                            if (info?.apiKeySource !== 'environment') setEditingKey(true);
+                          }}
+                          onBlur={() => {
+                            if (!key) setEditingKey(false);
+                          }}
+                          onChange={(event) => {
+                            revision.current++;
+                            delay.current = 700;
+                            setKey(event.target.value);
+                          }}
+                        />
                       }
                     />
-                    {info?.hasApiKey && (
-                      <Row
-                        label="已保存的凭据"
-                        description={
-                          clearKey
-                            ? '保存更改后将移除当前 Key。'
-                            : '用于当前桌面工作空间的模型请求。'
-                        }
-                        control={
-                          <Button
-                            variant={clearKey ? 'danger' : 'subtle'}
-                            onClick={() => {
-                              revision.current++;
-                              delay.current = 0;
-                              setClearKey((value) => !value);
-                              setKey('');
-                            }}
-                          >
-                            {clearKey ? '撤销移除' : '移除 Key'}
-                          </Button>
-                        }
-                      />
-                    )}
                   </Group>
                 </>
               )}
@@ -612,7 +578,17 @@ export function Settings({
                       control={<span className="setting-value">Tauri 2 · 本地 Agent</span>}
                     />
                   </Group>
+                  <Maintenance />
                   <Group title="数据与诊断">
+                    <Row
+                      label="共享配置"
+                      description="与 CLI 直接读写同一份 config.json。外部修改在重启后生效。"
+                      control={
+                        <code className="directory-value selectable" title={info?.configPath}>
+                          {info?.configPath}
+                        </code>
+                      }
+                    />
                     <Row
                       label="数据目录"
                       description="会话、执行审计和知识快照存储在本机。"

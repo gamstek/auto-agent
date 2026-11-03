@@ -1,0 +1,56 @@
+.maintenance-panel .maintenance-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.maintenance-panel .ui-button {
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.maintenance-release-notes {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--control-border);
+}
+.maintenance-release-notes h3 {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+.maintenance-release-notes p {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.maintenance-status {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+  padding: 12px 0;
+}
+.maintenance-status:empty {
+  display: none;
+}
+.maintenance-panel .setting-row:has(+ .maintenance-status:empty) {
+  border-bottom: 0;
+}
+@media (max-width: 700px) {
+  .maintenance-panel .maintenance-actions {
+    justify-content: flex-start;
+    width: 100%;
+  }
+  .maintenance-panel .setting-control {
+    justify-content: flex-start;
+  }
+}

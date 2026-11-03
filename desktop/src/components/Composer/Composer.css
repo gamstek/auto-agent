@@ -1,0 +1,146 @@
+.composer-region {
+  padding: 10px 28px 19px;
+  background: #fff;
+  position: relative;
+}
+.composer {
+  --composer-inline-reserve: 105px;
+  max-width: 900px;
+  margin: 0 auto;
+  background: #fff;
+  border: 1px solid #e8ebee;
+  border-radius: 26px;
+  display: flex;
+  align-items: flex-end;
+  padding: 6px 7px 6px 22px;
+  gap: 12px;
+  box-shadow: 0 -6px 20px #fff;
+}
+.composer-editor {
+  flex: 1;
+  min-width: 0;
+  position: relative;
+  display: flex;
+  align-self: stretch;
+  max-height: 144px;
+  overflow: hidden;
+}
+.composer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+.composer.is-expanded {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  padding: 10px 10px 8px 16px;
+  gap: 4px;
+}
+.composer.is-expanded .composer-editor {
+  flex: none;
+  width: 100%;
+}
+.composer.is-expanded .composer-actions {
+  width: 100%;
+}
+.composer-scrollbar {
+  position: absolute;
+  right: 0;
+  top: 4px;
+  bottom: 4px;
+  width: 8px;
+  touch-action: none;
+  cursor: default;
+  border-radius: 8px;
+}
+.composer-scroll-thumb {
+  position: absolute;
+  left: 2px;
+  right: 2px;
+  top: 0;
+  border-radius: 8px;
+  background: #c8cfd8;
+  touch-action: none;
+}
+.composer-scrollbar:focus-visible {
+  outline: 1px solid var(--accent-border);
+  outline-offset: 1px;
+}
+.composer:focus-within {
+  border-color: #a8d3f7;
+  box-shadow: 0 0 0 3px #2196f309;
+}
+.composer textarea {
+  width: 100%;
+  resize: none;
+  max-height: 144px;
+  min-height: 48px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  border: 0;
+  outline: none !important;
+  box-shadow: none;
+  background: transparent;
+  padding: 14px 16px 14px 0;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.composer textarea::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.composer textarea::placeholder {
+  color: #a6a6a6;
+}
+.composer .send-button {
+  border-radius: 50%;
+  width: 48px;
+  height: 48px;
+  padding: 0;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--blue);
+  color: white;
+}
+.composer .send-button:disabled {
+  background: #e0e0e0;
+  color: #bcbcbc;
+  opacity: 1;
+}
+.composer .send-button.stop {
+  background: #e9eef3;
+  color: #5b6877;
+}
+.back-to-bottom {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: white;
+  border: 1px solid #e8ebef;
+  border-radius: 20px;
+  padding: 7px 12px;
+  font-size: 11px;
+  box-shadow: 0 2px 8px #00000008;
+}
+@media (hover: hover) and (pointer: fine) {
+  .composer-scrollbar:hover .composer-scroll-thumb {
+    background: #a9b6c6;
+  }
+  .composer .send-button:hover:not(:disabled):not(.stop) {
+    background: #1f79d0;
+  }
+}
+@media (max-width: 700px) {
+  .composer-region {
+    padding: 10px 12px;
+  }
+}

@@ -11,6 +11,7 @@
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
+    "release:build": "bun scripts/release.ts",
     "prepare:backend": "bun scripts/prepare-backend.ts"
   },
   "dependencies": {
