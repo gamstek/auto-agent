@@ -20,6 +20,7 @@ struct Settings {
     #[serde(rename = "baseURL")]
     base_url: String,
     manufacturer_url: String,
+    climber_enabled: bool,
     manufacturer_timeout_ms: u64,
     template_directory: String,
     builtin_skills: bool,
@@ -38,7 +39,7 @@ struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self { model: "deepseek-flash".into(), base_url: "https://api.deepseek.com".into(),
-            manufacturer_url: "http://127.0.0.1:18080/api/v1".into(), manufacturer_timeout_ms: 5000,
+            manufacturer_url: "http://127.0.0.1:18080/api/v1".into(), climber_enabled: false, manufacturer_timeout_ms: 5000,
             template_directory: String::new(), builtin_skills: true, builtin_wiki: true,
             skill_roots: vec![], wiki_roots: vec![], wiki_index_roots: vec![], max_steps: 24,
             max_input_tokens: 1_000_000, max_output_tokens: 16000, model_timeout_ms: 60000,
@@ -57,7 +58,7 @@ impl Settings {
         if self.model.trim().is_empty() || self.model.len() > 200 || !(1..=100).contains(&self.max_steps)
             || self.max_input_tokens == 0 || self.max_output_tokens == 0
             || self.model_timeout_ms == 0 || self.script_timeout_ms == 0
-            || !(100..=120000).contains(&self.manufacturer_timeout_ms) || self.system_prompt.len() > 16000 {
+            || !(100..=60000).contains(&self.manufacturer_timeout_ms) || self.system_prompt.len() > 16000 {
             return Err("请检查模型、步数、Token 容量与超时范围".into());
         }
         for paths in [&self.skill_roots, &self.wiki_roots, &self.wiki_index_roots] {
@@ -83,17 +84,21 @@ fn write_json(path: &Path, value: &Value) -> Result<(), String> {
     let _ = std::fs::remove_file(&temporary);
     result.map_err(String::from)
 }
+fn select_binary_path(beside: PathBuf, prepared: Option<PathBuf>) -> Result<PathBuf, String> {
+    // Development uses the artifact rebuilt by prepare:backend, not a stale Cargo copy.
+    if let Some(path) = prepared { if path.is_file() { return Ok(path); } }
+    if beside.is_file() { return Ok(beside); }
+    Err("未找到配套后端程序，请重新安装完整桌面版本".into())
+}
 fn binary_path() -> Result<PathBuf, String> {
     let executable = std::env::current_exe().map_err(|_| "无法定位应用程序")?;
     let name = if cfg!(windows) { "auto-agent-backend.exe" } else { "auto-agent-backend" };
     let beside = executable.parent().ok_or("应用路径无效")?.join(name);
-    if beside.is_file() { return Ok(beside); }
-    if cfg!(debug_assertions) {
+    let prepared = if cfg!(debug_assertions) {
         let triple = if cfg!(windows) { "x86_64-pc-windows-msvc.exe" } else { "x86_64-unknown-linux-gnu" };
-        let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(format!("auto-agent-backend-{triple}"));
-        if path.is_file() { return Ok(path); }
-    }
-    Err("未找到配套后端程序，请重新安装完整桌面版本".into())
+        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("binaries").join(format!("auto-agent-backend-{triple}")))
+    } else { None };
+    select_binary_path(beside, prepared)
 }
 async fn event_loop(app: tauri::AppHandle, url: String, token: String) {
     let client = match reqwest::Client::builder().no_proxy().connect_timeout(Duration::from_secs(5)).build() { Ok(c) => c, Err(_) => return };
@@ -140,6 +145,17 @@ async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Backen
         .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
     for name in ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] {
         if let Some(value) = std::env::var_os(name) { command.env(name, value); }
+    }
+    if let Some(servers) = document.raw["mcpServers"].as_object() {
+        for server in servers.values().filter(|s| (s["kind"].is_null() || s["kind"] == "stdio") && s["enabled"] != false) {
+            if let Some(references) = server["envFrom"].as_object() {
+                for source in references.values().filter_map(Value::as_str) {
+                    let upper = source.to_ascii_uppercase();
+                    if source.is_empty() || source.len() > 128 || !source.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_') || ["AUTO_AGENT_", "BUN_", "NODE_"].iter().any(|prefix| upper.starts_with(prefix)) { return Err("MCP 凭据来源必须使用独立环境变量名".into()); }
+                    if let Some(value) = std::env::var_os(source) { command.env(source, value); }
+                }
+            }
+        }
     }
     if let Some(key) = key { command.env("AUTO_AGENT_API_KEY", key); }
     #[cfg(windows)] command.creation_flags(0x08000000);
@@ -189,12 +205,19 @@ async fn backend_start(app: tauri::AppHandle, state: State<'_, Desktop>) -> Resu
 fn allowed_request(method: &str, path: &str) -> bool {
     if !path.starts_with('/') || path.contains("..") || path.contains(['\\', '#', '\r', '\n']) { return false; }
     let route = path.split('?').next().unwrap_or("");
-    if method == "GET" && ["/global/health", "/runtime", "/session", "/wiki", "/wiki/index", "/wiki/search"].contains(&route) { return true; }
+    if method == "GET" && ["/global/health", "/runtime", "/session", "/wiki", "/wiki/index", "/wiki/search", "/wiki/catalog", "/wiki/sources", "/wiki/documents", "/wiki/lint", "/devices"].contains(&route) { return true; }
+    if method == "POST" && ["/wiki/search", "/wiki/read"].contains(&route) { return true; }
     if method == "POST" && route == "/session" { return true; }
     let parts: Vec<_> = route.trim_start_matches('/').split('/').collect();
+    if parts.len() == 3 && parts[0] == "devices" && !parts[1].is_empty() && parts[1].len() <= 32 && parts[1].bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-') {
+        return (method == "GET" && parts[2] == "status") || (method == "POST" && parts[2] == "refresh");
+    }
     if parts.len() == 3 && parts[0] == "session" && uuid::Uuid::parse_str(parts[1]).is_ok() {
-        return (method == "GET" && ["message", "state", "review"].contains(&parts[2])) ||
+        return (method == "GET" && ["message", "state", "review", "runs"].contains(&parts[2])) ||
             (method == "POST" && ["prompt_async", "abort", "resolve_review"].contains(&parts[2]));
+    }
+    if method == "GET" && parts.len() == 5 && parts[0] == "session" && parts[2] == "runs" && parts[4] == "trace" {
+        return uuid::Uuid::parse_str(parts[1]).is_ok() && uuid::Uuid::parse_str(parts[3]).is_ok();
     }
     method == "GET" && parts.len() == 3 && parts[0] == "wiki" && parts[1] == "source" && parts[2].len() == 64 && parts[2].bytes().all(|b| b.is_ascii_hexdigit())
 }
@@ -219,6 +242,7 @@ fn settings_read(state: State<'_, Desktop>) -> Result<Value, String> {
     let environment_key = std::env::var("AUTO_AGENT_API_KEY").ok().is_some_and(|v| !v.trim().is_empty());
     Ok(json!({ "settings": configuration::settings(&state.config_path, &document.raw)?, "configRevision": document.revision,
         "configPath": state.config_path, "apiKeySource": if environment_key { "environment" } else { "keyring" },
+        "deviceConnectionSource": if configuration::climber_server(&document.raw).is_some() { "mcp" } else { "script" },
         "hasApiKey": environment_key || read_key(&state.root)?.is_some(), "pendingApply": state.pending_apply.load(Ordering::SeqCst),
         "dataDirectory": configuration::data_directory(&state.config_path, &document.raw)?, "version": env!("CARGO_PKG_VERSION") }))
 }
@@ -383,8 +407,27 @@ fn main() {
 
 #[cfg(test)] mod tests {
     use super::*;
+    #[test] fn development_prefers_prepared_sidecar_over_stale_cargo_copy() {
+        let root = std::env::temp_dir().join(format!("sidecar-selection-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let beside = root.join("stale-backend.exe");
+        let prepared = root.join("prepared-backend.exe");
+        std::fs::write(&beside,b"old").unwrap();
+        std::fs::write(&prepared,b"new").unwrap();
+        assert_eq!(select_binary_path(beside.clone(),Some(prepared.clone())).unwrap(),prepared);
+        assert_eq!(select_binary_path(beside.clone(),None).unwrap(),beside);
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test] fn request_scope_is_fixed() {
         assert!(allowed_request("GET", "/runtime"));
+        assert!(allowed_request("GET", "/session/12345678-1234-4234-8234-123456789abc/runs"));
+        assert!(allowed_request("GET", "/session/12345678-1234-4234-8234-123456789abc/runs/12345678-1234-4234-8234-123456789abc/trace?node=model%3A1"));
+        assert!(!allowed_request("POST", "/session/12345678-1234-4234-8234-123456789abc/runs/12345678-1234-4234-8234-123456789abc/trace"));
+        assert!(allowed_request("GET", "/wiki/catalog"));
+        assert!(allowed_request("POST", "/wiki/search"));
+        assert!(allowed_request("POST", "/wiki/read"));
+        assert!(!allowed_request("POST", "/wiki/sources"));
+        assert!(!allowed_request("POST", "/wiki/builds"));
         assert!(allowed_request("POST", "/session/12345678-1234-4234-8234-123456789abc/prompt_async"));
         for path in ["//example.com", "/desktop/shutdown", "/session/../../event", "/event", "https://example.com"] { assert!(!allowed_request("GET", path)); }
     }

@@ -1,0 +1,51 @@
+.tool-call {
+  margin: 8px 0;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--control-bg);
+}
+.tool-call > summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.tool-call > summary > svg {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+.tool-call-description {
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+}
+.tool-call-status {
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--text-secondary);
+}
+.tool-call-body {
+  padding: 0 12px 12px;
+  font-size: 12px;
+}
+.tool-call-body h4 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 8px 0;
+}
+.tool-call-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  max-height: 420px;
+  overflow: auto;
+  background: white;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  padding: 10px;
+  line-height: 1.65;
+}
+.tool-call-body details > summary {
+  cursor: pointer;
+}

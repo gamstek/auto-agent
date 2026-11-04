@@ -1,5 +1,7 @@
 import { test, expect } from 'bun:test';
 import { fixture } from '../helpers';
+import { completion } from '../model-helpers';
+import type { CompletionRequest } from '../../src/shared/types';
 import { Store } from '../../src/storage';
 import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
@@ -24,10 +26,10 @@ test('model titles persist and custom roles replace the default while preserving
       observed = messages;
       return { text: '你好', toolCalls: [], usage: { totalTokens: 1 } };
     },
-    async generateTitle(messages: ModelMessage[]) {
+    async complete({ messages }: CompletionRequest) {
       titles++;
-      expect(messages[0].content).toBe('介绍项目');
-      return '项目简介';
+      expect(messages[1].content).toBe('介绍项目');
+      return completion('项目简介');
     },
   };
   const service = new AgentService(
@@ -80,10 +82,10 @@ test('pending titles do not block completion, abort or concurrency; shutdown can
     async generate() {
       return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
-    async generateTitle(_messages, signal) {
+    async complete({ signal }) {
       titleSignal = signal;
       titleCalls++;
-      return new Promise<string>(() => {});
+      return new Promise<never>(() => {});
     },
   });
   const events: string[] = [];
@@ -127,12 +129,12 @@ test('title timeout ignores late results and permits a later retry', async () =>
     async generate() {
       return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
-    async generateTitle() {
+    async complete() {
       if (++attempts === 1)
-        return new Promise<string>((resolve) => {
-          resolveTitle = resolve;
+        return new Promise<ReturnType<typeof completion>>((resolve) => {
+          resolveTitle = (title) => resolve(completion(title));
         });
-      return 'Retry title';
+      return completion('Retry title');
     },
   });
   try {
@@ -161,9 +163,9 @@ test('title failure does not fail replies and is retried on subsequent messages'
     async generate() {
       return { text: 'answer', toolCalls: [], usage: { totalTokens: 1 } };
     },
-    async generateTitle() {
+    async complete() {
       if (++attempts === 1) throw new Error('provider secret');
-      return 'Recovered title';
+      return completion('Recovered title');
     },
   });
   try {

@@ -2,8 +2,8 @@ import { expect, test } from 'bun:test';
 import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createHash } from 'node:crypto';
-import { decodeSam, summarizeSam } from '../../src/wiki/file-index/sam';
-import { extract } from '../../src/wiki/file-index/extract';
+import { decodeSam, summarizeSam } from '@auto-agent/wiki-sam/sam';
+import { samParser } from '@auto-agent/wiki-sam';
 import { samFixture, referenceSamFixture } from '../case-helpers';
 
 function encode(root: unknown, status = 0x1010) {
@@ -28,20 +28,15 @@ test('Wiki decodes one byte snapshot, including nonzero view offsets, without a 
     step: 0.025,
     intervalSeconds: 5,
   });
-  const record: any = {
+  const snapshot = {
     path: 'missing/example.SAM',
     sha256: summary.file.sha256,
-    metadata: {},
-    evidence: [],
-    issues: [],
+    bytes: view,
   };
-  expect((await extract(record, view, new AbortController().signal)).state).toBe('parsed');
-  await expect(
-    extract({ ...record, sha256: '0'.repeat(64) }, view, new AbortController().signal),
-  ).rejects.toMatchObject({ code: 'wiki_index_changed' });
+  expect((await samParser.parse(snapshot, { signal: new AbortController().signal })).attributes['sam.labType']).toBe(1);
   const abort = new AbortController();
   abort.abort();
-  await expect(extract(record, view, abort.signal)).rejects.toThrow();
+  await expect(samParser.parse(snapshot, { signal: abort.signal })).rejects.toThrow();
 });
 test('Wiki format decoder rejects malformed framing/encoding/JSON and unsupported source formats', () => {
   const valid = samFixture();

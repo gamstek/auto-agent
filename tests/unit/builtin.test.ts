@@ -32,13 +32,13 @@ test('formal built-in skill loads host-independent interface guidance and preser
     const skills = new Skills(config);
     const catalog = await skills.discover();
     expect(catalog.map((s) => s.name)).toEqual(['device-automation']);
-    expect(catalog[0]!.description).toContain('预设自动化流程');
-    expect(catalog[0]!.description).toContain('单台仪器');
-    expect(catalog[0]!.metadata.compatibility).toContain('需要可调用的设备接口');
+    expect(catalog[0]!.description).toContain('已实现的自动化流程');
+    expect(catalog[0]!.description).toContain('单仪器测样');
+    expect(catalog[0]!.metadata.compatibility).toContain('MCP');
     expect(catalog[0]!.metadata.compatibility).not.toContain('builtin');
     expect(skills.source('device-automation')).toBe('built-in');
     const content = await skills.load('device-automation');
-    expect(content).toContain('设备自动化与单仪器控制');
+    expect(content).toContain('测样规划与设备任务编排');
     expect(content).toContain('当前环境提供的');
     expect(content).toContain('references/automation.md');
     expect(content).toContain('模板推荐草案——参数尚未确认，不可下发运行');
@@ -57,22 +57,19 @@ test('formal built-in skill loads host-independent interface guidance and preser
       );
     }
     expect(Object.hasOwn(assets, 'device-automation/scripts/automation.js')).toBe(true);
-    expect(Object.hasOwn(assets, 'device-automation/scripts/climber.js')).toBe(true);
+    expect(Object.hasOwn(assets, 'device-automation/scripts/climber.js')).toBe(false);
     expect(content).toContain('references/climber.md');
     const climber = await skills.read('device-automation', 'references/climber.md');
     expect(climber).toContain('不需要提交自动化流程');
     expect(climber).toContain('POST /api/v1/tasks');
     expect(climber).toContain('OUTCOME_UNKNOWN');
-    expect((await skills.resolveScript('device-automation', 'scripts/climber.js')).path).toEndWith(
-      'climber.js',
-    );
+    await expect(skills.resolveScript('device-automation', 'scripts/climber.js')).rejects.toThrow();
     expect(
       Object.keys(assets)
         .filter((path) => path.endsWith('.js'))
         .sort(),
     ).toEqual([
       'device-automation/scripts/automation.js',
-      'device-automation/scripts/climber.js',
       'device-automation/scripts/lib/log.js',
       'device-automation/scripts/lib/sam-generate.js',
       'device-automation/scripts/lib/sam-write.js',
@@ -83,7 +80,7 @@ test('formal built-in skill loads host-independent interface guidance and preser
     expect(Object.hasOwn(assets, 'device-automation/scripts/lib/sam-profiles.json')).toBe(true);
     expect(content).toContain('references/wiki.md');
     expect(await skills.read('device-automation', 'references/wiki.md')).toContain(
-      'Wiki提供三种只读操作',
+      '先查看宿主当前提供的 Wiki schema',
     );
     expect(await skills.read('device-automation', 'references/sam.md')).toContain(
       'executionVerified=false',
@@ -149,7 +146,7 @@ test('built-in workflow guidance loads under the 16 KiB resource limit with LF a
         resourceLimitBytes: 16384,
       });
       await skills.discover();
-      expect(await skills.load('device-automation')).toContain('设备自动化与单仪器控制');
+      expect(await skills.load('device-automation')).toContain('测样规划与设备任务编排');
       for (const [path, text] of Object.entries(converted)) {
         if (!path.startsWith('device-automation/references/') || !path.endsWith('.md')) continue;
         const bytes = Buffer.byteLength(text);

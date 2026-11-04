@@ -8,6 +8,7 @@ async function mockDesktop(
     overlapPage?: boolean;
     hasApiKey?: boolean;
     apiKeySource?: 'environment' | 'keyring';
+    invalidProtocol?: boolean;
   } = {},
 ) {
   await page.addInitScript(
@@ -17,10 +18,11 @@ async function mockDesktop(
       overlapPage = false,
       hasApiKey = false,
       apiKeySource = 'keyring',
+      invalidProtocol = false,
     }) => {
       (window as any).isTauri = true;
       const callbacks: Record<number, (value: unknown) => void> = {};
-      const events: Record<string, number> = {};
+      const events: Record<number, { event: string; handler: number }> = {};
       const id = '12345678-1234-4234-8234-123456789abc';
       let next = 0,
         running = false;
@@ -29,6 +31,7 @@ async function mockDesktop(
         model: 'deepseek-flash',
         baseURL: 'https://api.deepseek.com',
         manufacturerUrl: 'http://127.0.0.1:18080/api/v1',
+        climberEnabled: false,
         manufacturerTimeoutMs: 5000,
         templateDirectory: '',
         builtinSkills: true,
@@ -44,18 +47,22 @@ async function mockDesktop(
         webAllowPrivateAddresses: true,
         systemPrompt: '',
       };
+      const emitNative = (event: string, payload: unknown) => {
+        for (const [listenerId, listener] of Object.entries(events)) {
+          if (listener.event === event)
+            callbacks[listener.handler]?.({ event, id: Number(listenerId), payload });
+        }
+      };
       const emit = (type: string, properties: unknown) =>
-        callbacks[events['agent-event']]?.({
-          event: 'agent-event',
-          id: 1,
-          payload: { type, sessionId: id, messageId: 'answer-1', properties },
-        });
+        emitNative('agent-event', { type, sessionId: id, messageId: 'answer-1', properties });
       (window as any).__desktopTest = {
+        invalidProtocol,
         saves: [],
         submissions: 0,
         windowActions: [],
         sessionRequests: [],
         refreshSessions: () => emit('session.updated', {}),
+        emitEvent: emitNative,
       };
       const sessionRows = Array.from({ length: sessionCount }, (_, index) => ({
         id: `12345678-1234-4234-8234-${String(index + 1).padStart(12, '0')}`,
@@ -89,10 +96,14 @@ async function mockDesktop(
             return { maximized };
           }
           if (command === 'plugin:event|listen') {
-            events[args.event] = args.handler;
-            return ++next;
+            const listenerId = ++next;
+            events[listenerId] = { event: args.event, handler: args.handler };
+            return listenerId;
           }
-          if (command === 'plugin:event|unlisten') return;
+          if (command === 'plugin:event|unlisten') {
+            delete events[args.eventId];
+            return;
+          }
           if (command === 'backend_start') return { ready: true };
           if (command === 'settings_read') {
             if ((window as any).__desktopTest.externalModel) {
@@ -118,6 +129,51 @@ async function mockDesktop(
             return { saved: true, configRevision: 'test-revision' };
           }
           if (command === 'backend_request') {
+            if (args.path === '/global/health')
+              return (window as any).__desktopTest.invalidProtocol
+                ? { healthy: true, version: '2.0.0-beta.1' }
+                : {
+                    healthy: true,
+                    version: '2.0.0-beta.1',
+                    capabilities: {
+                      runInspection: 1,
+                      persistedReasoning: 1,
+                      conversationProcess: 1,
+                    },
+                  };
+            if (args.path === '/devices') {
+              const state = (window as any).__desktopTest;
+              state.deviceSnapshotReads = (state.deviceSnapshotReads ?? 0) + 1;
+              return structuredClone(state.devices ?? []);
+            }
+            if (args.path === '/devices/climber-01/refresh') {
+              const state = (window as any).__desktopTest;
+              state.deviceRefreshes = (state.deviceRefreshes ?? 0) + 1;
+              const device = state.devices[0];
+              const snapshot = state.deviceOffline
+                ? {
+                    ...device,
+                    stale: true,
+                    vendorReachability: 'unreachable',
+                    error: {
+                      code: 'device_unavailable',
+                      message: '厂家状态暂时无法更新；显示最后已知状态',
+                    },
+                  }
+                : { ...device, stale: false, vendorReachability: 'reachable', error: null };
+              snapshot.revision = (device.revision ?? 0) + 1;
+              state.devices = [snapshot];
+              if (state.emitDeviceOnRefresh)
+                emitNative('agent-event', {
+                  type: 'extension.changed',
+                  properties: {
+                    extension: 'instruments',
+                    resourceId: 'climber-01',
+                    revision: snapshot.revision,
+                  },
+                });
+              return structuredClone(snapshot);
+            }
             if (args.path === '/session' && args.method === 'POST')
               return { id, title: 'New session', updatedAt: Date.now() };
             if (args.path.startsWith('/session?')) {
@@ -145,6 +201,136 @@ async function mockDesktop(
                 logs: {},
               };
             if (args.path.includes('/message?')) return messages;
+            if (args.path.includes('/runs?'))
+              return [
+                {
+                  id: 'run-test',
+                  status: running ? 'running' : 'completed',
+                  createdAt: 1800000000000,
+                },
+              ];
+            if (args.path.includes('/runs/run-test/trace?view=process'))
+              return {
+                run: { id: 'run-test', status: running ? 'running' : 'completed' },
+                entries: [
+                  {
+                    entryId: 'model:1',
+                    kind: 'model',
+                    name: 'model',
+                    step: 1,
+                    status: 'completed',
+                    text: '我先加载技能并读取参考资料。',
+                    reasoning: '先查阅资料，再整理结论。',
+                    metadata: {},
+                    hasDetail: false,
+                  },
+                  {
+                    entryId: 'tool:skill',
+                    kind: 'tool',
+                    name: 'skill',
+                    step: null,
+                    status: 'completed',
+                    text: '',
+                    reasoning: '',
+                    metadata: { skill: 'hello-world' },
+                    hasDetail: true,
+                  },
+                  {
+                    entryId: 'tool:read',
+                    kind: 'tool',
+                    name: 'read',
+                    step: null,
+                    status: running ? 'running' : 'completed',
+                    text: '',
+                    reasoning: '',
+                    metadata: { skill: 'hello-world', path: 'reference.txt' },
+                    hasDetail: true,
+                  },
+                  ...(!running
+                    ? [
+                        {
+                          entryId: 'model:2',
+                          kind: 'model',
+                          name: 'model',
+                          step: 2,
+                          status: 'completed',
+                          text: 'BET 用于**比表面积**分析。\n\n| 参数 | 值 |\n| --- | --- |\n| 气体 | N₂ |',
+                          reasoning: '',
+                          metadata: {},
+                          hasDetail: false,
+                        },
+                      ]
+                    : []),
+                ],
+              };
+            if (args.path.includes('/runs/run-test/trace?entry=')) {
+              const entry = new URL(`http://local${args.path}`).searchParams.get('entry');
+              return entry === 'tool:skill'
+                ? {
+                    input: { name: 'hello-world' },
+                    result: {
+                      status: 'completed',
+                      effect: 'none',
+                      output: '技能已加载：hello-world',
+                    },
+                  }
+                : {
+                    input: { skill: 'hello-world', path: 'reference.txt' },
+                    result: {
+                      status: 'completed',
+                      effect: 'none',
+                      output: '参考资料已读取，气体为 N₂。',
+                    },
+                  };
+            }
+            if (args.path.includes('/runs/run-test/trace?'))
+              return {
+                truncated: false,
+                originalBytes: 120,
+                request: {
+                  model: 'test-model',
+                  payload: {
+                    maxOutputTokens: 1000,
+                    messages: [
+                      { role: 'system', content: 'Final assembled prompt [redacted]' },
+                      { role: 'user', content: 'BET 资料' },
+                    ],
+                    tools: [{ name: 'wiki' }],
+                  },
+                },
+              };
+            if (args.path.endsWith('/runs/run-test/trace'))
+              return {
+                run: { id: 'run-test', status: 'completed' },
+                graph: {
+                  nodes: ['__start__', 'model', 'tools', '__end__'],
+                  edges: [
+                    { source: '__start__', target: 'model', conditional: false },
+                    { source: 'model', target: 'tools', conditional: true },
+                    { source: 'tools', target: 'model', conditional: false },
+                    { source: 'model', target: '__end__', conditional: true },
+                  ],
+                  mermaid: 'graph TD; model --> tools; tools --> model;',
+                },
+                nodes: [
+                  {
+                    nodeId: 'model:1',
+                    kind: 'model',
+                    label: '模型 · 第 1 轮',
+                    status: 'completed',
+                    hasRequest: true,
+                    details: { step: 1 },
+                  },
+                  {
+                    nodeId: 'tool:test',
+                    kind: 'tool',
+                    label: 'wiki',
+                    status: 'completed',
+                    hasRequest: false,
+                    details: { name: 'wiki' },
+                  },
+                ],
+              };
             if (args.path.endsWith('/prompt_async')) {
               (window as any).__desktopTest.submissions++;
               messages.push({
@@ -156,6 +342,7 @@ async function mockDesktop(
               });
               running = true;
               setTimeout(() => {
+                emit('message.reasoning.delta', { delta: '先查阅资料，再整理结论。' });
                 emit('message.part.delta', { delta: 'BET 用于比表面积分析。' });
               }, 100);
               setTimeout(() => {
@@ -163,6 +350,8 @@ async function mockDesktop(
                   id: 'answer-1',
                   sessionId: id,
                   role: 'assistant',
+                  runId: 'run-test',
+                  reasoning: '先查阅资料，再整理结论。',
                   content:
                     'BET 用于**比表面积**分析。\n\n| 参数 | 值 |\n| --- | --- |\n| 气体 | N₂ |',
                   createdAt: Date.now(),
@@ -253,6 +442,185 @@ test('session pagination preserves rows on failure, retries the same page and de
   await page.getByRole('searchbox', { name: '搜索会话' }).fill('');
   await expect(list.locator('.nav-item')).toHaveCount(119);
 });
+test('instrument page reads device facts without submitting prompts and stops polling when left', async ({
+  page,
+}, testInfo) => {
+  await mockDesktop(page);
+  await page.clock.install();
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.devices = [
+      {
+        deviceId: 'climber-01',
+        name: 'Climber',
+        source: 'climber-vendor',
+        transport: 'connected',
+        vendorReachability: 'reachable',
+        health: { softwareReady: true, deviceConnected: true, deviceBusy: true },
+        task: {
+          batchId: 'B-1',
+          state: 'RUNNING',
+          experiments: [{ experimentId: 'EXP-1', analysisPort: 1, state: 'RUNNING' }],
+        },
+        taskKnown: true,
+        observedAt: 1800000000000,
+        stale: false,
+        error: null,
+      },
+    ];
+  });
+  await page.getByRole('button', { name: '仪器', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '仪器', exact: true })).toBeVisible();
+  await expect(page.getByText('批次：B-1')).toBeVisible();
+  await expect(page.getByRole('cell', { name: 'EXP-1', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '刷新状态' })).toBeEnabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.deviceOffline = true;
+  });
+  await page.getByRole('button', { name: '刷新状态' }).click();
+  await expect(page.getByText('状态待更新', { exact: true })).toBeVisible();
+  await expect(page.getByText('最后已知任务', { exact: true })).toBeVisible();
+  await expect(page.getByText('批次：B-1')).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('instruments-stale.png'),
+    animations: 'disabled',
+  });
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const count = await page.evaluate(() => (window as any).__desktopTest.deviceRefreshes);
+  await page.clock.fastForward(30000);
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceRefreshes)).toBe(count);
+  expect(await page.evaluate(() => (window as any).__desktopTest.submissions)).toBe(0);
+});
+
+test('instrument page does not invent a Climber when no devices are configured', async ({
+  page,
+}) => {
+  await mockDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '仪器', exact: true }).click();
+  await expect(page.getByText('尚未配置仪器', { exact: true })).toBeVisible();
+  await expect(page.locator('.instrument-card')).toHaveCount(0);
+});
+
+test('instrument notifications fetch snapshots without refresh loops and recover after reconnect', async ({
+  page,
+}) => {
+  await mockDesktop(page);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.clock.install({ time: new Date('2026-11-04T09:00:00Z') });
+  await page.clock.pauseAt(new Date('2026-11-04T09:00:01Z'));
+  await page.goto('/');
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.emitDeviceOnRefresh = true;
+    state.devices = [
+      {
+        deviceId: 'climber-01',
+        name: 'Climber',
+        source: 'climber-vendor',
+        transport: 'connected',
+        vendorReachability: 'reachable',
+        health: { softwareReady: true, deviceConnected: true, deviceBusy: false },
+        task: { batchId: 'B-1', state: 'READY' },
+        taskKnown: true,
+        observedAt: Date.now(),
+        stale: false,
+        error: null,
+        revision: 1,
+      },
+    ];
+  });
+  await page.getByRole('button', { name: '仪器', exact: true }).click();
+  await expect(page.getByText('批次：B-1')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads))
+    .toBe(2);
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceRefreshes)).toBe(1);
+  const before = await page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads);
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.devices[0] = {
+      ...state.devices[0],
+      task: { batchId: 'B-2', state: 'RUNNING' },
+      revision: 10,
+    };
+    for (let i = 0; i < 8; i++)
+      state.emitEvent('agent-event', {
+        type: 'extension.changed',
+        properties: { extension: 'instruments', resourceId: 'climber-01', revision: 10 },
+      });
+  });
+  await expect(page.getByText('批次：B-2')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads))
+    .toBe(before + 2);
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceRefreshes)).toBe(1);
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.emitEvent('backend-stream', 'disconnected');
+    state.devices[0] = {
+      ...state.devices[0],
+      task: { batchId: 'B-3', state: 'COMPLETED' },
+      revision: 11,
+    };
+    state.emitEvent('backend-stream', 'connected');
+  });
+  await expect(page.getByText('批次：B-3')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceRefreshes)).toBe(1);
+  const hiddenCount = await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    const state = (window as any).__desktopTest;
+    state.emitEvent('agent-event', {
+      type: 'extension.changed',
+      properties: { extension: 'instruments', resourceId: 'climber-01', revision: 12 },
+    });
+    state.emitEvent('backend-stream', 'connected');
+    return state.deviceSnapshotReads;
+  });
+  await page.clock.fastForward(30000);
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads)).toBe(
+    hiddenCount,
+  );
+  await page.evaluate(() => {
+    delete (document as any).hidden;
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.deviceRefreshes))
+    .toBe(2);
+  await expect(page.getByRole('button', { name: '刷新状态' })).toBeEnabled();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const leftCount = await page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads);
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.emitEvent('agent-event', {
+      type: 'extension.changed',
+      properties: { extension: 'instruments', resourceId: 'climber-01', revision: 13 },
+    });
+    state.emitEvent('backend-stream', 'disconnected');
+  });
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'disconnected');
+  await page.evaluate(() => (window as any).__desktopTest.emitEvent('backend-stream', 'connected'));
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'connected');
+  await page.clock.fastForward(30000);
+  expect(await page.evaluate(() => (window as any).__desktopTest.deviceSnapshotReads)).toBe(
+    leftCount,
+  );
+  expect(await page.evaluate(() => (window as any).__desktopTest.submissions)).toBe(0);
+});
+
+test('instrument listeners coexist with chat streaming subscriptions', async ({ page }) => {
+  await mockDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: 'BET 比表面积和 BJH 孔径分析有什么区别？' }).click();
+  await page.getByRole('button', { name: '仪器', exact: true }).click();
+  await expect(page.getByText('尚未配置仪器', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '聊天主页', exact: true }).click();
+  await expect(page.getByRole('table')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.submissions)).toBe(1);
+});
+
 test('maintenance reports updates, busy installation, export cancellation and missing signing configuration', async ({
   page,
 }) => {
@@ -438,7 +806,7 @@ test('every settings section uses shared controls, with a thin scrollbar on long
   await mockDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  for (const section of ['模型连接', '设备连接', '技能与知识库', '运行参数', '关于与诊断']) {
+  for (const section of ['模型连接', '设备连接', '技能', '知识库', '运行参数', '关于与诊断']) {
     await page.getByRole('button', { name: section, exact: true }).click();
     await expect(page.getByRole('heading', { name: section, exact: true })).toBeVisible();
     expect(await page.locator('.settings-menu .nav-item[data-selected="true"]').count()).toBe(1);
@@ -461,6 +829,91 @@ test('every settings section uses shared controls, with a thin scrollbar on long
   expect(
     await scroller.evaluate((element) => getComputedStyle(element, '::-webkit-scrollbar').width),
   ).toBe('8px');
+});
+
+test('skills and knowledge are independent settings sections', async ({ page }) => {
+  await mockDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '技能', exact: true }).click();
+  await expect(page.getByText('技能目录', { exact: true })).toBeVisible();
+  await expect(page.getByText('知识来源', { exact: true })).toHaveCount(0);
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await expect(page.getByText('知识来源', { exact: true })).toBeVisible();
+  await expect(page.getByText('技能目录', { exact: true })).toHaveCount(0);
+});
+
+test('the whole chat process keeps intermediate text, skill loading and tool results after completion and history reload', async ({
+  page,
+}, testInfo) => {
+  await mockDesktop(page);
+  await page.goto('/');
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'connected');
+  await page.getByRole('textbox', { name: '输入消息' }).fill('保留全部处理过程');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(page.getByText('我先加载技能并读取参考资料。', { exact: true })).toBeVisible();
+  await expect(page.getByText('加载技能', { exact: true })).toBeVisible();
+  await expect(page.getByText('读取资料', { exact: true })).toBeVisible();
+  const skill = page.locator('.tool-call').filter({ hasText: '加载技能' });
+  await skill.locator('summary').first().click();
+  await expect(skill.getByText('技能已加载：hello-world', { exact: true })).toBeVisible();
+  await expect(skill.locator('pre').first()).toContainText('"name": "hello-world"');
+  await page.getByRole('button', { name: '开启新对话', exact: true }).click();
+  await page.getByRole('button', { name: /BET 方法咨询/ }).click();
+  await expect(page.getByText('加载技能', { exact: true })).toBeVisible();
+  await expect(page.getByText('我先加载技能并读取参考资料。', { exact: true })).toBeVisible();
+  const read = page.locator('.tool-call').filter({ hasText: '读取资料' });
+  await read.locator('summary').first().click();
+  await expect(read.getByText('参考资料已读取，气体为 N₂。', { exact: true })).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('complete-conversation-process.png'),
+    animations: 'disabled',
+  });
+  expect(await page.evaluate(() => (window as any).__desktopTest.submissions)).toBe(1);
+});
+
+test('desktop rejects a backend that does not implement the required protocol', async ({
+  page,
+}) => {
+  await mockDesktop(page, { invalidProtocol: true });
+  await page.goto('/');
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'disconnected');
+  await expect(page.getByRole('alert')).toContainText('前后端接口能力不一致');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+});
+
+test('completed reasoning survives history reload and node prompts are inspectable without submitting work', async ({
+  page,
+}, testInfo) => {
+  await mockDesktop(page);
+  await page.goto('/');
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'connected');
+  await page.getByRole('textbox', { name: '输入消息' }).fill('介绍 BET');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByRole('table')).toBeVisible();
+  await page.locator('.thinking summary').click();
+  await expect(page.getByText('先查阅资料，再整理结论。', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '开启新对话', exact: true }).click();
+  await page.getByRole('button', { name: /BET 方法咨询/ }).click();
+  await page.locator('.thinking summary').click();
+  await expect(page.getByText('先查阅资料，再整理结论。', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '运行图', exact: true }).click();
+  const inspector = page.getByRole('dialog', { name: '运行图与提示词' });
+  await expect(inspector.getByRole('img', { name: 'LangGraph 节点拓扑' })).toBeVisible();
+  await expect(
+    inspector.getByText('Final assembled prompt [redacted]', { exact: true }),
+  ).toBeVisible();
+  await inspector.getByRole('button', { name: 'wiki 完成', exact: true }).click();
+  await expect(
+    inspector.getByText(
+      '工具节点执行工具，不向 AI 发送提示词。其结果会出现在后续模型节点的消息中。',
+    ),
+  ).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('run-inspector.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await expect(inspector).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__desktopTest.submissions)).toBe(1);
 });
 test('panel transitions leave the left workspace stationary and animate only right content', async ({
   page,

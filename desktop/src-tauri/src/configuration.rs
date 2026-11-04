@@ -5,6 +5,12 @@ use std::io::Write;
 const FIELDS: &[&str] = &["model", "baseURL", "builtinSkills", "builtinWiki", "skillRoots", "wikiRoots", "wikiIndexRoots", "maxSteps", "maxInputTokens", "maxOutputTokens", "modelTimeoutMs", "scriptTimeoutMs", "webAllowPrivateAddresses", "systemPrompt"];
 
 pub struct Document { pub raw: Value, pub revision: String }
+pub fn climber_server(raw: &Value) -> Option<&str> {
+    raw.get("devices")?.as_array()?.iter().find_map(|device| {
+        let id = device.get("mcpServer")?.as_str()?;
+        if device["kind"] == "climber" && raw["mcpServers"][id].is_object() { Some(id) } else { None }
+    })
+}
 pub fn read(path: &Path) -> Result<Document, String> {
     let bytes = std::fs::read(path).map_err(|_| "无法读取共享 config.json")?;
     let raw: Value = serde_json::from_slice(&bytes).map_err(|_| "共享 config.json 必须是有效 JSON 对象")?;
@@ -39,6 +45,11 @@ pub fn settings(path: &Path, raw: &Value) -> Result<Settings, String> {
         }
         if let Some(directory) = env.get("SAM_OUTPUT_DIR") { projection["templateDirectory"] = directory.clone(); }
     }
+    if let Some(id) = climber_server(raw) {
+        projection["climberEnabled"] = raw["mcpServers"][id].get("enabled").cloned().unwrap_or(json!(true));
+        if let Some(url) = raw["mcpServers"][id]["env"].get("CLIMBER_SERVICE_URL") { projection["manufacturerUrl"] = url.clone(); }
+        if let Some(timeout) = raw["mcpServers"][id]["env"]["CLIMBER_TIMEOUT_MS"].as_str() { projection["manufacturerTimeoutMs"] = json!(timeout.parse::<u64>().map_err(|_| "厂家超时配置无效")?); }
+    }
     let mut settings: Settings = serde_json::from_value(projection).map_err(|_| "共享配置字段类型无效")?;
     for roots in [&mut settings.skill_roots, &mut settings.wiki_roots, &mut settings.wiki_index_roots] {
         for root in roots.iter_mut() { *root = resolve(path, root); }
@@ -52,6 +63,19 @@ pub fn merged(path: &Path, raw: &Value, next: &Settings) -> Result<Value, String
     let before = serde_json::to_value(settings(path, raw)?).unwrap();
     let after = serde_json::to_value(next).unwrap();
     let mut result = raw.clone();
+    if before["climberEnabled"] != after["climberEnabled"] {
+        if let Some(id) = climber_server(raw) { result["mcpServers"][id]["enabled"] = json!(next.climber_enabled); }
+        else if next.climber_enabled {
+            if raw.get("mcpServers").is_some_and(|v| !v.is_object()) || raw.get("devices").is_some_and(|v| !v.is_array()) { return Err("MCP/仪器配置结构无效".into()); }
+            if raw["mcpServers"].get("climber-local").is_some() || raw["devices"].as_array().is_some_and(|items| items.iter().any(|d| d["id"] == "climber-01")) { return Err("默认 Climber 配置标识已被占用，请编辑共享配置".into()); }
+            if result.get("mcpServers").is_none() { result["mcpServers"] = json!({}); }
+            if result.get("devices").is_none() { result["devices"] = json!([]); }
+            result["mcpServers"]["climber-local"] = json!({"kind":"stdio","enabled":true,"command":"builtin","args":["--mcp-server","climber"],"timeoutMs":125000,"outcomeContract":"structured-v1",
+                "env":{"CLIMBER_SERVICE_URL":next.manufacturer_url,"CLIMBER_TIMEOUT_MS":next.manufacturer_timeout_ms.to_string()},
+                "tools":{"get_health":"read","get_status":"read","register_batch":"write","start_batch":"write"}});
+            result["devices"].as_array_mut().unwrap().push(json!({"id":"climber-01","name":"Climber","kind":"climber","mcpServer":"climber-local"}));
+        }
+    }
     for field in FIELDS {
         if before[*field] != after[*field] { result[*field] = after[*field].clone(); }
     }
@@ -60,6 +84,14 @@ pub fn merged(path: &Path, raw: &Value, next: &Settings) -> Result<Value, String
     }
     for (setting, name) in [("manufacturerUrl", "CLIMBER_SERVICE_URL"), ("manufacturerTimeoutMs", "CLIMBER_TIMEOUT_MS"), ("templateDirectory", "SAM_OUTPUT_DIR")] {
         if before[setting] == after[setting] { continue; }
+        if setting != "templateDirectory" {
+            if let Some(id) = climber_server(&result).map(str::to_owned) {
+                if result["mcpServers"][&id]["envFrom"].get(name).is_some() { return Err("此连接字段由环境引用提供，请编辑 MCP 配置".into()); }
+                if result["mcpServers"][&id].get("env").is_none() { result["mcpServers"][&id]["env"] = json!({}); }
+                result["mcpServers"][&id]["env"][name] = if setting == "manufacturerTimeoutMs" { json!(next.manufacturer_timeout_ms.to_string()) } else { after[setting].clone() };
+                continue;
+            }
+        }
         if result.get("scriptEnv").is_none() { result["scriptEnv"] = json!({}); }
         if setting == "templateDirectory" && next.template_directory.is_empty() {
             result["scriptEnv"].as_object_mut().unwrap().remove(name);
@@ -81,7 +113,7 @@ pub fn ensure(path: &Path) -> Result<(), String> {
     let defaults = Settings::default();
     let mut raw = json!({"dataDir":".", "host":"127.0.0.1", "port":4096, "allowRemote":false,
         "interpreters": {".js":"node", ".sh":"bash", ".ps1":"powershell.exe"},
-        "scriptEnv": {"CLIMBER_SERVICE_URL": defaults.manufacturer_url, "CLIMBER_TIMEOUT_MS": defaults.manufacturer_timeout_ms.to_string()}});
+        "scriptEnv": {}, "mcpServers": {}, "devices": []});
     let settings = serde_json::to_value(defaults).unwrap();
     for field in FIELDS { raw[*field] = settings[*field].clone(); }
     match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
@@ -111,6 +143,26 @@ pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
             }
         }
     }
+    if let Some(wiki) = result.get_mut("wiki") {
+        if let Some(sources) = wiki.get_mut("sources") {
+            for source in sources.as_array_mut().ok_or("Wiki sources 必须是数组")? {
+                let source_path = source.get("path").and_then(Value::as_str).ok_or("Wiki 来源路径必须是字符串")?;
+                let absolute = resolve(path, source_path);
+                source["path"] = json!(absolute);
+            }
+        }
+    }
+    if let Some(servers) = result.get_mut("mcpServers").and_then(Value::as_object_mut) {
+        for server in servers.values_mut() {
+            if server["kind"].is_null() || server["kind"] == "stdio" {
+                let cwd = server.get("cwd").map(|value| value.as_str().ok_or("MCP cwd 必须是字符串")).transpose()?.unwrap_or(".");
+                server["cwd"] = json!(resolve(path,cwd));
+                if let Some(command) = server["command"].as_str() {
+                    if command.contains(['/', '\\']) { server["command"] = json!(resolve(path, command)); }
+                }
+            }
+        }
+    }
     Ok(result)
 }
 
@@ -134,7 +186,9 @@ pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
         assert_eq!(document.raw["dataDir"], ".");
         assert_eq!(document.raw["port"], 4096);
         assert!(document.raw.get("manufacturerUrl").is_none());
-        assert_eq!(document.raw["scriptEnv"]["CLIMBER_TIMEOUT_MS"], "5000");
+        assert_eq!(document.raw["scriptEnv"], json!({}));
+        assert_eq!(document.raw["mcpServers"], json!({}));
+        assert_eq!(document.raw["devices"], json!([]));
         ensure(&fixture.path).unwrap();
         assert_eq!(read(&fixture.path).unwrap().revision, document.revision);
     }
@@ -180,6 +234,18 @@ pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
         assert_eq!(result["resourceLimitBytes"], 5555); assert_eq!(result["interpreters"], json!({}));
         assert_eq!(read(&fixture.path).unwrap().raw, raw);
     }
+    #[test] fn unified_wiki_paths_use_source_config_and_survive_unrelated_saves() {
+        let fixture = Fixture::new();
+        let raw = json!({"wiki":{"sources":[{"id":"manuals","type":"directory","path":"materials"}],"parsers":["builtin.markdown"]}});
+        write_json(&fixture.path,&raw).unwrap();
+        let result = runtime(&fixture.path,&raw).unwrap();
+        assert_eq!(result["wiki"]["sources"][0]["path"],json!(fixture.root.join("materials")));
+        let mut next = settings(&fixture.path,&raw).unwrap();
+        next.max_steps = 30;
+        let saved = merged(&fixture.path,&raw,&next).unwrap();
+        assert_eq!(saved["wiki"],raw["wiki"]);
+        assert_eq!(read(&fixture.path).unwrap().raw,raw);
+    }
     #[test] fn derived_capacity_and_unrelated_script_env_are_preserved() {
         let fixture = Fixture::new();
         let raw = json!({"contextWindow":32000, "maxOutputTokens":8000, "scriptEnv":{"CUSTOM":"keep", "SAM_OUTPUT_DIR":"templates"}});
@@ -220,5 +286,42 @@ pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
         assert_eq!(value["port"], 4096);
         assert_eq!(value["timeout"], "9000");
         assert_eq!(value["dataDir"], json!(fixture.root));
+    }
+    #[test] fn mcp_manufacturer_settings_edit_the_actual_server_without_rewriting_other_fields() {
+        let fixture = Fixture::new();
+        let raw = json!({"mcpServers":{"climber":{"command":"builtin","args":["--mcp-server","climber"],"env":{"CLIMBER_SERVICE_URL":"http://localhost:18080/api/v1"},"enabled":true}},
+            "devices":[{"id":"c1","name":"Climber","kind":"climber","mcpServer":"climber"}],
+            "scriptEnv":{"CLIMBER_SERVICE_URL":"http://legacy.invalid/api/v1","CUSTOM":"keep"}});
+        let mut next = settings(&fixture.path,&raw).unwrap();
+        assert_eq!(next.manufacturer_url,"http://localhost:18080/api/v1");
+        next.manufacturer_timeout_ms = 9000;
+        let changed = merged(&fixture.path,&raw,&next).unwrap();
+        assert_eq!(changed["mcpServers"]["climber"]["env"]["CLIMBER_TIMEOUT_MS"],"9000");
+        assert_eq!(changed["scriptEnv"],raw["scriptEnv"]);
+        assert_eq!(changed["devices"],raw["devices"]);
+    }
+    #[test] fn explicit_enable_creates_mcp_configuration_without_importing_old_desktop_settings() {
+        let fixture = Fixture::new();
+        let raw = json!({"dataDir":".","interpreters":{},"custom":"preserve"});
+        let mut next = settings(&fixture.path,&raw).unwrap();
+        assert!(!next.climber_enabled);
+        assert_eq!(merged(&fixture.path,&raw,&next).unwrap(),raw);
+        next.climber_enabled = true;
+        let changed = merged(&fixture.path,&raw,&next).unwrap();
+        assert_eq!(changed["mcpServers"]["climber-local"]["enabled"],true);
+        assert_eq!(changed["devices"][0]["mcpServer"],"climber-local");
+        assert_eq!(changed["custom"],"preserve");
+        let mut disabled = settings(&fixture.path,&changed).unwrap(); disabled.climber_enabled = false;
+        let after = merged(&fixture.path,&changed,&disabled).unwrap();
+        assert_eq!(after["mcpServers"]["climber-local"]["enabled"],false);
+        assert_eq!(after["devices"],changed["devices"]);
+    }
+    #[test] fn runtime_mcp_cwd_uses_shared_source_not_snapshot_directory() {
+        let fixture=Fixture::new();
+        let raw=json!({"dataDir":".","mcpServers":{"helper":{"command":"helpers/server","args":["relative-config.json"]}}});
+        let snapshot=runtime(&fixture.path,&raw).unwrap();
+        assert_eq!(Path::new(snapshot["mcpServers"]["helper"]["cwd"].as_str().unwrap()),fixture.root.as_path());
+        assert_eq!(snapshot["mcpServers"]["helper"]["command"],json!(fixture.root.join("helpers/server")));
+        assert!(raw["mcpServers"]["helper"].get("cwd").is_none());
     }
 }

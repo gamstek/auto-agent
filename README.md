@@ -1,11 +1,22 @@
 # Auto-Agent
 
-A local-first automation assistant for specific surface area and pore size analyzers, with trusted Agent Skills, persistent sessions, an interactive CLI, and an HTTP API. Built with Bun, TypeScript, LangGraph, Vercel AI SDK, and SQLite. The bundled device skill provides a formal analyzer workflow with wiki-backed recommendation drafts and persistent local instrument-interface simulation. Real instrument control requires an explicitly configured, documented integration; the bundled simulation script never connects to hardware or a network.
+A local-first automation assistant for specific surface area and pore size analyzers, with trusted Agent Skills, persistent sessions, an interactive CLI, and an HTTP API. Built with Bun, TypeScript, LangGraph, Vercel AI SDK, and SQLite. The bundled device skill provides wiki-backed recommendations, SAM template preparation, and Climber control through the documented manufacturer HTTP integration. Its separate automation workflow script is simulation-only and never connects to hardware or a network.
 
-> Device control, experimental workflows, analytics, and reports are future skill integrations, not built-in features. This is not a complete OpenCode or OpenAI-compatible server.
+> Real Climber use requires the configured manufacturer service and verified deployment conditions. MCP integration and the read-only instrument page are implemented in source; durable workflow scheduling remains planned. Local mocks are not physical device acceptance. This is not a complete OpenCode or OpenAI-compatible server.
+
+## Device platform design and roadmap
+
+[设备能力与持久化自动化设计](docs/device-platform/README.md) 整理下一阶段的 Skill/MCP 分工、仪器页面、持久化执行器、定时计划、断点恢复与跨设备调度。具体见：
+
+- [设备接入、配置与仪器页面](docs/device-platform/device-integration.md)
+- [工作流状态机、数据模型与恢复规则](docs/device-platform/durable-workflows.md)
+- [分阶段开发任务与验收计划](docs/device-platform/implementation-plan.md)
+
+架构文档保留完整路线，当前进度见 [实施状态](docs/device-platform/progress.md)。现行配置以本文及示例为准，HTTP 集成合同以 [llm.txt](llm.txt) 为准。
 
 ## Requirements
 
+- pnpm **10.15.1** manages the workspace and its single `pnpm-lock.yaml`. The root Agent application, `desktop`, and `packages/*` are workspace packages; see [architecture and package boundaries](docs/architecture.md).
 - Bun **1.4.2**, installed as a system runtime (CI uses `oven-sh/setup-bun`); do not install the npm `bun` package in this project because its shim shadows the runtime in package scripts. Native SQLite requires Bun; Node.js cannot run the application directly.
 - JavaScript skills retain their normal Node.js requirement. Auto-Agent prefers installed Node.js and automatically uses its embedded runtime when the bare `node`/`node.exe` command is unavailable; standalone users need not install it. Source runs still require Bun.
 - Windows PowerShell and native process snapshots on Windows for owned-process tracking. Native signatures are emitted in memory without invoking a C# compiler or writing compiler temporary files per execution. The tracker uses .NET APIs with PowerShell module autoload disabled, avoiding cmdlet discovery in its sanitized environment.
@@ -15,14 +26,13 @@ A local-first automation assistant for specific surface area and pore size analy
 
 ### Desktop (Windows)
 
-Tauri 2 + React 桌面客户端位于 [desktop/](desktop/README.md)，按 `docs/ui` 设计实现聊天、常见问题、会话、设置与悬浮助手入口。首次运行在设置页保存模型 Key；桌面数据和系统凭据与 CLI 分开管理。
+Tauri 2 + React 桌面客户端位于 [desktop/](desktop/README.md)，按 `docs/ui` 设计实现聊天、常见问题、会话、设置与悬浮助手入口。CLI 与桌面直接共享 `~/.auto-agent/config.json` 及其配置的数据目录，不导入旧桌面设置。模型 Key 使用 `AUTO_AGENT_API_KEY`，桌面未继承该变量时可使用设置页保存的系统凭据；凭据不写入配置文件。同一数据目录仍只能由一个后端进程占用。
 
 ```powershell
-bun install --frozen-lockfile
-bun install --cwd desktop --frozen-lockfile
-bun run desktop:dev
+pnpm install --frozen-lockfile
+pnpm desktop:dev
 # 生成包含公共后端的 Windows 安装包：
-bun run desktop:build
+pnpm desktop:build
 ```
 
 安装包位置：`desktop/src-tauri/target/release/bundle/nsis/`。开发需要 Rust、Windows C++ Build Tools 和 WebView2，完整说明及原生验收方法见桌面 README。
@@ -30,9 +40,9 @@ bun run desktop:build
 ### CLI
 
 ```powershell
-bun install --frozen-lockfile
+pnpm install --frozen-lockfile
 $env:AUTO_AGENT_API_KEY = 'your-cloud-model-key'
-npm run dev -- --config .\examples\config.json
+pnpm dev --config .\examples\config.json
 ```
 
 The default entry starts a local readline REPL without HTTP authentication. Enter a message to continue the same session. Use /exit or Ctrl+C while idle to exit; Ctrl+C during generation cancels the reply. Use --session ID to continue history and --json for assistant JSON output. Positional arguments other than serve become the first chat message; there are no one-shot run/session/abort commands or --url/--stream options.
@@ -44,7 +54,7 @@ Assistant Markdown supports headings, emphasis, lists, quotes, links, code fence
 ```powershell
 $env:AUTO_AGENT_TOKEN = [guid]::NewGuid().ToString('N')
 $env:AUTO_AGENT_API_KEY = 'your-cloud-model-key'
-npm run dev -- serve --config .\examples\config.json
+pnpm dev serve --config .\examples\config.json
 ```
 
 Open **[http://127.0.0.1:4096/](http://127.0.0.1:4096/)** for quick integration links. [llm.txt](llm.txt) is the detailed guide for AI assistants and integration software, served at /llm.txt with /llms.txt as an alias. Documentation and health endpoints are public and contain no configuration, credentials, or session data.
@@ -52,14 +62,14 @@ Open **[http://127.0.0.1:4096/](http://127.0.0.1:4096/)** for quick integration 
 HTTP requires a bearer token of at least 16 characters by default. Trusted local development can explicitly disable it:
 
 ```powershell
-npm run dev -- serve --config .\examples\config.json --no-token
+pnpm dev serve --config .\examples\config.json --no-token
 ```
 
 No-token mode is loopback-only. Do not expose it through proxies or forwarding. Remote authenticated binding requires allowRemote and appropriate network/TLS protection. REPL and HTTP cannot share the same data directory concurrently: stop the existing process or use a separate dataDir.
 
 ## Configuration
 
-**Development vs installed usage:** `npm run dev` loads the repository's `examples/config.json` by default and displays `Mode: development`. An explicit `--config` overrides it. Paths are anchored to the project, even when launched from another working directory. `npm run start` and compiled executables use the user-directory configuration by default; the development entry never creates or edits that file. Model credentials remain environment variables; selecting the right configuration does not make an invalid API key valid.
+**Development vs installed usage:** `pnpm dev` loads the repository's `examples/config.json` by default and displays `Mode: development`. An explicit `--config` overrides it. Paths are anchored to the project, even when launched from another working directory. `pnpm start` and compiled executables use the user-directory configuration by default; the development entry never creates or edits that file. Model credentials remain environment variables; selecting the right configuration does not make an invalid API key valid.
 
 Without `--config`, first launch of `start` or the installed executable creates `~/.auto-agent/config.json` and subsequent launches load it automatically. Existing files are never overwritten and credentials are never generated or saved. Startup prints the active configuration/model/data directory and warns if the cloud key is missing. Edit `model`/`baseURL`, set `AUTO_AGENT_API_KEY`, and restart before chatting. HTTP missing-token hints also explain `serve --no-token` for trusted loopback use.
 
@@ -70,8 +80,8 @@ Start with [examples/config.json](examples/config.json). Configuration must be a
 Configuration selection is:
 
 1. An explicit `--config PATH`, resolved from the current working directory. The file must already exist and be readable; it is not created automatically.
-2. For `npm run dev`, the repository's [examples/config.json](examples/config.json).
-3. For `npm run start` or installed executables, `~/.auto-agent/config.json` (on Windows, `%USERPROFILE%\.auto-agent\config.json`), created once if missing.
+2. For `pnpm dev`, the repository's [examples/config.json](examples/config.json).
+3. For `pnpm start` or installed executables, `~/.auto-agent/config.json` (on Windows, `%USERPROFILE%\.auto-agent\config.json`), created once if missing.
 
 `dataDir`, `skillRoots`, and `wikiRoots` resolve relative to the **selected configuration file's directory**, not the working directory. Absolute paths are retained. `~` inside a JSON path is not expanded to the home directory. Windows backslashes must be escaped in JSON, for example `"C:\\Users\\user\\agent-data"`. Duplicate resolved wiki roots are removed.
 
@@ -187,7 +197,7 @@ This strict JSON example is a complete local setup without saved credentials. Sa
 
 Before chat requests, Auto-Agent estimates input using UTF-8 bytes/3 (not an exact provider tokenizer). At 90% of `maxInputTokens`, it makes explicit tool-free model calls to summarize older history; summary calls are paid, subject to the same input/output limits, bounded in count, and cancellable. System rules, loaded skill instructions/resources, current requests, recent evidence and complete tool-call/result groups remain protected. Historical summaries are marked as untrusted data, not new instructions, and can be summarized again later. If essential context or a complete historical group cannot fit, summary generation fails, or the resulting summary cannot fit, execution stops instead of silently truncating evidence or running dependent tools. Checkpoints retain audit history. CLI/events distinguish estimated input from SDK-reported input/output/total usage. Replace legacy `maxTokens`/`maxContextTokens` settings with the two new settings and restart; legacy settings are rejected rather than silently ignored.
 
-Cloud credentials come only from AUTO_AGENT_API_KEY. Restart after configuration changes. Prompt responsibilities and injection order are documented in [docs/prompts.md](docs/prompts.md). Each chat step uses one selected role plus tool guidance, refreshed host facts, and skill guidance with the current catalog; each module owns its prompt, and tool descriptions/schemas are supplied separately. The default role distinguishes preset automation workflows from direct instrument control, preserves source-grounded recommendations and reports concise verified outcomes. Skills own concrete procedures and reference contracts own fields/units. New generated configurations store systemPrompt as an empty string to follow built-in role updates; an explicit custom role replaces the default without removing runtime checks. Existing configuration text is preserved; set systemPrompt to an empty string to adopt the current built-in role.
+Cloud credentials come only from AUTO_AGENT_API_KEY. Restart after configuration changes. Prompt responsibilities and injection order are documented in [docs/prompts.md](docs/prompts.md). Each chat step uses one selected role plus tool guidance, refreshed host facts, and skill guidance with the current catalog; each module owns its prompt, and tool descriptions/schemas are supplied separately. The default role is generic: understand the task, use declared capabilities, respect dependencies and report verified outcomes. Skills own domain procedures and reference contracts own fields/units. New generated configurations store systemPrompt as an empty string to follow built-in role updates; an explicit custom role replaces the default without removing runtime checks. Existing configuration text is preserved; set systemPrompt to an empty string to adopt the current built-in role.
 
 Development defaults resolve to repository `examples/config.json`, `examples/skills`, and `.auto-agent` data. Installed defaults resolve to user `~/.auto-agent/config.json` and its data directory with built-in skills enabled and no implicitly trusted external skills. Explicit paths behave identically in both modes: relative paths resolve against the selected configuration, not cwd; the model and tool loop do not otherwise vary by mode.
 
@@ -258,6 +268,20 @@ Reasoning 作为独立的 SDK 协议内容保留在工具调用上下文和检�
 No event replay exists. Each client has a 64-frame queue; subscriber capacity is maxConcurrent * 8. Disconnecting SSE does not cancel generation. Read history after reconnecting; **do not blindly resubmit ambiguous side-effecting tasks**. A synchronous response contains only the final reply. Client applications must render raw Markdown safely, not as trusted HTML.
 
 There is no /v1/chat/completions, business /runs, /devices, or /skills endpoint, third-party browser CORS configuration, or OpenAPI service.
+
+## Unified Wiki library (first implementation stage)
+
+Use [examples/config.wiki.json](examples/config.wiki.json) to explicitly enable `wiki.sources`: files/directories of Markdown, UTF-8 text, JSON and supported native templates share one local parser/index/search/read pipeline. Paths resolve from the configuration file. `@auto-agent/wiki-core` owns the independent versioned SQLite index; `@auto-agent/wiki-sam` supplies the format-specific parser through application registration.
+
+```powershell
+pnpm dev --config examples/config.wiki.json wiki refresh
+pnpm dev --config examples/config.wiki.json wiki search "石墨"
+pnpm dev --config examples/config.wiki.json wiki lint
+```
+
+These operations do not need a model API key. The configured `wiki` tool uses `catalog/search/read` without a Skill-load prerequisite; domain interpretation still belongs to relevant skills. Search returns fixed-version references and reading does not silently follow a changed original. Failed/cancelled builds retain the published generation. Source configuration cannot be mixed with nonempty legacy `wikiRoots/wikiIndexRoots`.
+
+This mode currently indexes explicitly registered sources. Bundled asset conversion, generated Wiki pages and the desktop source-management UI are subsequent stages, not implicit capabilities of this configuration. See [implementation status and HTTP contract](docs/wiki-progress.md), [target design](docs/wiki-redesign.md), and the read-only original-library audit in `scripts/audit-wiki-library.ts`. The following sections describe the legacy mode still used when `wiki` is absent.
 
 ## Wiki knowledge and recommendation drafts
 
@@ -335,10 +359,10 @@ bun src/index.ts --config examples/config.json --wiki-index
 
 内置 `device-automation` 技能包含两条独立入口：
 
-| 入口       | 作用                                                                         | 契约与实现                                                                                                 |
-| ---------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| 自动化流程 | 根据材料、样品及测试需求匹配已有模板，交给自动化控制系统运行预设的一系列流程 | [automation.md](skills/device-automation/references/automation.md)；`scripts/automation.js` 为开发模拟实现 |
-| 单仪器控制 | 直接查询或操作指定仪器，当前接入 Climber                                     | [climber.md](skills/device-automation/references/climber.md)；`scripts/climber.js` 直连厂家 HTTP API       |
+| 入口       | 作用                                                                         | 契约与实现                                                                                                  |
+| ---------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| 自动化流程 | 根据材料、样品及测试需求匹配已有模板，交给自动化控制系统运行预设的一系列流程 | [automation.md](skills/device-automation/references/automation.md)；`scripts/automation.js` 为开发模拟实现  |
+| 单仪器控制 | 通过已配置 MCP 查询或操作指定仪器，当前接入 Climber                          | [climber.md](skills/device-automation/references/climber.md)；[Climber MCP](packages/climber-mcp/README.md) |
 
 技能先识别任务类型，再加载对应契约。自动化流程内的步骤与仪器调度由控制系统负责，Agent 不同时直接启动其中的仪器。单独操作 Climber 无需提交流程；状态和结果查询无需先匹配模板。支持根据需求选择、新建、修改或另存为模板，保留产品、版本、单位、适用条件及引用；完整配置与文件路径来自资料或用户确认。
 
@@ -352,24 +376,47 @@ G5 当前配置以用户确认可执行的介孔模板为依据，保留软件2.
 
 labType 中0为常规模式、1为高通量模式。当前厂家接口仅支持常规模式，因此面向该接口的 SAM 写入固定使用数值 `labType=0`，不继承源模板中的高通量模式1。导入/新建固定写0；修改/另存为修正继承值或缺失字段，并在 normalizedFields 中标出 labType。显式在 template/changes 指定非0值会在发布文件前被拒绝；inspect 仍保留实际值，模式1不被解释为历史枚举非法。
 
-`scripts/climber.js` 直接调用厂家 Climber PC 软件的 18080 HTTP API，控制已验收的左侧1–3口。登记使用 batchId、experiments、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径；脚本将原管号按 `n % 72 or 72` 转换后发给厂家并返回映射。Agent 确认运行授权与参数，查询厂家 health/status，明确登记成功后再单独启动同一批次，并跟踪实际状态。
+Climber MCP 通过标准 stdio 接入宿主，再调用厂家 Climber PC 软件的 HTTP API，保留原接口左侧1–3口范围。登记使用 batchId、experiments、样品名、原管号、空管/净样质量及厂家白名单内的绝对 SAM 路径；适配器将原管号按 `n % 72 or 72` 转换后发给厂家并返回映射。Agent 确认运行授权与参数，查询新鲜状态，明确登记成功后再单独启动同一批次。Skill 负责流程指导和 SAM 文件准备，不负责设备 HTTP 传输。
 
 `experiments[].samPath` 只接受厂家 Windows 主机上盘符开头的具体 `.SAM` 文件路径，例如 JSON 中的 `"E:\\templates\\MESO_SILICA_01.SAM"`；不是 `SAM_OUTPUT_DIR` 或 `E:\templates` 这样的目录。生成结果的 file.path 若不属于厂家主机可用的盘符路径，需按部署规则取得厂家 Windows 路径；接口不上传文件内容。
 
-程序首次启动自动生成的 `config.json` 已包含以下 `scriptEnv` 连接设置；使用自定义配置时可自行加入或修改（默认地址适用于同机部署）：
+默认配置不启用仪器连接。可在桌面“设备连接”设置中确认地址并开启“启用 Climber MCP”，或显式编辑共享配置（完整示例见 [examples/config.mcp.json](examples/config.mcp.json)）：
 
 ```json
 {
-  "scriptEnv": {
-    "CLIMBER_SERVICE_URL": "http://127.0.0.1:18080/api/v1",
-    "CLIMBER_TIMEOUT_MS": "5000"
-  }
+  "mcpServers": {
+    "climber-local": {
+      "kind": "stdio",
+      "enabled": true,
+      "command": "builtin",
+      "args": ["--mcp-server", "climber"],
+      "env": {
+        "CLIMBER_SERVICE_URL": "http://127.0.0.1:18080/api/v1",
+        "CLIMBER_TIMEOUT_MS": "5000"
+      },
+      "tools": {
+        "get_health": "read",
+        "get_status": "read",
+        "register_batch": "write",
+        "start_batch": "write"
+      },
+      "outcomeContract": "structured-v1",
+      "timeoutMs": 20000
+    }
+  },
+  "devices": [
+    { "id": "climber-01", "name": "Climber", "kind": "climber", "mcpServer": "climber-local" }
+  ]
 }
 ```
 
-重启应用后生效。地址必须指向厂家 HTTP API 并包含 `/api/v1`，不再连接 Python 子服务。已有配置保留原值，需要将旧连接地址手动改为上面的厂家地址。应用启动不会主动访问设备，执行技能命令时才调用。脚本使用 Node.js 22 或应用兼容的内嵌运行时。厂家部署若要求鉴权，需先对齐其合同与凭据注入方式；凭据不得放入 URL 或 `scriptEnv`。
+外部编辑需重启，桌面自动保存按空闲重启规则应用。`devices` 只是应用仪器页的可选展示绑定，不是 Agent/MCP 执行的前提。Agent 对所有 MCP 服务使用相同调用规则，不识别设备品牌、Skill 名称或厂家命令。旧 `scriptEnv.CLIMBER_*` 不会自动启用 MCP，也不导入旧桌面配置。原 `climber.js` 已从发布技能移除，仅在测试目录保留历史协议 fixture。
 
-调用参数：`health` 与 `status` 为只读查询；`register <JSON>` 接受 `{batchId,experiments}` 并 POST `/api/v1/tasks`；`start <JSON>` 只接受 `{batchId}` 并以 `{}` 正文 POST `/api/v1/tasks/{batchId}/start`。没有旧命令别名或子服务封套。所有写请求均不自动重试；超时、无效回执或批次不符返回 `OUTCOME_UNKNOWN`，保留 batchId 和阶段，停止依赖步骤并只读对账。
+原始 MCP 工具为 `get_health`、`get_status`、`register_batch`、`start_batch`；模型获得带服务器命名空间的名称，例如 `mcp__climber_local__get_status`。查询无需加载 Skill。宿主只记录通用 `tool_operations`；厂家就绪、批次校验、设备预留和持久化全部由独立 Climber MCP 处理，不存在宿主 `device` 业务层。Climber 服务状态默认保存于 `~/.climber-mcp`，可用该服务的 `CLIMBER_STATE_DIR` 指定独立目录。超时或身份不明保持 unknown，禁止自动重发。服务端 `reconcile_operation` 用于显式操作者核对，不在默认 Agent 工具允许列表中；宿主会话核对和服务端资源核对是独立记录。
+
+所有 MCP 使用统一的 `command/args/env/envFrom/tools/timeoutMs` 配置，`kind` 可省略或设为 `stdio`。`command: builtin` 表示当前发行版可执行文件；其他命令按标准 stdio 进程启动。`tools` 显式映射工具名到 read/write，未列出的不提供给模型；远端 readOnlyHint 不自行授权。含路径分隔符的命令相对配置目录解析。`env` 适合非秘密服务配置，`envFrom` 引用宿主的专用环境变量，不引用 Agent/Bun/Node 的运行控制变量。`outcomeContract` 默认 opaque，写入错误保守记为 unknown；显式 structured-v1 允许服务以 `structuredContent.error.outcome=rejected` 表达确定未执行。此策略不按服务器名称分支。每代固定工具目录并校验输入/输出限额；首版只有 stdio。
+
+桌面“仪器”页只读显示 MCP/厂家/仪器连接、就绪、忙闲、当前批次与实验、最后成功时间。可见时每3秒刷新，失败后退避至最多30秒，离开页面或隐藏窗口停止页面轮询；服务端合并在途请求。错误时保留最后已知事实并标为过期，不把连接失败当作仪器已停止。首版没有 stop、pause、历史任务查询或持久化后台工作流。
 
 厂家登记回执使用 `ok/data.task`；启动归一化厂家 v1 文档已记录的 `ok/data` 或 `ok/data.task` 任务结构，严格核对批次及状态，冲突时保持效果未知；status 使用 `ok/data.health` 和 `data.task`。READY 不代表分析开始，启动受理不等于实际 RUNNING；结果文件仅按厂家实际返回的同批证据报告。通过本地 HTTP mock 验证接口合同，真实现场连通性与设备动作仍需在实际部署中核对。
 
@@ -457,12 +504,12 @@ After launch, executor timeout, cancellation or output-limit termination is audi
 `src/app.ts` exports application startup without running it on import. `src/index.ts` is the shared source/standalone entrypoint and explicitly awaits startup; `scripts/dev.ts` calls the same application with development defaults. Builds keep ESM format and do not rely on `import.meta.main`.
 
 ```powershell
-bun run format
-bun run format:check
-bun run typecheck
-bun test
-bun run build:windows
-bun run build:linux
+pnpm format
+pnpm format:check
+pnpm typecheck
+pnpm test
+pnpm build:windows
+pnpm build:linux
 $env:AUTO_AGENT_TEST_BINARY = '1'
 bun test .\tests\integration\binary.test.ts
 ```

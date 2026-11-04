@@ -1,4 +1,4 @@
-import type { LanguageModelUsage, ModelMessage } from 'ai';
+import type { LanguageModelUsage, ModelMessage, ToolSet } from 'ai';
 
 export type ModelTokenUsage = Partial<
   Pick<LanguageModelUsage, 'inputTokens' | 'outputTokens' | 'totalTokens'>
@@ -14,6 +14,8 @@ export interface Message {
   sessionId: string;
   role: 'user' | 'assistant';
   content: string;
+  reasoning?: string;
+  runId?: string;
   createdAt: number;
 }
 export interface AgentEvent {
@@ -22,6 +24,13 @@ export interface AgentEvent {
   messageId: string;
   properties: Record<string, unknown>;
 }
+export interface ExtensionEvent {
+  type: 'extension.changed';
+  sessionId?: never;
+  messageId?: never;
+  properties: Record<string, unknown> & { extension: string; resourceId: string; revision: number };
+}
+export type ServiceEvent = AgentEvent | ExtensionEvent;
 export interface SkillInfo {
   name: string;
   description: string;
@@ -55,19 +64,27 @@ export interface ModelTurn {
   reasoning?: string;
   toolCalls: ToolCall[];
   usage: ModelTokenUsage;
+  finishReason?: 'stop' | 'length' | 'content-filter' | 'tool-calls' | 'error' | 'other';
+}
+export interface CompletionRequest {
+  messages: ModelMessage[];
+  signal: AbortSignal;
+  maxOutputTokens?: number;
 }
 export interface ModelAdapter {
   summarize?(
     messages: ModelMessage[],
     signal: AbortSignal,
   ): Promise<{ text: string; usage: ModelTokenUsage }>;
-  generateKnowledge?(source: string, signal: AbortSignal): Promise<string>;
-  generateTitle?(messages: ModelMessage[], signal: AbortSignal): Promise<string>;
+  complete?(
+    request: CompletionRequest,
+  ): Promise<{ text: string; usage: ModelTokenUsage; finishReason: string }>;
   generate(
     messages: ModelMessage[],
     signal: AbortSignal,
     onDelta: (text: string) => void,
     onReasoningDelta?: (text: string) => void,
+    tools?: ToolSet,
   ): Promise<ModelTurn>;
 }
 export class AppError extends Error {

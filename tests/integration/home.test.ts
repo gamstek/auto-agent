@@ -36,7 +36,7 @@ test('public minimal homepage and integration guide expose no local secrets and 
       expect(text).toContain('auto-agent serve');
       expect(text).toContain('POST /session');
       expect(text).not.toMatch(
-        /npm run dev|examples\/|build:windows|build:linux|Bun build plugin|Linux CI/,
+        /(?:pnpm|npm) (?:run )?dev|examples\/|build:windows|build:linux|Bun build plugin|Linux CI/,
       );
     }
     expect((await fetch(new Request('http://localhost/session'))).status).toBe(401);

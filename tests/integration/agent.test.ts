@@ -14,7 +14,7 @@ import * as builtins from '../../src/agent/builtins';
 import { AppError } from '../../src/shared/types';
 import { serve, handler } from '../../src/api';
 import { Events } from '../../src/agent/events';
-import type { AgentEvent, ModelAdapter, ModelTurn } from '../../src/shared/types';
+import type { ServiceEvent as AgentEvent, ModelAdapter, ModelTurn } from '../../src/shared/types';
 import { cli, argumentsFor } from '../../src/cli';
 async function app(model: ModelAdapter, webAllowPrivateAddresses = false) {
   const f = await fixture();
@@ -691,6 +691,7 @@ test('API authentication routes CLI remote session history and SSE', async () =>
   try {
     expect((await fetch(base + '/global/health')).status).toBe(200);
     for (const path of ['/session', '/event']) expect((await fetch(base + path)).status).toBe(401);
+    expect((await fetch(base + '/devices')).status).toBe(401);
     for (const path of ['/runs', '/devices', '/skills'])
       expect((await fetch(base + path, { headers })).status).toBe(404);
     const session = await (

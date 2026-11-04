@@ -4,11 +4,31 @@ import { Skills } from '../../src/skill';
 import { ScriptExecutor } from '../../src/execution';
 import { Store } from '../../src/storage';
 import { AgentService } from '../../src/agent';
-import { readFile } from 'node:fs/promises';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { mcpServerSchema } from '../../src/mcp/config';
 import { handler } from '../../src/api';
 
 test('uncertain manufacturer registration is audited as unknown and blocks dependent start', async () => {
   const f = await fixture();
+  // Keep the historical script-audit regression isolated from the shipped MCP-only skill.
+  const fixtureSkill = join(f.root, 'device-automation');
+  await mkdir(join(fixtureSkill, 'scripts', 'lib'), { recursive: true });
+  await writeFile(
+    join(fixtureSkill, 'SKILL.md'),
+    '---\nname: device-automation\ndescription: Legacy script audit fixture\n---\nTest-only script contract.',
+  );
+  await writeFile(
+    join(fixtureSkill, 'scripts', 'climber.js'),
+    (await readFile('tests/fixtures/legacy-climber.js', 'utf8')).replace(
+      '../../skills/device-automation/scripts/lib/log.js',
+      './lib/log.js',
+    ),
+  );
+  await writeFile(
+    join(fixtureSkill, 'scripts', 'lib', 'log.js'),
+    await readFile('skills/device-automation/scripts/lib/log.js'),
+  );
   const requests: string[] = [];
   const server = Bun.serve({
     port: 0,
@@ -24,12 +44,21 @@ test('uncertain manufacturer registration is audited as unknown and blocks depen
   });
   const config = {
     ...f.config,
-    skillRoots: [],
-    builtinSkills: true,
+    skillRoots: [f.root],
+    builtinSkills: false,
     resourceLimitBytes: 65536,
     outputLimitBytes: 65536,
     maxInputTokens: 64000,
     scriptEnv: { CLIMBER_SERVICE_URL: `${server.url.origin}/api/v1`, CLIMBER_TIMEOUT_MS: '5000' },
+    // A skill with this historical name follows exactly the same generic script policy,
+    // even when an unrelated MCP connection is enabled.
+    mcpServers: {
+      helper: mcpServerSchema.parse({
+        command: process.execPath,
+        args: ['--no-env-file', resolve('tests/fixtures/mcp-server.ts')],
+        tools: { echo: 'read' },
+      }),
+    },
   };
   const skills = new Skills(config);
   await skills.discover();

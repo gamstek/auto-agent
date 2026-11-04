@@ -11,7 +11,10 @@ on:
         'skills/**',
         'wiki/**',
         'package.json',
-        'bun.lock',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        'packages/**',
+        'tsconfig*.json',
         '.github/workflows/desktop.yml',
       ]
   pull_request:
@@ -23,7 +26,10 @@ on:
         'skills/**',
         'wiki/**',
         'package.json',
-        'bun.lock',
+        'pnpm-lock.yaml',
+        'pnpm-workspace.yaml',
+        'packages/**',
+        'tsconfig*.json',
         '.github/workflows/desktop.yml',
       ]
 jobs:
@@ -31,26 +37,27 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
-      - run: bun install --frozen-lockfile
-      - run: bun install --cwd desktop --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test
-      - run: bun run --cwd desktop prepare:backend
-      - run: bun run --cwd desktop build
-      - run: bunx playwright install chromium
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm test
+      - run: pnpm --filter auto-agent-desktop run prepare:backend
+      - run: pnpm --filter auto-agent-desktop run build
+      - run: pnpm exec playwright install chromium
         working-directory: desktop
-      - run: bun run --cwd desktop test:ui
+      - run: pnpm --filter auto-agent-desktop run test:ui
         env:
           PLAYWRIGHT_CHANNEL: chromium
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
-      - run: bun run desktop:build
+      - run: pnpm run desktop:build
       - uses: actions/upload-artifact@v4
         with:
           name: auto-agent-desktop-windows-x64

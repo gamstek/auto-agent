@@ -1,0 +1,29 @@
+.instrument-card {
+  border: 1px solid var(--control-border);
+  border-radius: 15px;
+  padding: 24px;
+  margin-bottom: 20px;
+  min-width: 0;
+}
+.instrument-card > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.instrument-card h2 {
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.instrument-freshness {
+  color: var(--accent-selected-text);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 5px 9px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+.instrument-freshness.is-stale {
+  color: #916422;
+  background: #fff6e6;
+}

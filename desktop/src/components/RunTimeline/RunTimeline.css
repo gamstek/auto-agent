@@ -1,0 +1,25 @@
+.run-timeline {
+  min-width: 0;
+  margin-bottom: 12px;
+}
+.run-timeline-entries > summary {
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 5px 0 10px;
+}
+.run-timeline-model {
+  padding: 10px 0 10px 12px;
+  border-left: 2px solid var(--accent-border);
+}
+.run-timeline-model-label {
+  color: var(--text-muted);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.run-timeline-model-label span {
+  margin-left: 8px;
+}
+.run-timeline-model .thinking {
+  margin-bottom: 5px;
+}

@@ -1,0 +1,200 @@
+.main-area.is-empty .conversation {
+  display: flex;
+  flex-direction: column;
+  padding-top: 4px;
+}
+.main-area.is-empty .conversation-inner {
+  flex: 1;
+  width: 100%;
+  gap: 0;
+}
+.conversation {
+  flex: 1;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 32px 28px 22px;
+  scrollbar-gutter: stable;
+}
+.conversation-inner {
+  max-width: 900px;
+  min-height: 100%;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+}
+.message {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+}
+.bubble {
+  max-width: calc(100% - 58px);
+  background: #f5f5f5;
+  padding: 17px 20px;
+  border-radius: 9px;
+  line-height: 1.85;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.welcome .bubble {
+  font-size: 13px;
+  color: #555;
+}
+.message.user {
+  justify-content: flex-end;
+  padding-left: 58px;
+}
+.message.user .bubble {
+  background: var(--pale);
+  padding: 13px 18px;
+  max-width: 80%;
+}
+.user-text {
+  white-space: pre-wrap;
+}
+.live-bubble {
+  min-width: 260px;
+}
+.bubble.has-process {
+  width: min(760px, calc(100% - 58px));
+}
+.working {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #7f8a97;
+  font-size: 13px;
+}
+.thinking,
+.tool-steps {
+  margin: 0 0 15px;
+  font-size: 12px;
+  color: #7c8794;
+}
+.thinking summary,
+.tool-steps summary {
+  cursor: pointer;
+  padding: 4px 0;
+}
+.thinking p {
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.8;
+  margin: 10px 0;
+}
+.tool-steps > div {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 6px 0;
+  font-size: 11px;
+}
+.tool-steps > div > span {
+  display: flex;
+  padding-top: 3px;
+  color: #5e9ad1;
+}
+.tool-steps strong {
+  font-weight: 500;
+  white-space: nowrap;
+}
+.tool-steps small {
+  overflow-wrap: anywhere;
+  color: #969da7;
+}
+.older-button {
+  background: transparent;
+  color: #8796a8;
+  font-size: 12px;
+  align-self: center;
+}
+.chat-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 20px;
+  background: #fff6ef;
+  color: #9f6239;
+  font-size: 12px;
+  line-height: 1.7;
+  max-height: 150px;
+  overflow: auto;
+}
+.connection-banner {
+  display: flex;
+  gap: 18px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  font-size: 12px;
+  color: #8490a0;
+  background: #f9fbfe;
+}
+.review-card {
+  margin-left: 58px;
+  border: 1px solid #f0d2ab;
+  background: #fffaf3;
+  border-radius: 12px;
+  padding: 22px;
+}
+.review-card h2 {
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #9b6d31;
+}
+.review-card > p {
+  font-size: 12px;
+  line-height: 1.9;
+  margin: 12px 0;
+  color: #8c7b63;
+}
+.review-detail {
+  font-size: 12px;
+  margin: 14px 0;
+  padding: 12px;
+  background: #fff4e4;
+  border-radius: 7px;
+}
+.review-detail p {
+  margin-top: 5px;
+  line-height: 1.7;
+}
+.review-card .field {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  margin-bottom: 24px;
+  font-size: 13px;
+}
+.review-card .field > span {
+  font-weight: 500;
+  color: #505a67;
+}
+.review-card .field textarea {
+  resize: vertical;
+  min-height: 90px;
+}
+@media (max-width: 700px) {
+  .conversation {
+    padding: 22px 12px;
+  }
+  .bubble {
+    padding: 12px;
+    max-width: calc(100% - 42px);
+  }
+  .message {
+    gap: 9px;
+  }
+  .review-card {
+    margin-left: 0;
+  }
+  .message.user {
+    padding-left: 30px;
+  }
+}

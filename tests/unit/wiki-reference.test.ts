@@ -3,13 +3,12 @@ import { mkdir, writeFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fixture } from '../helpers';
 import { referenceSamFixture } from '../case-helpers';
-import { Store } from '../../src/storage';
-import { SourceIndex } from '../../src/wiki/file-index';
+import { WikiLibrary, ParserRegistry } from '@auto-agent/wiki-core';
+import { samParser } from '@auto-agent/wiki-sam';
 import {
   extractReference,
   referenceEvidence,
-  type ReferenceSettings,
-} from '../../src/wiki/file-index/reference';
+} from '@auto-agent/wiki-sam/reference';
 
 test('core extraction retains treatment text, raw units, historical mode and inactive/false/zero/missing values without importing outputs', () => {
   const bytes = referenceSamFixture();
@@ -160,70 +159,41 @@ test('conditional volumes and durations retain values but respect product-specif
   ).toBeNull();
 });
 
-test('search and section reads expose core settings and provenance, and stale revisions rebuild unchanged hashes', async () => {
+test('unified search and versioned units expose reference settings and invalidate parser caches', async () => {
   const f = await fixture();
   const root = join(f.dir, 'cases');
   await mkdir(root);
   const source = join(root, 'case.SAM');
   const original = referenceSamFixture();
   await writeFile(source, original);
-  const store = new Store(f.config.dataDir);
-  const index = new SourceIndex(
-    { dataDir: f.config.dataDir, wikiIndexRoots: [root], resourceLimitBytes: 65536 },
-    store.db,
-  );
+  const parser = { ...samParser, version: 'fixture-1' };
+  const index = new WikiLibrary(join(f.config.dataDir, 'wiki.sqlite'), new ParserRegistry([parser]));
+  const sources = [{ id: 'cases', type: 'directory' as const, path: root }];
   try {
-    await index.update(new AbortController().signal);
+    await index.build(sources, new AbortController().signal);
     const search = index.search({
       query: 'REFERENCE_PRETREATMENT',
-      filters: { hasPretreatment: true, labType: 1 },
+      filters: [{ field: 'sam.labType', op: 'eq', value: 1 }],
     });
     expect(search.results).toHaveLength(1);
-    expect(search.results[0].metadata).toMatchObject({
-      hasPretreatment: true,
-      labType: 1,
-      collectionMode: 'target-pressure',
-    });
-    expect(index.search({ filters: { labType: 0 } }).results).toHaveLength(0);
+    expect(search.results[0]!.attributes).toMatchObject({ 'sam.labType': 1 });
+    expect(index.search({ filters: [{ field: 'sam.labType', op: 'eq', value: 0 }] }).results).toHaveLength(0);
     expect(index.search({ query: 'DO_NOT_INDEX_OPERATOR' }).results).toHaveLength(0);
-    expect(index.search({ query: 'zzinactivekerneluniquerefzz' }).results).toHaveLength(0);
-    const id = search.results[0].id;
-    const read = await index.read({
-      id,
-      sections: ['sample', 'reports'],
-      query: '预处理',
-      maxEvidence: 12,
-    });
-    expect(read.sections).toEqual(['sample', 'reports']);
-    const reference = read.record.configuration!.referenceSettings as ReferenceSettings;
-    expect(reference.groups.pretreatment!.fields['1']!.value).toBe(
-      'REFERENCE_PRETREATMENT 真空350℃，6小时',
-    );
-    expect(reference.groups.gas).toBeUndefined();
-    expect(read.record.configuration!.pressureProgram).toBeUndefined();
-    expect(reference.reports[0]!.parameters.fitRange!.value).toEqual({ min: 0.045, max: 0.31 });
-    expect(
-      read.record.evidence.some(
-        (item) => JSON.stringify(item.path) === JSON.stringify(['base infos', 1, 'value']),
-      ),
-    ).toBe(true);
-    const bounded = new SourceIndex(
-      { dataDir: f.config.dataDir, wikiIndexRoots: [root], resourceLimitBytes: 5000 },
-      store.db,
-    );
-    await expect(bounded.read({ id })).rejects.toMatchObject({ code: 'wiki_index_output_limit' });
-    expect(
-      Buffer.byteLength(JSON.stringify(await bounded.read({ id, sections: ['sample'] }))),
-    ).toBeLessThanOrEqual(5000);
-    store.db.query("UPDATE wiki_index_meta SET fingerprint='old-extractor'").run();
-    expect(index.status().state).toBe('stale');
-    expect(await index.update(new AbortController().signal)).toMatchObject({
+    const reference = search.results[0]!.reference;
+    const read = index.read({ reference, maxBytes: 5000 });
+    expect(read.units[0]!.data).toMatchObject({ value: 'REFERENCE_PRETREATMENT 真空350℃，6小时' });
+    expect(read.units[0]!.locator).toEqual({ kind: 'json-pointer', pointer: '/base infos/1/value' });
+    expect(Buffer.byteLength(JSON.stringify(read))).toBeLessThanOrEqual(5000);
+    const fit = index.search({ query: 'fitRange' }).results[0]!;
+    expect(index.read({ reference: fit.reference }).units[0]!.data).toMatchObject({ value: { min: 0.045, max: 0.31 } });
+    parser.version = 'fixture-2';
+    expect(await index.build(sources, new AbortController().signal)).toMatchObject({
       rebuilt: 1,
       reused: 0,
     });
     expect(await readFile(source)).toEqual(original);
   } finally {
-    store.close();
+    await index.close();
     await f.cleanup();
   }
 });

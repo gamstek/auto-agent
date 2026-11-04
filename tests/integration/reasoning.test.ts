@@ -81,7 +81,12 @@ test('reasoning survives a real SDK tool round trip and session restart without 
       tool_calls: [{ id: 'load' }],
     });
     expect(JSON.stringify(store.messages(session.id))).not.toContain('Explain the skill.');
-    expect(store.contextMessages(session.id, 4096).at(-1)?.reasoning).toBe('Explain the skill.');
+    expect(store.contextMessages(session.id, 4096).at(-1)?.reasoning).toBe(
+      'Inspect available skill.\n\nExplain the skill.',
+    );
+    expect(store.messages(session.id, 100, 0, true).at(-1)?.reasoning).toBe(
+      'Inspect available skill.\n\nExplain the skill.',
+    );
     // The reasoning bytes count towards the bounded history read.
     expect(() => store.contextMessages(session.id, Buffer.byteLength(first.content))).toThrow(
       'byte budget',
@@ -95,7 +100,10 @@ test('reasoning survives a real SDK tool round trip and session restart without 
     expect(second.content).toBe('Second answer');
     expect(requests).toHaveLength(3);
     expect(requests[2].messages.find((message: any) => message.role === 'assistant')).toMatchObject(
-      { content: 'First answer', reasoning_content: 'Explain the skill.' },
+      {
+        content: 'First answer',
+        reasoning_content: 'Inspect available skill.\n\nExplain the skill.',
+      },
     );
     expect(JSON.stringify(store.messages(session.id))).not.toContain('Answer the follow-up.');
   } finally {

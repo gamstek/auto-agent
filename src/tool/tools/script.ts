@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { AppError, errorText, type ScriptResult } from '../../shared/types';
 import { defineTool, UncertainToolError } from '../context';
 import { sanitizeDiagnostic } from '../../shared/diagnostics';
+import { evidenceMetadata } from '../evidence';
 
 export const executeScriptTool = defineTool({
   description:
@@ -45,6 +46,8 @@ export const executeScriptTool = defineTool({
         run.failedScripts.add(signature);
         throw new UncertainToolError(
           'Script outcome could not be recorded; manual reconciliation required',
+          diagnostic,
+          { status: 'failed', effect: 'unknown', output: result },
         );
       }
     };
@@ -86,11 +89,7 @@ export const executeScriptTool = defineTool({
           'code' in output.error
         ) {
           const raw = output.error as Record<string, unknown>;
-          const selected = Object.fromEntries(
-            ['code', 'message', 'batchId', 'stage', 'status', 'diagnostic', 'cause']
-              .filter((key) => Object.hasOwn(raw, key))
-              .map((key) => [key, raw[key]]),
-          );
+          const selected = evidenceMetadata(raw) as Record<string, unknown>;
           diagnostic = (diagnostics?.sanitize(selected) ?? sanitizeDiagnostic(selected)) as Record<
             string,
             unknown
@@ -102,19 +101,7 @@ export const executeScriptTool = defineTool({
           });
           if (raw.code === 'OUTCOME_UNKNOWN') result = { ...result, status: 'unknown' };
         } else if (output && typeof output === 'object') {
-          const selected = Object.fromEntries(
-            [
-              'backend',
-              'operation',
-              'batchId',
-              'stage',
-              'file',
-              'pendingInputs',
-              'sampleInputsComplete',
-            ]
-              .filter((key) => Object.hasOwn(output, key))
-              .map((key) => [key, (output as Record<string, unknown>)[key]]),
-          );
+          const selected = evidenceMetadata(output) as Record<string, unknown>;
           observed = (diagnostics?.sanitize(selected) ?? sanitizeDiagnostic(selected)) as Record<
             string,
             unknown
@@ -152,8 +139,13 @@ export const executeScriptTool = defineTool({
           ? `${String(diagnostic.code)}: ${diagnostic.message}`
           : 'Script outcome is uncertain; manual reconciliation required',
         diagnostic,
+        { status: 'failed', effect: 'unknown', output: result },
       );
     }
-    return { output: result, status: result.status };
+    return {
+      output: result,
+      status: result.status,
+      effect: result.started === false ? 'none' : 'acknowledged',
+    };
   },
 });

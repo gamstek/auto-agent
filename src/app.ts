@@ -6,175 +6,93 @@ import { CloudModel } from './llm';
 import { AgentService } from './agent';
 import { serve } from './api';
 import { argumentsFor, cli, help } from './cli';
+import { wikiCommand } from './cli/wiki';
 import { AppError } from './shared/types';
 import { output } from './shared/console';
-import { Wiki } from './wiki';
 import { Diagnostics } from './shared/diagnostics';
 import { version } from '../package.json';
-export async function main(
-  argv = process.argv.slice(2),
-  options: { development?: boolean; defaultConfig?: string } = {},
-) {
+import { mcpEnvironmentSecrets } from './mcp/config';
+import { InstrumentViews } from './integrations/instruments';
+import { instrumentViewsSchema } from './integrations/config';
+import { createWikiLibrary } from './integrations/wiki-library';
+import { WikiError, type WikiLibrary } from '@auto-agent/wiki-core';
+
+export async function main(argv = process.argv.slice(2), options: { development?: boolean; defaultConfig?: string } = {}) {
   const args = argumentsFor(argv);
-  if (args.values.help) {
-    output.text(help);
-    return;
-  }
-  const updatingWiki = Boolean(args.values['wiki-update']);
-  const indexingWiki = Boolean(args.values['wiki-index']);
-  if (updatingWiki && indexingWiki)
-    throw new AppError('usage', 'Select only one of --wiki-update and --wiki-index');
-  if (
-    (updatingWiki || indexingWiki) &&
-    (args.positionals.length || args.values.session || args.values.json || args.values['no-token'])
-  )
-    throw new AppError(
-      'usage',
-      `${updatingWiki ? '--wiki-update' : '--wiki-index'} does not accept chat, serve, --session, --json or --no-token arguments`,
-    );
+  if (args.values.help) { output.text(help); return; }
+  const index = Boolean(args.values['wiki-index']);
   const isServer = args.positionals[0] === 'serve';
+  const isWiki = index || args.positionals[0] === 'wiki';
+  if (index && args.positionals.length) throw new AppError('usage', '--wiki-index does not accept positional arguments');
+  if (isWiki && (args.values.session || args.values.json || args.values['no-token']))
+    throw new AppError('usage', 'Wiki commands do not accept --session, --json or --no-token');
   if (isServer && (args.positionals.length !== 1 || args.values.session || args.values.json))
     throw new AppError('usage', 'serve does not accept chat arguments, --session or --json.');
-  const configFile = args.values.config ?? options.defaultConfig;
-  output.info(`Auto-Agent · ${isServer ? 'HTTP service' : 'interactive CLI'}`);
-  if (options.development) output.info(`Mode: development\nSelected configuration: ${configFile}`);
-  const config = await loadConfig(configFile, isServer && args.values['no-token'], !isServer);
-  output.info(
-    `Configuration: ${config.configPath}\nModel: ${config.model}\nData: ${config.dataDir}`,
-  );
-  if (!config.apiKey && !indexingWiki)
-    output.warn(
-      'AUTO_AGENT_API_KEY is not set. Set it before starting this process to enable chat. Configuration and health endpoints remain available.',
-    );
-  if (isServer && config.noToken)
-    output.warn(
-      '--no-token disables authentication. Local processes can access sessions and execute trusted scripts.',
-    );
+  const selected = args.values.config ?? options.defaultConfig;
+  output.info(`Auto-Agent · ${isServer ? 'HTTP service' : isWiki ? 'Wiki' : 'interactive CLI'}`);
+  if (options.development) output.info(`Mode: development\nSelected configuration: ${selected}`);
+  const config = await loadConfig(selected, isServer && args.values['no-token'], !isServer);
+  const bindings = isServer && config.configPath
+    ? instrumentViewsSchema.parse((await Bun.file(config.configPath).json()).devices ?? []) : [];
+  output.info(`Configuration: ${config.configPath}\nModel: ${config.model}\nData: ${config.dataDir}`);
+  if (!config.apiKey && !isWiki) output.warn('AUTO_AGENT_API_KEY is not set. Set it before starting this process to enable chat. Configuration and health endpoints remain available.');
+  if (isServer && config.noToken) output.warn('--no-token disables authentication. Local processes can access sessions and execute trusted scripts.');
   const store = new Store(config.dataDir);
-  const diagnostics = new Diagnostics(config.dataDir, [config.apiKey ?? '', config.token]);
-  diagnostics.write('agent', 'app.started', {
-    version,
-    configPath: config.configPath,
-    dataDir: config.dataDir,
-    mode: isServer ? 'http' : 'cli',
-    platform: process.platform,
-    runtime: process.versions.bun,
-    model: config.model,
-  });
-  output.info(`Logs: ${diagnostics.directory}`);
-  if (updatingWiki || indexingWiki) {
-    const controller = new AbortController();
-    const stop = () => controller.abort();
-    process.once('SIGINT', stop);
-    process.once('SIGTERM', stop);
-    try {
-      output.info(
-        updatingWiki
-          ? 'Explicit wiki update: changed source text is sent to the configured model provider.'
-          : 'Explicit local Wiki file indexing: files are read locally; no model request is made.',
-      );
-      const wiki = new Wiki(config, store.db);
-      try {
-        output.json(
-          updatingWiki
-            ? await wiki.update(new CloudModel(config), controller.signal)
-            : await wiki.indexSources(controller.signal),
-        );
-      } finally {
-        wiki.close();
-      }
-    } finally {
-      process.removeListener('SIGINT', stop);
-      process.removeListener('SIGTERM', stop);
-      store.close();
-    }
-    return;
-  }
-  const skills = new Skills(config);
-  let catalog;
+  let storeClosed = false;
+  const closeStore = () => { if (!storeClosed) { storeClosed = true; store.close(); } };
+  let library: WikiLibrary | undefined;
+  let service: AgentService | undefined;
   try {
-    catalog = await skills.discover();
-  } catch (error) {
-    diagnostics.write('agent', 'startup.failed', {
-      stage: 'skill_discovery',
-      message: error instanceof Error ? error.message : String(error),
-    });
-    store.close();
-    throw error;
-  }
-  output.info(
-    `Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => `${skill.name} (${skills.source(skill.name)})`).join(', ') : '(none discovered)'}`,
-  );
-  const wiki = await new Wiki(config).status();
-  output.info(
-    `Wiki roots: ${config.wikiRoots.length ? config.wikiRoots.join(', ') : '(none configured)'}\nWiki: ${wiki.sources.length ? wiki.sources.map((source) => `${source.slice(source.indexOf('/') + 1)} (${source.startsWith('builtin/') ? 'built-in' : 'configured'})`).join(', ') : '(none discovered)'}\nWiki knowledge: ${wiki.state}${wiki.state === 'ready' ? ` (${wiki.records} records; built ${new Date(wiki.builtAt!).toISOString()})` : ''}`,
-  );
-  if (wiki.state === 'invalid') output.warn(`Wiki: ${wiki.error}`);
-  else if (wiki.state === 'unbuilt' || wiki.state === 'stale')
-    output.warn(
-      'Run --wiki-update explicitly before using wiki knowledge. No model request was made during startup.',
-    );
-  const service = new AgentService(
-    config,
-    store,
-    skills,
-    new ScriptExecutor(config, skills, diagnostics),
-    new CloudModel(config),
-    diagnostics,
-  );
-  const fileIndex = service.wiki.indexStatus();
-  output.info(
-    `Wiki index roots: ${config.wikiIndexRoots.length ? config.wikiIndexRoots.join(', ') : '(none configured)'}\nWiki file index: ${fileIndex.state} (${fileIndex.records} records)`,
-  );
-  if (fileIndex.state === 'unbuilt' || fileIndex.state === 'stale')
-    output.warn(
-      'Run --wiki-index explicitly before searching Wiki source files. Startup did not scan index roots.',
-    );
-  if (isServer) {
-    let server: ReturnType<typeof serve>;
-    try {
-      server = serve(
-        service,
-        process.env.AUTO_AGENT_DESKTOP === '1' ? () => void stop() : undefined,
-      );
-    } catch (error) {
-      diagnostics.write('agent', 'startup.failed', {
-        stage: 'listen',
-        message: error instanceof Error ? error.message : String(error),
-      });
-      store.close();
-      throw error;
+    library = createWikiLibrary(config);
+    const diagnostics = new Diagnostics(config.dataDir, [config.apiKey ?? '', config.token, ...mcpEnvironmentSecrets(config.mcpServers)]);
+    diagnostics.write('agent', 'app.started', { version, configPath: config.configPath, dataDir: config.dataDir, mode: isServer ? 'http' : isWiki ? 'wiki' : 'cli', platform: process.platform, runtime: process.versions.bun, model: config.model });
+    output.info(`Logs: ${diagnostics.directory}`);
+    if (isWiki) {
+      const controller = new AbortController();
+      const stop = () => controller.abort();
+      process.once('SIGINT', stop); process.once('SIGTERM', stop);
+      try {
+        output.info('Local Wiki: no model request is made.');
+        output.json(await wikiCommand(library, config, index ? ['refresh'] : args.positionals.slice(1), controller.signal));
+      } finally {
+        process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
+        await library.close(); closeStore();
+      }
+      return;
     }
-    const url = `http://${config.host}:${server.port}`;
-    output.info(
-      `Listening: ${url}\nAuthentication: ${config.noToken ? 'disabled (loopback only)' : 'bearer token'}`,
-    );
-    output.json({ event: 'listening', url });
+    const skills = new Skills(config);
+    const catalog = await skills.discover();
+    output.info(`Skill roots: ${config.skillRoots.length ? config.skillRoots.join(', ') : '(none configured)'}\nSkills: ${catalog.length ? catalog.map((skill) => `${skill.name} (${skills.source(skill.name)})`).join(', ') : '(none discovered)'}`);
+    const activeService = new AgentService(config, store, skills, new ScriptExecutor(config, skills, diagnostics), new CloudModel(config), diagnostics, library);
+    service = activeService;
+    const status = library.catalog();
+    output.info(`Wiki: ${status.generation ? 'ready' : 'unbuilt'}; ${status.sources.length} indexed sources. Use wiki refresh to index configured sources explicitly.`);
+    if (!isServer) {
+      try { await cli(args, config, activeService); }
+      finally { await activeService.shutdown(); closeStore(); }
+      return;
+    }
+    const views = new InstrumentViews(bindings, config, activeService.mcp, (event) => activeService.events.publish(event));
+    const server = serve(activeService, process.env.AUTO_AGENT_DESKTOP === '1' ? () => void stop() : undefined, [views.http]);
     let stopping = false;
     const stop = async () => {
       if (stopping) return;
       stopping = true;
       server.stop();
-      try {
-        await service.shutdown();
-      } finally {
-        server.stop(true);
-        store.close();
+      try { await activeService.shutdown(); }
+      finally {
+        server.stop(true); closeStore();
+        if (process.env.AUTO_AGENT_DESKTOP === '1') process.stdin.destroy();
       }
     };
-    if (process.env.AUTO_AGENT_DESKTOP === '1') {
-      // Desktop owns this private stdin pipe; EOF means its supervising shell died.
-      process.stdin.resume();
-      process.stdin.once('end', () => void stop());
-    }
-    process.once('SIGINT', () => void stop());
-    process.once('SIGTERM', () => void stop());
-  } else {
-    try {
-      await cli(args, config, service);
-    } finally {
-      await service.shutdown();
-      store.close();
-    }
+    const url = `http://${config.host}:${server.port}`;
+    output.info(`Listening: ${url}\nAuthentication: ${config.noToken ? 'disabled (loopback only)' : 'bearer token'}`);
+    output.json({ event: 'listening', url });
+    if (process.env.AUTO_AGENT_DESKTOP === '1') { process.stdin.resume(); process.stdin.once('end', () => void stop()); }
+    process.once('SIGINT', () => void stop()); process.once('SIGTERM', () => void stop());
+  } catch (error) {
+    try { await service?.shutdown(); await library?.close(); } finally { closeStore(); }
+    if (error instanceof WikiError) throw new AppError(error.code, error.message, error.status);
+    throw error;
   }
 }

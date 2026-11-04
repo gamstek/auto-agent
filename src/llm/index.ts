@@ -1,13 +1,14 @@
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
-import { generateText, streamText, type ModelMessage } from 'ai';
-import { BuiltinToolRegistry } from '../tool';
-export { toolSchemas } from '../tool';
+import { generateText, streamText, type ModelMessage, type ToolSet } from 'ai';
 import type { Config } from '../config';
-import { KNOWLEDGE_PROMPT } from '../wiki/prompt';
-import { SESSION_TITLE_PROMPT } from './prompt';
-import { AppError, requireTokenUsage, type ModelAdapter, type ModelTurn } from '../shared/types';
+import {
+  AppError,
+  requireTokenUsage,
+  type CompletionRequest,
+  type ModelAdapter,
+  type ModelTurn,
+} from '../shared/types';
 import { modelErrorDiagnostic, ModelRequestError } from './errors';
-const toolRegistry = new BuiltinToolRegistry();
 export function modelFailure(error: unknown): AppError {
   if (error instanceof AppError) return error;
   const diagnostic = modelErrorDiagnostic(error);
@@ -103,36 +104,11 @@ export class CloudModel implements ModelAdapter {
       includeUsage: true,
     });
   }
-  async generateKnowledge(source: string, signal: AbortSignal): Promise<string> {
+  async complete({ messages, signal, maxOutputTokens }: CompletionRequest) {
     if (!this.config.apiKey)
       throw new AppError(
         'model_configuration',
-        'AUTO_AGENT_API_KEY is required for knowledge updates',
-        503,
-      );
-    const provider = this.provider();
-    try {
-      const result = await generateText({
-        model: provider.chatModel(this.config.model),
-        instructions: KNOWLEDGE_PROMPT,
-        messages: [{ role: 'user', content: source }],
-        abortSignal: signal,
-        maxRetries: 0,
-        maxOutputTokens: this.config.maxOutputTokens,
-      });
-      if (result.finishReason === 'length')
-        throw new AppError('wiki_output_limit', 'Knowledge output exceeded the model output limit');
-      return result.text;
-    } catch (error) {
-      if (signal.aborted || error instanceof AppError) throw error;
-      throw modelFailure(error);
-    }
-  }
-  async summarize(messages: ModelMessage[], signal: AbortSignal) {
-    if (!this.config.apiKey)
-      throw new AppError(
-        'model_configuration',
-        'AUTO_AGENT_API_KEY is required for context compression',
+        'AUTO_AGENT_API_KEY is required for model requests',
         503,
       );
     const provider = this.provider();
@@ -147,16 +123,15 @@ export class CloudModel implements ModelAdapter {
         messages: messages.filter((message) => message.role !== 'system'),
         abortSignal: signal,
         maxRetries: 0,
-        maxOutputTokens: this.config.maxOutputTokens,
+        maxOutputTokens: Math.min(
+          maxOutputTokens ?? this.config.maxOutputTokens,
+          this.config.maxOutputTokens,
+        ),
       });
-      if (result.finishReason === 'length')
-        throw new AppError(
-          'context_summary_limit',
-          'Context summary exceeded maxOutputTokens; no partial summary was used. Increase maxOutputTokens or reduce the history.',
-        );
       const usage = result.totalUsage;
       return {
         text: result.text,
+        finishReason: result.finishReason,
         usage: {
           totalTokens: requireTokenUsage(usage),
           inputTokens: usage.inputTokens,
@@ -168,29 +143,26 @@ export class CloudModel implements ModelAdapter {
       throw modelFailure(error);
     }
   }
-  async generateTitle(messages: ModelMessage[], signal: AbortSignal): Promise<string> {
-    if (!this.config.apiKey)
+  async summarize(messages: ModelMessage[], signal: AbortSignal) {
+    const result = await this.complete({ messages, signal });
+    if (result.finishReason === 'length')
       throw new AppError(
-        'model_configuration',
-        'AUTO_AGENT_API_KEY is required. Set it and restart the application; check model/baseURL in configuration.',
-        503,
+        'context_summary_limit',
+        'Context summary exceeded maxOutputTokens; no partial summary was used. Increase maxOutputTokens or reduce the history.',
       );
-    const provider = this.provider();
-    const result = await generateText({
-      model: provider.chatModel(this.config.model),
-      instructions: SESSION_TITLE_PROMPT,
-      messages: messages.filter((message) => message.role !== 'system'),
-      abortSignal: signal,
-      maxRetries: 0,
-      maxOutputTokens: Math.min(128, this.config.maxOutputTokens),
-    });
-    return result.text;
+    if (result.finishReason !== 'stop')
+      throw new AppError(
+        'context_summary',
+        'Model did not complete the summary; history was retained',
+      );
+    return { text: result.text, usage: result.usage };
   }
   async generate(
     messages: ModelMessage[],
     signal: AbortSignal,
     onDelta: (text: string) => void,
     onReasoningDelta?: (text: string) => void,
+    generationTools?: ToolSet,
   ): Promise<ModelTurn> {
     if (!this.config.apiKey)
       throw new AppError(
@@ -200,7 +172,7 @@ export class CloudModel implements ModelAdapter {
       );
     try {
       const provider = this.provider();
-      const tools = toolRegistry.modelTools();
+      const tools = generationTools ?? {};
       const result = streamText({
         model: provider.chatModel(this.config.model),
         instructions:
@@ -233,6 +205,7 @@ export class CloudModel implements ModelAdapter {
       const usage = await result.totalUsage;
       return {
         text,
+        finishReason: await result.finishReason,
         ...(reasoning ? { reasoning } : {}),
         toolCalls: calls.map((c) => ({ id: c.toolCallId, name: c.toolName, input: c.input })),
         usage: {

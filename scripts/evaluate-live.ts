@@ -512,7 +512,9 @@ function inspectDatabase(file: string) {
           operation:
             value.toolName === 'execute_script'
               ? value.input?.args?.[0]
-              : (value.input?.action ?? value.input?.name),
+              : value.toolName.startsWith('mcp__')
+                ? value.toolName.split('__').at(-1)
+                : (value.input?.action ?? value.input?.name),
         });
       for (const item of Object.values(value)) if (item && typeof item === 'object') walk(item);
     };
@@ -730,10 +732,29 @@ async function runScenario(scenario: Scenario) {
       : {}),
     scriptEnv: {
       ...baseConfig.scriptEnv,
-      CLIMBER_SERVICE_URL: `${vendor.url.origin}/api/v1`,
       SAM_OUTPUT_DIR: templates,
       AUTO_AGENT_SIMULATION_DIR: join(directory, 'simulation'),
     },
+    mcpServers: {
+      climber: {
+        command: 'builtin',
+        args: ['--mcp-server', 'climber'],
+        env: {
+          CLIMBER_SERVICE_URL: `${vendor.url.origin}/api/v1`,
+          CLIMBER_TIMEOUT_MS: '5000',
+          CLIMBER_STATE_DIR: join(directory, 'mcp-state'),
+        },
+        tools: {
+          get_health: 'read',
+          get_status: 'read',
+          register_batch: 'write',
+          start_batch: 'write',
+        },
+        outcomeContract: 'structured-v1',
+        timeoutMs: 15000,
+      },
+    },
+    devices: [{ id: 'climber-01', name: 'Climber mock', kind: 'climber', mcpServer: 'climber' }],
   };
   const configFile = join(directory, 'config.json');
   await writeFile(configFile, JSON.stringify(config, null, 2));
@@ -877,11 +898,11 @@ async function runScenario(scenario: Scenario) {
     }
     const commands: Record<string, string[]> = {
       'scripts/sam.js': ['profiles', 'inspect', 'compare', 'create', 'modify', 'save-as'],
-      'scripts/climber.js': ['health', 'status', 'register', 'start'],
       'scripts/automation.js': ['list', 'status', 'submit-run', 'run', 'results', 'export-report'],
     };
     for (const turn of turns)
       for (const tool of turn.tools) {
+        check(tool.path !== 'scripts/climber.js', 'Retired Climber script must not be used');
         if (tool.name === 'execute_script' && commands[tool.path])
           check(
             commands[tool.path]!.includes(tool.operation),

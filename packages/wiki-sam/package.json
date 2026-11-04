@@ -1,0 +1,22 @@
+{
+  "name": "@auto-agent/wiki-sam",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./sam": "./src/sam.ts",
+    "./reference": "./src/reference.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests"
+  },
+  "dependencies": {
+    "@auto-agent/wiki-core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

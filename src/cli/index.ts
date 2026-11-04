@@ -12,7 +12,6 @@ export function argumentsFor(argv: string[]) {
       json: { type: 'boolean' },
       help: { type: 'boolean' },
       licenses: { type: 'boolean' },
-      'wiki-update': { type: 'boolean' },
       'wiki-index': { type: 'boolean' },
       'no-token': { type: 'boolean' },
     },
@@ -26,6 +25,11 @@ Usage
 
 Commands
   serve              Start the HTTP service (bearer token required by default)
+  wiki catalog       Inspect a configured unified Wiki library
+  wiki lint          Check stored representation/index integrity without model calls
+  wiki refresh       Explicitly parse/index wiki.sources locally, then exit
+  wiki search QUERY  Search the unified library without model calls
+  wiki read JSON     Read a versioned reference returned by search
   No command         Start interactive chat; positional text is the first message
 
 Options
@@ -33,8 +37,7 @@ Options
   --session ID       Resume an existing chat session
   --json             Print chat history and replies as newline-delimited JSON
   --no-token         Disable HTTP authentication on loopback only
-  --wiki-update      Explicitly compile built-in and external wiki sources using the cloud model, then exit
-  --wiki-index       Explicitly index wikiIndexRoots as local source evidence without model calls, then exit
+  --wiki-index       Run wiki refresh: index configured sources locally, then exit
   --licenses         Show bundled third-party license notices
   --help             Show this help
 

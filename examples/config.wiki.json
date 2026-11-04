@@ -1,0 +1,18 @@
+{
+  "dataDir": "./.wiki-data",
+  "builtinSkills": true,
+  "builtinWiki": false,
+  "wiki": {
+    "sources": [
+      {
+        "id": "guidance",
+        "type": "directory",
+        "path": "../wiki/sources",
+        "collection": "reference",
+        "include": ["**/*.md", "**/*.txt"]
+      }
+    ],
+    "parsers": ["builtin.text", "builtin.markdown", "builtin.json", "sam.reference"],
+    "enrichment": { "enabled": false }
+  }
+}

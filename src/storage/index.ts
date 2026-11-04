@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AppError, type Message, type ScriptResult, type Session } from '../shared/types';
 import { migrate } from './migrations';
+import { RunTraceStore } from './traces';
+import { RunTranscriptStore } from './transcripts';
 
 type RunStatus = 'completed' | 'failed' | 'cancelled' | 'waiting_for_operator';
 
@@ -22,6 +24,8 @@ export function validatePage(limit: number, offset: number): void {
 }
 
 export class Store {
+  readonly traces: RunTraceStore;
+  readonly transcripts: RunTranscriptStore;
   readonly db: Database;
   private readonly ownership: Database;
   private closed = false;
@@ -142,6 +146,32 @@ export class Store {
         summary TEXT NOT NULL, updatedAt INTEGER NOT NULL
       );`,
       );
+      migrate(
+        db,
+        'store-9-mcp-operations',
+        `
+        CREATE TABLE tool_operations (
+          id TEXT PRIMARY KEY, runId TEXT NOT NULL REFERENCES runs(id), serverId TEXT NOT NULL, toolName TEXT NOT NULL,
+          inputHash TEXT NOT NULL, resourceKey TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('dispatching','confirmed','rejected','unknown')),
+          createdAt INTEGER NOT NULL, finishedAt INTEGER,
+          UNIQUE(runId, resourceKey, toolName, inputHash)
+        );
+        CREATE INDEX tool_operations_server ON tool_operations(serverId,status);
+      `,
+      );
+      migrate(
+        db,
+        'store-10-tool-evidence',
+        `
+        CREATE TABLE tool_evidence (runId TEXT NOT NULL REFERENCES runs(id), toolCallId TEXT NOT NULL,
+          toolName TEXT NOT NULL, status TEXT NOT NULL, effect TEXT NOT NULL, metadata TEXT NOT NULL,
+          PRIMARY KEY(runId,toolCallId));
+        CREATE TABLE run_messages (runId TEXT PRIMARY KEY REFERENCES runs(id), messageId TEXT NOT NULL REFERENCES messages(id));
+      `,
+      );
+      this.traces = new RunTraceStore(db);
+      this.transcripts = new RunTranscriptStore(db);
       this.recover();
     } catch (error) {
       db?.close();
@@ -166,6 +196,17 @@ export class Store {
             .all()
             .map((row) => row.runId),
         );
+        for (const row of this.db
+          .query<{ runId: string }, []>(
+            "SELECT DISTINCT runId FROM tool_operations WHERE status IN ('dispatching','unknown')",
+          )
+          .all())
+          affected.add(row.runId);
+        this.db
+          .query(
+            "UPDATE tool_operations SET status='unknown',finishedAt=? WHERE status='dispatching'",
+          )
+          .run(Date.now());
         this.db
           .query(
             "UPDATE executions SET status = 'unknown', finishedAt = ? WHERE status = 'executing'",
@@ -176,13 +217,14 @@ export class Store {
           this.db
             .query('UPDATE runs SET status = ?, finishedAt = ? WHERE id = ?')
             .run(unknown ? 'waiting_for_operator' : 'failed', unknown ? null : Date.now(), run.id);
-          this.addMessage(
+          const reply = this.addMessage(
             run.sessionId,
             'assistant',
             unknown
-              ? 'An interrupted script has an unknown outcome. This run is waiting for operator review; scripts will not be automatically replayed. Verify external effects before starting another run.'
+              ? 'An interrupted operation has an unknown outcome. This run is waiting for operator review; operations will not be automatically replayed. Verify external effects before starting another run.'
               : 'This run was interrupted and has been marked failed. It will not be automatically resumed.',
           );
+          this.db.query('INSERT INTO run_messages VALUES (?,?)').run(run.id, reply.id);
         }
       })
       .immediate();
@@ -240,14 +282,28 @@ export class Store {
     return session;
   }
 
-  messages(id: string, limit = 100, offset = 0): Message[] {
+  messages(
+    id: string,
+    limit = 100,
+    offset = 0,
+    includeReasoning = false,
+    includeProcess = false,
+  ): Message[] {
     this.getSession(id);
     validatePage(limit, offset);
     return this.db
-      .query<Message, [string, number, number]>(
-        'SELECT * FROM messages WHERE sessionId = ? ORDER BY createdAt DESC, rowid DESC LIMIT ? OFFSET ?',
+      .query<
+        Message & { reasoning: string | null; runId: string | null },
+        [string, number, number]
+      >(
+        'SELECT m.*,r.content AS reasoning,rm.runId FROM messages m LEFT JOIN message_reasoning r ON r.messageId=m.id LEFT JOIN run_messages rm ON rm.messageId=m.id WHERE m.sessionId = ? ORDER BY m.createdAt DESC, m.rowid DESC LIMIT ? OFFSET ?',
       )
       .all(id, limit, offset)
+      .map(({ reasoning, runId, ...message }) => ({
+        ...message,
+        ...(includeReasoning && reasoning ? { reasoning } : {}),
+        ...(includeProcess && runId ? { runId } : {}),
+      }))
       .reverse();
   }
 
@@ -291,7 +347,7 @@ export class Store {
   /** Read either the recent tail or the next prefix batch; never hide omitted rows. */
   contextWindow(sessionId: string, afterRow: number, maxBytes: number, beforeRow?: number) {
     this.getSession(sessionId);
-    type Row = Message & { reasoning: string | null; row: number };
+    type Row = Message & { reasoning: string | null; row: number; evidence?: unknown[] };
     const statement = this.db.prepare<Row, (string | number)[]>(
       `SELECT m.*,m.rowid AS row,r.content AS reasoning FROM messages m
        LEFT JOIN message_reasoning r ON r.messageId=m.id
@@ -307,6 +363,26 @@ export class Store {
         afterRow,
         ...(beforeRow === undefined ? [] : [beforeRow]),
       )) {
+        const evidence = this.db
+          .query<
+            {
+              toolCallId: string;
+              toolName: string;
+              status: string;
+              effect: string;
+              metadata: string;
+            },
+            [string]
+          >(
+            `SELECT e.toolCallId,e.toolName,e.status,e.effect,e.metadata FROM tool_evidence e
+           JOIN run_messages rm ON rm.runId=e.runId WHERE rm.messageId=? ORDER BY e.rowid`,
+          )
+          .all(message.id);
+        if (evidence.length)
+          message.evidence = evidence.map(({ metadata, ...entry }) => ({
+            ...entry,
+            metadata: JSON.parse(metadata),
+          }));
         const size = Buffer.byteLength(JSON.stringify(message));
         if (bytes + size > maxBytes) {
           if (!messages.length)
@@ -423,6 +499,120 @@ export class Store {
       .immediate();
   }
 
+  beginTurn(sessionId: string, content: string): string {
+    return this.db
+      .transaction(() => this.beginRun(sessionId, this.addMessage(sessionId, 'user', content).id))
+      .immediate();
+  }
+
+  recordReviewReply(sessionId: string, content: string, report: string): Message {
+    return this.db
+      .transaction(() => {
+        this.addMessage(sessionId, 'user', content);
+        return this.addMessage(sessionId, 'assistant', report);
+      })
+      .immediate();
+  }
+
+  latestRun(sessionId: string) {
+    return this.db
+      .query<
+        { id: string; status: string; createdAt: number; finishedAt: number | null },
+        [string]
+      >(
+        'SELECT id,status,createdAt,finishedAt FROM runs WHERE sessionId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1',
+      )
+      .get(sessionId);
+  }
+
+  recordToolEvidence(
+    runId: string,
+    evidence: {
+      toolCallId: string;
+      toolName: string;
+      status: string;
+      effect: string;
+      metadata: unknown;
+    },
+  ) {
+    const metadata = JSON.stringify(evidence.metadata);
+    if (
+      Buffer.byteLength(metadata) > 4096 ||
+      evidence.toolCallId.length > 256 ||
+      evidence.toolName.length > 256
+    )
+      throw new AppError('tool_evidence_limit', 'Tool evidence exceeds its storage limit');
+    this.db
+      .query('INSERT INTO tool_evidence VALUES (?,?,?,?,?,?)')
+      .run(
+        runId,
+        evidence.toolCallId,
+        evidence.toolName,
+        evidence.status,
+        evidence.effect,
+        metadata,
+      );
+  }
+
+  completeRun(
+    runId: string,
+    sessionId: string,
+    messageId: string,
+    output: { text: string; reasoning?: string },
+  ): Message {
+    return this.finalizeTurn(
+      runId,
+      sessionId,
+      messageId,
+      'completed',
+      output.text,
+      output.reasoning,
+    );
+  }
+
+  failRun(
+    runId: string,
+    sessionId: string,
+    messageId: string,
+    status: 'failed' | 'cancelled' | 'waiting_for_operator',
+    content: string,
+    reasoning?: string,
+  ): Message {
+    return this.finalizeTurn(runId, sessionId, messageId, status, content, reasoning);
+  }
+
+  private finalizeTurn(
+    runId: string,
+    sessionId: string,
+    messageId: string,
+    status: RunStatus,
+    content: string,
+    reasoning?: string,
+  ): Message {
+    return this.db
+      .transaction(() => {
+        if (this.runSessionId(runId) !== sessionId)
+          throw new AppError('RUN_CONFLICT', 'Run belongs to another session', 409);
+        if (status === 'waiting_for_operator') {
+          this.db
+            .query(
+              "UPDATE executions SET status='unknown',finishedAt=? WHERE runId=? AND status='executing'",
+            )
+            .run(Date.now(), runId);
+          this.db
+            .query(
+              "UPDATE tool_operations SET status='unknown',finishedAt=? WHERE runId=? AND status='dispatching'",
+            )
+            .run(Date.now(), runId);
+        }
+        const reply = this.addMessage(sessionId, 'assistant', content, messageId, reasoning);
+        this.finishRun(runId, status);
+        this.db.query('INSERT INTO run_messages VALUES (?,?)').run(runId, messageId);
+        return reply;
+      })
+      .immediate();
+  }
+
   finishRun(runId: string, status: RunStatus): void {
     this.db
       .transaction(() => {
@@ -437,6 +627,9 @@ export class Store {
         if (
           this.db
             .query("SELECT id FROM executions WHERE runId = ? AND status = 'executing'")
+            .get(runId) ||
+          this.db
+            .query("SELECT id FROM tool_operations WHERE runId=? AND status='dispatching'")
             .get(runId)
         ) {
           throw new AppError(
@@ -544,7 +737,104 @@ export class Store {
         ...execution,
         diagnostic: data ? (JSON.parse(data) as Record<string, unknown>) : null,
       }));
-    return { ...run, executions };
+    const operations = this.db
+      .query<
+        {
+          id: string;
+          serverId: string;
+          toolName: string;
+          status: string;
+          createdAt: number;
+          finishedAt: number | null;
+        },
+        [string]
+      >('SELECT * FROM tool_operations WHERE runId=? ORDER BY createdAt DESC LIMIT 16')
+      .all(run.id)
+      .map((operation) => ({
+        id: operation.id,
+        serverId: operation.serverId,
+        toolName: operation.toolName,
+        status: operation.status,
+        createdAt: operation.createdAt,
+        finishedAt: operation.finishedAt,
+        diagnostic: {
+          stage: operation.toolName,
+          code: operation.status === 'unknown' ? 'OUTCOME_UNKNOWN' : operation.status,
+        } as Record<string, unknown>,
+      }));
+    return { ...run, executions, operations };
+  }
+
+  beginToolOperation(
+    runId: string,
+    serverId: string,
+    toolName: string,
+    inputHash: string,
+    resourceKey = serverId,
+  ): string {
+    return this.db
+      .transaction(() => {
+        const run = this.db
+          .query<{ sessionId: string; status: string }, [string]>(
+            'SELECT sessionId,status FROM runs WHERE id=?',
+          )
+          .get(runId);
+        if (run?.status !== 'running')
+          throw new AppError('RUN_NOT_RUNNING', 'Run is not running', 409);
+        if (
+          this.db
+            .query(
+              'SELECT id FROM tool_operations WHERE runId=? AND resourceKey=? AND toolName=? AND inputHash=?',
+            )
+            .get(runId, resourceKey, toolName, inputHash)
+        )
+          throw new AppError(
+            'replay_blocked',
+            'This operation was already attempted in this generation',
+            409,
+          );
+        if (
+          this.db
+            .query(
+              "SELECT o.id FROM tool_operations o WHERE (serverId=? OR resourceKey=?) AND status='unknown' AND NOT EXISTS (SELECT 1 FROM run_reviews r WHERE r.runId=o.runId)",
+            )
+            .get(serverId, resourceKey)
+        )
+          throw new AppError(
+            'mcp_review_required',
+            'This MCP server has an unresolved write; record operator reconciliation first',
+            409,
+          );
+        const id = randomUUID();
+        this.db
+          .query(
+            "INSERT INTO tool_operations(id,runId,serverId,toolName,inputHash,resourceKey,status,createdAt,finishedAt) VALUES (?,?,?,?,?,?,'dispatching',?,NULL)",
+          )
+          .run(id, runId, serverId, toolName, inputHash, resourceKey, Date.now());
+        return id;
+      })
+      .immediate();
+  }
+  finishToolOperation(id: string, status: 'confirmed' | 'rejected' | 'unknown') {
+    this.db
+      .transaction(() => {
+        const operation = this.db
+          .query<{ status: string }, [string]>('SELECT * FROM tool_operations WHERE id=?')
+          .get(id);
+        if (operation?.status !== 'dispatching')
+          throw new AppError('EXECUTION_FINISHED', 'Operation cannot be overwritten', 409);
+        this.db
+          .query('UPDATE tool_operations SET status=?,finishedAt=? WHERE id=?')
+          .run(status, Date.now(), id);
+      })
+      .immediate();
+  }
+  runSessionId(runId: string): string {
+    const row = this.db
+      .query<{ sessionId: string }, [string]>('SELECT sessionId FROM runs WHERE id=?')
+      .get(runId);
+    if (!row) throw new AppError('RUN_NOT_FOUND', 'Run not found', 404);
+    return row.sessionId;
   }
 
   resolveReview(sessionId: string, runId: string, note: string): void {

@@ -52,7 +52,11 @@ test('bounded history, stable pagination and health version', async () => {
           headers: { Authorization: 'Bearer ' + f.config.token },
         }),
       );
-    expect(await (await request('/global/health')).json()).toEqual({ healthy: true, version });
+    expect(await (await request('/global/health')).json()).toEqual({
+      healthy: true,
+      version,
+      capabilities: { runInspection: 1, persistedReasoning: 1, conversationProcess: 1 },
+    });
     expect(await (await request(`/session/${session.id}/message?limit=2&offset=2`)).json()).toEqual(
       store.messages(session.id, 2, 2),
     );

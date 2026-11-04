@@ -1,7 +1,11 @@
 import { dispatchInternalRuntime } from './execution/runtime';
 
 try {
-  if (!(await dispatchInternalRuntime())) {
+  if (process.argv[2] === '--mcp-server') {
+    if (process.argv.length !== 4) throw new Error('MCP server mode requires a program name');
+    const { serveBundledMcp } = await import('./integrations/mcp-servers');
+    await serveBundledMcp(process.argv[3]!);
+  } else if (!(await dispatchInternalRuntime())) {
     const { main } = await import('./app');
     await main();
   }

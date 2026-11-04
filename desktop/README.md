@@ -9,25 +9,29 @@ Windows 优先的 Tauri 2 + React + TypeScript 桌面客户端。整体采用自
 在仓库根目录运行：
 
 ```powershell
-bun install --frozen-lockfile
-bun install --cwd desktop --frozen-lockfile
-bun run desktop:dev
+pnpm install --frozen-lockfile
+pnpm desktop:dev
 ```
 
 开发命令自动编译当前公共后端为 sidecar，再启动 Vite 与 Tauri。前端开发服务器只绑定 `127.0.0.1:1420`，排除 Rust 构建目录的文件监听。
 
+修改 Agent 后端源码后，需要在任务结束后正常退出当前桌面及开发命令，再运行 `pnpm desktop:dev`。Vite 热更新、页面刷新和重新连接不会更新正在运行的 sidecar；Rust 自动重编译也不会重新执行启动前的 Bun 后端构建。界面通过后端健康接口的能力声明检查运行图和历史思考支持，旧后端会给出明确提示。
+
 ```powershell
-bun run desktop:build
+pnpm desktop:build
 ```
 
 Windows 安装包输出：`desktop/src-tauri/target/release/bundle/nsis/Auto-Agent_<version>_x64-setup.exe`。安装包带独立公共后端与内置技能/Wiki；无需安装 Bun 或 Node。WebView2 缺失时安装引导程序会下载运行时，需要网络。当前安装器配置以 Windows NSIS 为验收目标，Linux/macOS 桌面尚未完成安装与运行验收。
 
-只看界面可在 desktop 下运行 `bun run dev`；普通浏览器不会调用本地后端，也不能保存设置。完整功能请使用 Tauri 窗口。
+只看界面可运行 `pnpm --filter auto-agent-desktop dev`；普通浏览器不会调用本地后端，也不能保存设置。完整功能请使用 Tauri 窗口。桌面使用根目录 pnpm 工作区锁文件，不单独安装依赖。
 
 ## 已实现
 
 - 欢迎页与常见问题入口；问题单击即发送并进入对话，连接未就绪时不可发送。
 - 会话创建、最近会话、消息分页、流式回答和思考、Markdown/GFM表格、工具步骤、取消、复制和本机反馈标记。
+- 设置中的「技能」与「知识库」分别管理各自的内置开关和来源目录。
+- 思考内容与回答分开保存，结束、失败或切换会话重新加载后仍可展开查看；多轮模型思考按顺序保留。
+- 聊天页「运行图」展示 LangGraph 实际拓扑和调用状态，按节点查看脱敏后的最终模型请求、上下文和工具定义；支持历史运行、摘要调用与只读实时刷新。详见 [运行检查说明](../docs/run-inspection.md)。
 - 会话列表滚动条贴齐侧栏右侧，每批加载50条，接近底部自动加载下一批；支持失败重试和ID去重，标题/任务状态刷新保留已加载的列表范围。列表由 `SessionList` 组件和 `hooks/useSessions.ts` 分别管理展示与分页请求。
 - 右上角关闭、Alt+F4及悬浮助手菜单的“退出应用”都会正常停止后端并退出软件。仅侧栏专门的“收起至悬浮助手”入口用于隐藏窗口，主界面不放置额外电源按钮。
 - 主窗口禁用原生标题栏；自定义标题栏提供拖动、双击最大化/还原、最小化、最大化/还原和关闭。关闭时检查后端任务，工作中不直接终止进程；快速重复关闭不会启动重复退出流程。更改Rust窗口配置后需要重启桌面进程，不是仅刷新前端。
@@ -58,7 +62,7 @@ WebView 只调用固定 Tauri commands，不持有后端访问令牌，不直接
 
 CLI 与桌面默认直接读写 **`~/.auto-agent/config.json`**，Windows 即 `%USERPROFILE%\.auto-agent\config.json`。文件不存在时创建 CLI 格式的默认配置；不读取、不导入、不迁移旧桌面 `settings.json`。
 
-- 设置页是公共配置的编辑界面。厂家接口、超时和模板目录分别映射到 `scriptEnv.CLIMBER_SERVICE_URL`、`CLIMBER_TIMEOUT_MS`、`SAM_OUTPUT_DIR`。保存只更新改动字段，保留 `interpreters`、并发/输出限额、HTTP 设置及其它未展示的配置项。
+- 设置页是公共配置的编辑界面。“启用 Climber MCP”显式创建 MCP/设备配置；已配置后，厂家地址和超时编辑首台 Climber 的 `mcpServers` 项，模板目录仍映射到 `scriptEnv.SAM_OUTPUT_DIR`。关闭开关保留配置并禁用连接，不代表停止仪器。保存只更新改动字段，保留 `interpreters`、并发/输出限额、其它 MCP 及未展示的配置项；多设备高级配置可直接编辑共享文件。
 - `dataDir`、`skillRoots`、`wikiRoots`、`wikiIndexRoots` 相对公共配置所在目录解析，与 CLI 一致。默认 `dataDir: "."`，因此两端使用同一份会话、执行审计和知识数据。已有配置优先，不另建桌面数据副本。
 - `%APPDATA%\com.gamstek.autoagent\backend.json` 仅是每次启动生成的运行快照，不是设置来源。它保持公共配置的业务字段，临时覆盖桌面所需的 loopback 地址、动态端口和认证；这些覆盖不会写回公共配置。
 - 自动保存使用配置修订号检测外部修改。冲突时保留编辑内容并提示“重新读取配置”，不覆盖外部更新。重新进入没有未保存编辑的设置页也会读取最新配置。外部修改在重启后生效；桌面自身保存仍按空闲时重启的规则应用。
@@ -71,10 +75,10 @@ CLI 与桌面默认直接读写 **`~/.auto-agent/config.json`**，Windows 即 `%
 ## 验证
 
 ```powershell
-bun run typecheck
-bun test
-bun run --cwd desktop typecheck
-bun run --cwd desktop test:ui
+pnpm typecheck
+pnpm test
+pnpm --filter auto-agent-desktop typecheck
+pnpm desktop:test
 cargo test --manifest-path desktop/src-tauri/Cargo.toml
 ```
 
@@ -115,5 +119,9 @@ Tag CI 强制要求签名配置，调用 `release:build` 生成安装包、`.sig
 诊断包使用原生保存对话框，仅导出版本/平台、数值配置摘要和 `agent.jsonl` / `skills.jsonl` 及各三个轮转文件的白名单元数据（每文件最多 2 MiB）。仅保留已知事件名、时间、UUID 关联标识及允许的数值/布尔字段；不导出自由文本、原始错误、路径、URL、模型名称、提示词、聊天、数据库、凭据或脚本输出。无法解析的日志行会跳过。取消保存不生成文件。
 
 ## 后续迭代
+
+“仪器”页已接入后端 Climber MCP，只读展示实际返回的状态、批次/实验与最后成功查询时间，并区分过期、厂家不可达和 MCP 断连。页面轮询不调用模型，离开页面后停止。无配置时通过“配置仪器”进入设备连接设置。源码和 mock 验证进度见 [实施状态](../docs/device-platform/progress.md)；持久化流程、常驻服务和定时运行仍待开发。
+
+仪器页面、卡片、详情分别由 `Instruments`、`InstrumentCard`、`InstrumentDetails` 管理，`useInstruments` 负责读取和订阅。应用状态发生变化时，SSE 发送 `extension.changed` 提示；页面只 GET 最新快照，不因收到提示再次 POST 刷新。连接恢复后重新读取快照，事件没有重放；周期性只读轮询保留为兜底。页面隐藏或卸载后不继续请求，订阅清理不会影响聊天事件。
 
 独立知识库浏览页和 Windows 代码签名尚未实现。当前引用通过模型返回的Markdown展示；不会伪造来源文件、追问建议或设备状态。喜欢/不喜欢仅作为本机标记，不声称已上传训练或评价服务。

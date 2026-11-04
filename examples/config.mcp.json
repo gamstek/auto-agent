@@ -1,0 +1,30 @@
+{
+  "dataDir": "./.mcp-example-data",
+  "model": "deepseek-flash",
+  "baseURL": "https://api.deepseek.com",
+  "maxInputTokens": 1000000,
+  "maxOutputTokens": 16000,
+  "mcpServers": {
+    "climber-local": {
+      "kind": "stdio",
+      "enabled": true,
+      "command": "builtin",
+      "args": ["--mcp-server", "climber"],
+      "timeoutMs": 20000,
+      "outcomeContract": "structured-v1",
+      "env": {
+        "CLIMBER_SERVICE_URL": "http://127.0.0.1:18080/api/v1",
+        "CLIMBER_TIMEOUT_MS": "5000"
+      },
+      "tools": {
+        "get_health": "read",
+        "get_status": "read",
+        "register_batch": "write",
+        "start_batch": "write"
+      }
+    }
+  },
+  "devices": [
+    { "id": "climber-01", "name": "Climber", "kind": "climber", "mcpServer": "climber-local" }
+  ]
+}

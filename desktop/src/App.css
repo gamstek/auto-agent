@@ -27,24 +27,6 @@
 .instant-motion .page-tab-indicator {
   transition: none !important;
 }
-.navigation-rail {
-  grid-column: 1;
-  grid-row: 2;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 9px;
-  padding: 10px 5px 12px;
-}
-.rail-spacer {
-  flex: 1;
-}
-.rail-divider {
-  width: 23px;
-  height: 1px;
-  margin: 7px 0;
-  background: var(--control-border);
-}
 .workspace-heading {
   display: flex;
   align-items: center;
@@ -142,6 +124,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
 .page-tabs {
   position: absolute;
   left: 50%;
@@ -206,5 +194,10 @@
   }
   .toolbar-new {
     margin-left: auto;
+  }
+  .page-tabs {
+    position: relative;
+    left: auto;
+    transform: none;
   }
 }

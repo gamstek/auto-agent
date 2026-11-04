@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { pnpmCommand } from './pnpm';
 
 // Run from desktop/. Signing secrets are inherited only by the build process.
 const config = JSON.parse(await readFile('src-tauri/tauri.conf.json', 'utf8'));
@@ -19,7 +20,7 @@ try {
       plugins: { updater: { pubkey: process.env.AUTO_AGENT_UPDATER_PUBLIC_KEY } },
     }),
   );
-  const child = Bun.spawn(['bun', 'run', 'desktop:build', '--config', override], {
+  const child = Bun.spawn(pnpmCommand(['run', 'desktop:build', '--config', override]), {
     stdout: 'inherit',
     stderr: 'inherit',
   });

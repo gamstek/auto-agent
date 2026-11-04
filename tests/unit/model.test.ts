@@ -1,6 +1,7 @@
 import { test, expect, spyOn } from 'bun:test';
 import { CloudModel } from '../../src/llm';
-import { toolSchemas } from '../../src/tool';
+import { BuiltinToolRegistry, toolSchemas } from '../../src/tool';
+import { SESSION_TITLE_PROMPT } from '../../src/agent/title-prompt';
 import { skillGuidance } from '../../src/skill/prompt';
 import { fixture } from '../helpers';
 import { AgentService } from '../../src/agent';
@@ -126,6 +127,7 @@ test('AI SDK OpenAI-compatible streaming adapter makes exactly one request', asy
         reasoning += text;
         releaseAnswer();
       },
+      new BuiltinToolRegistry().modelTools(),
     );
     expect(result.text).toBe('Hello');
     expect(delta).toBe('Hello');
@@ -433,10 +435,16 @@ test('title adapter summarizes with instructions without registering tools', asy
       baseURL: 'http://127.0.0.1:' + server.port + '/v1',
     });
     expect(
-      await model.generateTitle(
-        [{ role: 'user', content: 'describe project' }],
-        new AbortController().signal,
-      ),
+      (
+        await model.complete({
+          messages: [
+            { role: 'system', content: SESSION_TITLE_PROMPT },
+            { role: 'user', content: 'describe project' },
+          ],
+          signal: new AbortController().signal,
+          maxOutputTokens: 128,
+        })
+      ).text,
     ).toBe('Project overview');
     expect(requests).toBe(1);
   } finally {

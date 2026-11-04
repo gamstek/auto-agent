@@ -1,4 +1,5 @@
-import { tool } from 'ai';
+import { tool, jsonSchema, type ToolSet } from 'ai';
+import type { McpDefinition } from '../mcp/client';
 import { z } from 'zod';
 import { AppError } from '../shared/types';
 import { UncertainToolError, type ToolContext, type ToolResult } from './context';
@@ -32,29 +33,74 @@ export function contextRetentionFor(name: string) {
 }
 
 export class BuiltinToolRegistry {
+  constructor(
+    private external: readonly McpDefinition[] = [],
+    private invokeExternal?: (
+      tool: McpDefinition,
+      input: unknown,
+      context: ToolContext,
+    ) => Promise<ToolResult>,
+  ) {}
   specs() {
     return Object.entries(toolSpecs).map(([name, spec]) => ({ name, ...spec }));
   }
 
-  modelTools() {
-    return Object.fromEntries(
-      this.specs().map(({ name, description, inputSchema }) => [
+  retentionFor(name: string) {
+    if (this.external.some((definition) => definition.name === name))
+      return { kind: 'evidence' as const };
+    return this.specs().find((spec) => spec.name === name)?.retention;
+  }
+
+  eventMetadata(name: string, input: unknown): Record<string, unknown> {
+    const details = input && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+    return {
+      ...(name === 'skill' && typeof details.name === 'string'
+        ? { skill: details.name.slice(0, 256) }
+        : typeof details.skill === 'string'
+          ? { skill: details.skill.slice(0, 256) }
+          : {}),
+      ...(typeof details.path === 'string' ? { path: details.path.slice(0, 256) } : {}),
+    };
+  }
+
+  modelTools(): ToolSet {
+    return Object.fromEntries([
+      ...this.specs().map(({ name, description, inputSchema }) => [
         name,
         tool({ description, inputSchema: inputSchema as z.ZodType }),
       ]),
-    );
+      ...this.external.map((definition) => [
+        definition.name,
+        tool({
+          description: definition.description,
+          inputSchema: jsonSchema(definition.inputSchema),
+        }),
+      ]),
+    ]);
   }
 
   contextTokenEstimate(): number {
+    return Math.ceil(Buffer.byteLength(JSON.stringify(this.definitions()), 'utf8') / 3);
+  }
+  definitions() {
     const definitions = this.specs().map(({ name, description, inputSchema }) => ({
       name,
       description,
       parameters: z.toJSONSchema(inputSchema, { io: 'input' }),
     }));
-    return Math.ceil(Buffer.byteLength(JSON.stringify(definitions), 'utf8') / 3);
+    return [
+      ...definitions,
+      ...this.external.map(({ name, description, inputSchema }) => ({
+        name,
+        description,
+        parameters: inputSchema,
+      })),
+    ];
   }
 
   async execute(name: string, rawInput: unknown, context: ToolContext): Promise<ToolResult> {
+    const external = this.external.find((definition) => definition.name === name);
+    if (external && this.invokeExternal) return this.invokeExternal(external, rawInput, context);
     if (!Object.hasOwn(toolSpecs, name))
       throw new AppError('unknown_tool', 'Tool is not available');
     return this.dispatch(name as ToolName, rawInput, context);

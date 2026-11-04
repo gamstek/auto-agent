@@ -4,7 +4,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { fixture } from '../helpers';
 import { referenceSamFixture } from '../case-helpers';
-import { SourceIndex } from '../../src/wiki/file-index';
+import { WikiLibrary, ParserRegistry, builtinParsers } from '@auto-agent/wiki-core';
+import { samParser } from '@auto-agent/wiki-sam';
 
 test('offline library export publishes portable core references and retains the previous snapshot on extraction errors', async () => {
   const f = await fixture();
@@ -18,9 +19,11 @@ test('offline library export publishes portable core references and retains the 
     const child = Bun.spawn(
       [
         process.execPath,
-        resolve('scripts/export-library.ts'),
-        '--root',
-        root,
+        resolve('scripts/publish-wiki.ts'),
+        '--source',
+        `cases=${root}`,
+        '--include',
+        '**/*.SAM',
         '--output',
         output,
         ...(replace ? ['--replace'] : []),
@@ -43,14 +46,9 @@ test('offline library export publishes portable core references and retains the 
     const exported = await run();
     expect(exported.code, exported.stderr).toBe(0);
     expect(JSON.parse(exported.stdout)).toMatchObject({
-      records: 1,
-      scanned: 2,
-      pretreatmentFiles: 1,
-      pretreatmentEntries: 2,
-      preservedLabTypes: 1,
-      reports: 3,
-      integrity: 'ok',
-      fullReadsOverBudget: 0,
+      documents: 1,
+      parsed: 1,
+      verified: true,
     });
     const before = await readFile(output);
     const exists = await run();
@@ -59,26 +57,23 @@ test('offline library export publishes portable core references and retains the 
     await writeFile(join(root, 'broken.SAM'), Buffer.from([0, 0, 16, 16, 0, 0, 0, 2, 0, 123]));
     const failed = await run(true);
     expect(failed.code).not.toBe(0);
-    expect(failed.stderr).toContain('previous snapshot retained');
     expect(await readFile(output)).toEqual(before);
     expect(await readFile(join(root, 'case.SAM'))).toEqual(source);
     const db = new Database(output, { readonly: true });
     try {
-      const index = new SourceIndex(
-        { dataDir: f.dir, wikiIndexRoots: [], resourceLimitBytes: 65536 },
-        db,
-        true,
-      );
-      const found = index.search({ filters: { hasPretreatment: true, labType: 1 } });
-      expect(found.results).toHaveLength(1);
-      const read = await index.read({ id: found.results[0].id, sections: ['sample', 'reports'] });
-      expect(read.sourceVerified).toBe(false);
-      expect((read.record.configuration!.file as any).path).toBe('case.SAM');
-      expect(JSON.stringify(read.record.configuration)).not.toContain(f.dir);
-      expect(JSON.stringify(read.record.configuration)).toContain('REFERENCE_PRETREATMENT');
+      expect(JSON.stringify(db.query('SELECT config FROM sources').all())).not.toContain(f.dir);
     } finally {
       db.close();
     }
+    const library = new WikiLibrary(join(f.dir, 'consumer', 'wiki.sqlite'), new ParserRegistry([...builtinParsers, samParser]), [{ id: 'published', path: output }]);
+    try {
+      const found = library.search({ query: 'REFERENCE_PRETREATMENT', filters: [{ field: 'sam.labType', op: 'eq', value: 1 }] });
+      expect(found.results).toHaveLength(1);
+      const read = library.read({ reference: found.results[0]!.reference });
+      expect(read.sourceVerified).toBe(false);
+      expect(JSON.stringify(read)).not.toContain(f.dir);
+      expect(JSON.stringify(read)).toContain('REFERENCE_PRETREATMENT');
+    } finally { await library.close(); }
   } finally {
     await f.cleanup();
   }

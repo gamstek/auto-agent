@@ -27,34 +27,15 @@ test('registry co-locates schemas and execution but gives the model declarations
 });
 
 test('Wiki publishes an object schema while retaining per-action requirements and defaults', () => {
-  expect(toolSchemas.wiki.parse({ skill: 'example', query: '石墨' })).toEqual({
-    skill: 'example',
-    action: 'query',
-    query: '石墨',
-    limit: 5,
-  });
-  expect(toolSchemas.wiki.parse({ skill: 'example', action: 'search' })).toEqual({
-    skill: 'example',
-    action: 'search',
-    query: '',
-    filters: {},
-    limit: 3,
-  });
+  expect(toolSchemas.wiki.parse({ action: 'catalog' })).toEqual({ action: 'catalog' });
+  expect(toolSchemas.wiki.parse({ action: 'search', search: {} })).toEqual({ action: 'search', search: { query: '', filters: [], limit: 10 } });
   const id = 'a'.repeat(64);
-  expect(toolSchemas.wiki.parse({ skill: 'example', action: 'read', id })).toEqual({
-    skill: 'example',
-    action: 'read',
-    id,
-    query: '',
-    maxEvidence: 4,
-  });
+  const reference = { documentId: id, versionId: id, representationId: id };
+  expect(toolSchemas.wiki.parse({ action: 'read', read: { reference } })).toEqual({ action: 'read', read: { reference, offset: 0, limit: 20, maxBytes: 32768 } });
   for (const invalid of [
-    { skill: 'example' },
-    { skill: 'example', query: ' ' },
-    { skill: 'example', action: 'read' },
-    { skill: 'example', action: 'read', id, limit: 2 },
-    { skill: 'example', action: 'search', id },
-    { skill: 'example', query: '石墨', filters: {} },
+    {}, { action: 'search' }, { action: 'read' }, { action: 'catalog', search: {} },
+    { action: 'read', read: { reference: { documentId: id } } },
+    { action: 'search', search: { limit: 0 } },
   ])
     expect(() => toolSchemas.wiki.parse(invalid)).toThrow();
 });
@@ -72,9 +53,7 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
   await expect(registry.execute('skill', { name: '' }, f.context)).rejects.toThrow();
   for (const [name, input] of [
     ['read', { skill: 'example', path: 'reference.txt' }],
-    ['wiki', { skill: 'example', query: 'sample' }],
     ['execute_script', { skill: 'example', path: 'scripts/main.js' }],
-    ['wiki', { skill: 'example', action: 'search', query: 'sample' }],
   ] as const) {
     await expect(registry.execute(name, input, f.context)).rejects.toThrow(
       'Load skill instructions',
@@ -87,24 +66,20 @@ test('registry validates inputs, skill gates and defaults before invoking capabi
   expect(loaded.modelText).not.toContain('---');
   expect(f.context.run.loadedSkills.has('example')).toBe(true);
   expect(
-    await registry.execute('wiki', { skill: 'example', query: 'sample' }, f.context),
-  ).toMatchObject({ output: { results: [], status: 'no_match' }, status: 'completed' });
-  expect(f.calls.find((call) => call.name === 'query')?.input).toEqual({
-    query: 'sample',
-    limit: 5,
-  });
+    await registry.execute('wiki', { action: 'catalog' }, f.context),
+  ).toMatchObject({ output: { sources: [] }, status: 'completed' });
   expect(
     await registry.execute('read', { skill: 'example', path: 'reference.txt' }, f.context),
-  ).toEqual({ output: 'Resource text', status: 'completed' });
+  ).toEqual({ output: 'Resource text', status: 'completed', effect: 'none' });
   await registry.execute(
     'wiki',
-    { skill: 'example', action: 'search', query: 'sample' },
+    { action: 'search', search: { query: 'sample' } },
     f.context,
   );
   expect(f.calls.find((call) => call.name === 'wiki-search')?.input).toEqual({
     query: 'sample',
-    filters: {},
-    limit: 3,
+    filters: [],
+    limit: 10,
   });
   await registry.execute(
     'execute_script',
@@ -132,6 +107,7 @@ test('web fetch dispatch uses context without requiring skill loading', async ()
     expect(await registry.execute('web_fetch', { url: page.url }, f.context)).toEqual({
       output: page,
       status: 'completed',
+      effect: 'none',
     });
     expect(fetch.mock.calls[0]).toEqual([page.url, f.context.run.signal, f.context.network]);
     await expect(registry.execute('web_fetch', { url: 'not a URL' }, f.context)).rejects.toThrow();
@@ -154,7 +130,7 @@ test('web search validates bounded queries and dispatches without a loaded skill
   try {
     expect(
       await registry.execute('web_search', { query: '  public information  ' }, f.context),
-    ).toEqual({ output: results, status: 'completed' });
+    ).toEqual({ output: results, status: 'completed', effect: 'none' });
     expect(lookup.mock.calls[0]).toEqual([
       'public information',
       5,

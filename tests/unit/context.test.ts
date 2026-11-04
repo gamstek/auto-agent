@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import type { ModelMessage } from 'ai';
 import { fitModelContext, estimatedTokens } from '../../src/agent/context';
+import { BuiltinToolRegistry } from '../../src/tool';
 function pair(name: string, id: string, input: unknown, value: any, text = false): ModelMessage[] {
   return [
     { role: 'assistant', content: [{ type: 'tool-call', toolName: name, toolCallId: id, input }] },
@@ -21,7 +22,11 @@ const summarize = async () => ({
   text: 'Earlier conversation remains unresolved.',
   usage: { totalTokens: 10, inputTokens: 8, outputTokens: 2 },
 });
-const options = () => ({ signal: new AbortController().signal, summarize });
+const options = () => ({
+  signal: new AbortController().signal,
+  summarize,
+  retentionFor: (name: string) => new BuiltinToolRegistry().retentionFor(name),
+});
 
 test('context preserves current request, loaded guidance, resources, cited knowledge and newest results', async () => {
   const messages: ModelMessage[] = [

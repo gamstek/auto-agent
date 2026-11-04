@@ -1,5 +1,7 @@
 # Wiki 目录规划
 
+> 本文说明旧版内置资产布局。统一资料库已实现第一阶段，使用 `wiki.sources` 显式启用，详见 [实施进度与用法](../docs/wiki-progress.md)。旧目录和发布资产尚未全量迁移；目标设计见 [wiki-redesign.md](../docs/wiki-redesign.md)。
+
 Wiki同时提供推荐知识查询和历史模板参数参考，两类数据分别维护：
 
 ```text

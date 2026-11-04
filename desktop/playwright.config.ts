@@ -10,7 +10,7 @@ export default defineConfig({
       process.env.PLAYWRIGHT_CHANNEL ?? (process.platform === 'win32' ? 'msedge' : 'chromium'),
   },
   webServer: {
-    command: 'bunx vite --host 127.0.0.1 --port 1421 --strictPort',
+    command: 'pnpm exec vite --host 127.0.0.1 --port 1421 --strictPort',
     url: 'http://127.0.0.1:1421',
     reuseExistingServer: false,
   },

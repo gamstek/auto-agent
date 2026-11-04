@@ -1,24 +1,22 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import {
-  Check,
   History,
   LoaderCircle,
   MessageSquarePlus,
   RefreshCw,
-  Settings2,
   ShieldAlert,
   X,
-  Minimize2,
-  Home,
-  BookOpen,
 } from 'lucide-react';
 import {
   api,
+  type BackendHealth,
+  assertDesktopProtocol,
   desktop,
   errorText,
   native,
-  type AgentEvent,
+  type ServiceEvent,
+  isAgentEvent,
   type Message,
   type Session,
   type SessionState,
@@ -36,31 +34,24 @@ import { MarkdownAnswer } from './components/MarkdownAnswer/MarkdownAnswer';
 import { Avatar } from './components/Avatar/Avatar';
 import { ResponseActions } from './components/ResponseActions/ResponseActions';
 import { Welcome } from './components/Welcome/Welcome';
-import { Conversation } from './components/Conversation/Conversation';
+import { MessageList } from './components/MessageList/MessageList';
+import { Instruments } from './components/Instruments/Instruments';
+import { NavigationRail } from './components/NavigationRail/NavigationRail';
+import { RunInspector } from './components/RunInspector/RunInspector';
+import { RunTimeline } from './components/RunTimeline/RunTimeline';
 import './App.css';
 
 const welcome =
   '你好！我是量仔，你的 Climber 专属小助理。可以帮你查阅知识、准备测样方案和跟踪仪器任务。有什么可以帮到你的吗？';
-type Live = {
-  id: string;
-  text: string;
-  reasoning: string;
-  steps: { id: string; name: string; detail: string; status: string }[];
-};
-const labels: Record<string, string> = {
-  skill: '加载技能',
-  read: '读取资料',
-  wiki: '检索知识',
-  execute_script: '执行脚本',
-  web_fetch: '读取网页',
-  web_search: '搜索网页',
-};
 
 export function App() {
   const [sidebar, setSidebar] = useState(true),
-    [settings, setSettings] = useState(false);
+    [page, setPage] = useState<'chat' | 'settings' | 'instruments'>('chat');
+  const settings = page === 'settings';
+  const setSettings = (value: boolean) => setPage(value ? 'settings' : 'chat');
   const [sessionFilter, setSessionFilter] = useState('');
   const [settingsTab, setSettingsTab] = useState('model');
+  const [inspectRun, setInspectRun] = useState(false);
   const [maximized, setMaximized] = useState(false),
     [instant, setInstant] = useState(false);
   const mainRef = useRef<HTMLElement>(null),
@@ -68,7 +59,7 @@ export function App() {
   const previousRect = useRef<DOMRect | null>(null),
     layoutAnimation = useRef<Animation | null>(null),
     pageAnimation = useRef<Animation | null>(null);
-  const lastPage = useRef(settings);
+  const lastPage = useRef(page);
   function motionIntent(animate: boolean) {
     const immediate = !animate || matchMedia('(prefers-reduced-motion: reduce)').matches;
     setInstant(immediate);
@@ -114,7 +105,7 @@ export function App() {
   useLayoutEffect(() => {
     pageAnimation.current?.cancel();
     if (
-      lastPage.current !== settings &&
+      lastPage.current !== page &&
       !instant &&
       !matchMedia('(prefers-reduced-motion: reduce)').matches
     )
@@ -126,9 +117,9 @@ export function App() {
           ],
           { duration: 160, easing: 'cubic-bezier(0.23, 1, 0.32, 1)' },
         ) ?? null;
-    lastPage.current = settings;
+    lastPage.current = page;
     return () => pageAnimation.current?.cancel();
-  }, [settings]);
+  }, [page]);
   const {
     sessions,
     loading: sessionsLoading,
@@ -138,8 +129,7 @@ export function App() {
     loadMore: loadMoreSessions,
   } = useSessions();
   const [sessionId, setSessionId] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]),
-    [live, setLive] = useState<Live | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [state, setState] = useState<SessionState | null>(null),
     [input, setInput] = useState('');
   const [connection, setConnection] = useState<'starting' | 'connected' | 'disconnected'>(
@@ -184,7 +174,7 @@ export function App() {
     const id = idRef.current;
     if (!id) return;
     const [history, status] = await Promise.all([
-      api<Message[]>(`/session/${id}/message?limit=100`),
+      api<Message[]>(`/session/${id}/message?limit=100&reasoning=true&process=true`),
       api<SessionState>(`/session/${id}/state`),
     ]);
     if (id !== idRef.current) return;
@@ -200,13 +190,11 @@ export function App() {
     setState(status);
     setBusy(status.running);
     setOlder(!olderExhausted.current && history.length === 100);
-    if (!status.running) setLive(null);
   }, []);
   function select(id: string) {
     olderExhausted.current = false;
     idRef.current = id;
     setSessionId(id);
-    setLive(null);
     setMessages([]);
     setState(null);
     setBusy(false);
@@ -220,6 +208,8 @@ export function App() {
     setError('');
     try {
       await native('backend_start');
+      const health = await api<BackendHealth>('/global/health');
+      assertDesktopProtocol(health);
       setConnection('connected');
       const list = await refreshSessions();
       const previous = localStorage.getItem('last-session');
@@ -233,58 +223,24 @@ export function App() {
   useEffect(() => {
     if (!desktop) {
       setConnection('disconnected');
-      setError('浏览器中仅预览界面。请运行 bun run desktop:dev 启动完整桌面应用。');
+      setError('浏览器中仅预览界面。请运行 pnpm desktop:dev 启动完整桌面应用。');
       return;
     }
     let disposed = false;
     const cleanup: (() => void)[] = [];
     void (async () => {
-      const events = await listen<AgentEvent>('agent-event', ({ payload: event }) => {
+      const events = await listen<ServiceEvent>('agent-event', ({ payload: event }) => {
+        if (!isAgentEvent(event)) return;
         if (event.type === 'session.updated') void refreshSessions().catch(() => {});
         if (event.sessionId !== idRef.current) return;
         const p = event.properties;
         if (event.type === 'session.status') {
           setBusy(p.status === 'busy');
+          void sync().catch((e) => setError(errorText(e)));
           if (p.status === 'idle') {
-            void sync().catch((e) => setError(errorText(e)));
             void refreshSessions().catch(() => {});
           }
         }
-        if (event.type === 'message.part.delta' || event.type === 'message.reasoning.delta') {
-          setLive((old) => {
-            const value =
-              old?.id === event.messageId
-                ? old
-                : { id: event.messageId, text: '', reasoning: '', steps: [] };
-            return {
-              ...value,
-              [event.type === 'message.part.delta' ? 'text' : 'reasoning']:
-                (event.type === 'message.part.delta' ? value.text : value.reasoning) +
-                String(p.delta ?? ''),
-            };
-          });
-        }
-        if (['tool.started', 'tool.completed', 'tool.failed', 'tool.skipped'].includes(event.type))
-          setLive((old) => {
-            const value =
-              old?.id === event.messageId
-                ? old
-                : { id: event.messageId, text: '', reasoning: '', steps: [] };
-            const step = {
-              id: String(p.toolCallId),
-              name: labels[String(p.name)] ?? String(p.name),
-              detail: String(p.path ?? p.skill ?? p.message ?? ''),
-              status: String(p.status),
-            };
-            const previous = value.steps.find((s) => s.id === step.id);
-            return {
-              ...value,
-              steps: [
-                ...value.steps.filter((s) => s.id !== step.id),
-                { ...step, detail: step.detail || previous?.detail || '' },
-              ].slice(-30),
-            };
-          });
         if (event.type === 'message.completed') {
           void sync().catch((e) => setError(errorText(e)));
           void refreshSessions().catch(() => {});
@@ -295,11 +251,14 @@ export function App() {
         }
       });
       const streams = await listen<string>('backend-stream', ({ payload }) => {
-        setConnection(payload === 'connected' ? 'connected' : 'disconnected');
         if (payload === 'connected') {
-          void sync().catch(() => {});
-          void refreshSessions().catch(() => {});
-        }
+          void api<BackendHealth>('/global/health').then((health) => {
+            assertDesktopProtocol(health);
+            setConnection('connected');
+            void sync().catch(() => {});
+            void refreshSessions().catch(() => {});
+          }).catch((e) => { setConnection('disconnected'); setError(errorText(e)); });
+        } else setConnection('disconnected');
       });
       if (disposed) {
         events();
@@ -326,7 +285,7 @@ export function App() {
   }, [connection, sync]);
   useEffect(() => {
     if (stick.current) bottom.current?.scrollIntoView({ behavior: 'instant' });
-  }, [messages, live, settings]);
+  }, [messages, settings]);
   async function send(text = input) {
     if (!text.trim() || requestLock.current || busy || connection !== 'connected' || state?.pending)
       return;
@@ -362,7 +321,6 @@ export function App() {
     idRef.current = '';
     setSessionId('');
     setMessages([]);
-    setLive(null);
     setState(null);
     setBusy(false);
     setError('');
@@ -385,7 +343,7 @@ export function App() {
     const id = sessionId;
     try {
       const page = await api<Message[]>(
-        `/session/${id}/message?limit=100&offset=${messages.length}`,
+        `/session/${id}/message?limit=100&offset=${messages.length}&reasoning=true&process=true`,
       );
       if (id !== idRef.current) return;
       stick.current = false;
@@ -430,63 +388,20 @@ export function App() {
         onError={setError}
         onWindowState={setMaximized}
       />
-      <nav className="navigation-rail" aria-label="主导航">
-        <IconButton
-          variant="rail"
-          selected={!settings}
-          label="聊天主页"
-          title="聊天"
-          onClick={(event) => showChat(event.detail > 0)}
-        >
-          <Home size={20} />
-        </IconButton>
-        <IconButton
-          variant="rail"
-          label="新建对话"
-          title="新建对话"
-          onClick={(event) => {
-            if (showChat(event.detail > 0)) newSession();
-          }}
-        >
-          <MessageSquarePlus size={20} />
-        </IconButton>
-        <IconButton
-          variant="rail"
-          label="历史会话"
-          title="历史会话"
-          onClick={(event) => toggleSidebar(event.detail > 0)}
-        >
-          <History size={20} />
-        </IconButton>
-        <IconButton
-          variant="rail"
-          selected={settings && settingsTab === 'resources'}
-          label="知识与技能设置"
-          title="知识与技能"
-          onClick={(event) => showSettings('resources', event.detail > 0)}
-        >
-          <BookOpen size={20} />
-        </IconButton>
-        <span className="rail-divider" />
-        <IconButton
-          variant="rail"
-          label="收起至悬浮助手"
-          title="悬浮助手"
-          onClick={() => native('hide_main').catch((e) => setError(errorText(e)))}
-        >
-          <Minimize2 size={19} />
-        </IconButton>
-        <div className="rail-spacer" />
-        <IconButton
-          variant="rail"
-          selected={settings}
-          label="设置"
-          title="设置"
-          onClick={(event) => showSettings('model', event.detail > 0)}
-        >
-          <Settings2 size={20} />
-        </IconButton>
-      </nav>
+      <NavigationRail
+        page={page}
+        onNavigate={(target, animate) => {
+          if (target === 'settings') showSettings('model', animate);
+          else if (target === 'chat') showChat(animate);
+          else {
+            motionIntent(animate);
+            setPage(target);
+          }
+        }}
+        onHide={() => {
+          void native('hide_main').catch((e) => setError(errorText(e)));
+        }}
+      />
       <aside className="session-sidebar" aria-hidden={!sidebar} inert={!sidebar}>
         {settings ? (
           <SettingsNavigation
@@ -542,9 +457,9 @@ export function App() {
       </aside>
       <main
         ref={mainRef}
-        className={`main-area ${!hasConversation && !settings ? 'is-empty' : ''} ${settings ? 'settings-view' : ''}`}
+        className={`main-area ${!hasConversation && page === 'chat' ? 'is-empty' : ''} ${settings ? 'settings-view' : ''}`}
       >
-        {!settings && (
+        {page === 'chat' && (
           <div className="content-toolbar">
             <span className="content-caption">
               {settings
@@ -575,20 +490,33 @@ export function App() {
                 设置
               </button>
             </div>
-            <IconButton
-              className="toolbar-new"
-              label="开启新对话"
-              title="开启新对话"
-              onClick={() => {
-                newSession();
-                setSettings(false);
-              }}
-            >
-              <MessageSquarePlus size={18} />
-            </IconButton>
+            <div className="toolbar-actions">
+              <IconButton
+                className="toolbar-new"
+                label="开启新对话"
+                title="开启新对话"
+                onClick={() => {
+                  newSession();
+                  setSettings(false);
+                }}
+              >
+                <MessageSquarePlus size={18} />
+              </IconButton>
+              <Button variant="ghost" disabled={!sessionId} onClick={() => setInspectRun(true)}>
+                运行图
+              </Button>
+            </div>
           </div>
         )}
         <div className="view-host" ref={viewRef}>
+          {inspectRun && sessionId && (
+            <RunInspector
+              key={sessionId}
+              sessionId={sessionId}
+              running={busy}
+              onClose={() => setInspectRun(false)}
+            />
+          )}
           <Settings
             initialTab={settingsTab}
             onSaved={(applied) => {
@@ -597,7 +525,8 @@ export function App() {
             active={settings}
             instant={instant}
           />
-          {!settings && (
+          {page === 'instruments' && <Instruments onConfigure={() => showSettings('device')} />}
+          {page === 'chat' && (
             <>
               {error && (
                 <div className="chat-notice" role="alert">
@@ -623,7 +552,7 @@ export function App() {
                   </Button>
                 </div>
               )}
-              <Conversation
+              <MessageList
                 ref={scroll}
                 onScroll={() => {
                   const element = scroll.current!;
@@ -653,9 +582,20 @@ export function App() {
                 {messages.map((message) => (
                   <div className={`message ${message.role}`} key={message.id}>
                     {message.role === 'assistant' && <Avatar />}
-                    <div className="bubble">
+                    <div className={`bubble ${message.runId ? 'has-process' : ''}`}>
                       {message.role === 'assistant' ? (
                         <>
+                          {message.runId && (
+                            <RunTimeline
+                              sessionId={sessionId}
+                              runId={message.runId}
+                              finalText={message.content}
+                              onUpdate={() => {
+                                if (stick.current && message.id === messages.at(-1)?.id)
+                                  bottom.current?.scrollIntoView({ behavior: 'instant' });
+                              }}
+                            />
+                          )}
                           <MarkdownAnswer text={message.content} />
                           <ResponseActions message={message} />
                         </>
@@ -665,43 +605,22 @@ export function App() {
                     </div>
                   </div>
                 ))}
-                {busy && (
+                {busy && (!state?.run || state.run.status === 'running') && (
                   <div className="message assistant">
                     <Avatar />
-                    <div className="bubble live-bubble">
-                      {live?.reasoning && (
-                        <details className="thinking">
-                          <summary>思考过程</summary>
-                          <p>{live.reasoning}</p>
-                        </details>
-                      )}
-                      {!!live?.steps.length && (
-                        <details className="tool-steps" open={!live.text}>
-                          <summary>处理过程 · {live.steps.length} 项</summary>
-                          {live.steps.map((step) => (
-                            <div key={step.id}>
-                              <span>
-                                {step.status === 'running' ? (
-                                  <LoaderCircle size={13} className="spin" />
-                                ) : step.status === 'completed' ? (
-                                  <Check size={13} />
-                                ) : (
-                                  <ShieldAlert size={13} />
-                                )}
-                              </span>
-                              <strong>{step.name}</strong>
-                              <small>{step.detail || step.status}</small>
-                            </div>
-                          ))}
-                        </details>
-                      )}
-                      {live?.text ? (
-                        <MarkdownAnswer text={live.text} />
+                    <div className="bubble live-bubble has-process">
+                      {state?.running && state.run ? (
+                        <RunTimeline
+                          sessionId={sessionId}
+                          runId={state.run.id}
+                          running
+                          onUpdate={() => {
+                            if (stick.current)
+                              bottom.current?.scrollIntoView({ behavior: 'instant' });
+                          }}
+                        />
                       ) : (
-                        <div className="working">
-                          <LoaderCircle className="spin" size={16} />
-                          量仔正在处理你的请求…
-                        </div>
+                        <div className="working"><LoaderCircle className="spin" size={16} />正在创建运行记录…</div>
                       )}
                     </div>
                   </div>
@@ -713,9 +632,9 @@ export function App() {
                       执行结果需要核对
                     </h2>
                     <p>
-                      本次操作的外部效果尚未确认。请核对厂家当前任务与批次，再记录处理结果；不会自动重放旧请求。
+                      本次操作的外部效果尚未确认。请核对外部操作的实际状态，再记录处理结果；不会自动重放旧请求。
                     </p>
-                    {state.pending.executions
+                    {[...state.pending.executions, ...(state.pending.operations ?? [])]
                       .filter((e) => e.status === 'unknown')
                       .map((e) => (
                         <div className="review-detail" key={e.id}>
@@ -729,7 +648,7 @@ export function App() {
                       <Textarea
                         value={note}
                         onChange={(e) => setNote(e.target.value)}
-                        placeholder="记录已核对的批次、状态和处理结论"
+                        placeholder="记录已核对的对象、状态和处理结论"
                       />
                     </label>
                     <Button
@@ -742,7 +661,7 @@ export function App() {
                   </section>
                 )}
                 <div ref={bottom} />
-              </Conversation>
+              </MessageList>
               {hasConversation && composer}
             </>
           )}

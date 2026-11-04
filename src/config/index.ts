@@ -4,15 +4,15 @@ import { homedir } from 'node:os';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { AppError } from '../shared/types';
 import { output } from '../shared/console';
+import { mcpServersSchema } from '../mcp/config';
+import { wikiConfigSchema } from '@auto-agent/wiki-core/contracts';
 const schema = z.object({
+  wiki: wikiConfigSchema.default({ sources: [] }),
+  mcpServers: mcpServersSchema,
   // Persistent data; relative paths are resolved from the configuration file's directory.
   dataDir: z.string().default(join(homedir(), '.auto-agent')),
   // Additional trusted skill roots, relative to the configuration file.
   skillRoots: z.array(z.string()).default([]),
-  // Additional wiki source roots, relative to the configuration file.
-  wikiRoots: z.array(z.string()).default([]),
-  // Wiki source files for local native-format indexing, without model extraction.
-  wikiIndexRoots: z.array(z.string()).default([]),
   // Include bundled wiki sources alongside configured roots.
   builtinWiki: z.boolean().default(true),
   // Include bundled skills alongside configured roots.
@@ -63,7 +63,11 @@ const schema = z.object({
   // Extra script environment entries; credential and runtime-control entries are rejected.
   scriptEnv: z.record(z.string(), z.string()).default({}),
 });
-export type Config = Omit<z.infer<typeof schema>, 'systemPrompt' | 'maxInputTokens'> & {
+export type Config = Omit<
+  z.infer<typeof schema>,
+  'systemPrompt' | 'maxInputTokens' | 'mcpServers'
+> & {
+  mcpServers?: z.infer<typeof mcpServersSchema>;
   maxInputTokens: number;
   systemPrompt?: string;
   noToken?: boolean;
@@ -83,9 +87,7 @@ export async function ensureDefaultConfig(
     skillRoots: [],
     // Load bundled skills even when no external roots are configured.
     builtinSkills: true,
-    // Additional wiki source roots, relative to config.json.
-    wikiRoots: [],
-    wikiIndexRoots: [],
+    wiki: { sources: [] },
     // Load bundled wiki sources even when no external roots are configured.
     builtinWiki: true,
     // Listen only on loopback unless explicitly configured otherwise.
@@ -110,11 +112,9 @@ export async function ensureDefaultConfig(
     systemPrompt: '',
     // Script extension → executable; bare Node falls back to embedded Bun if absent.
     interpreters: { '.js': 'node', '.sh': 'bash', '.ps1': 'powershell.exe' },
-    // Manufacturer's Climber PC HTTP API for the device-automation skill.
-    scriptEnv: {
-      CLIMBER_SERVICE_URL: 'http://127.0.0.1:18080/api/v1',
-      CLIMBER_TIMEOUT_MS: '5000',
-    },
+    scriptEnv: {},
+    // Equipment connections are explicitly enabled by the operator.
+    mcpServers: {},
   };
   try {
     await writeFile(path, JSON.stringify(template, null, 2) + '\n', { flag: 'wx', mode: 0o600 });
@@ -147,11 +147,6 @@ export async function loadConfig(file?: string, noToken = false, local = false):
       );
     }
   }
-  if (raw.wikiDir !== undefined)
-    throw new AppError(
-      'invalid_config',
-      'wikiDir was replaced by wikiRoots for external sources; repository wiki is enabled by builtinWiki',
-    );
   const token = noToken || local ? '' : (process.env.AUTO_AGENT_TOKEN ?? raw.token);
   if (!noToken && !local && (typeof token !== 'string' || token.length < 16)) {
     throw new AppError(
@@ -199,10 +194,17 @@ export async function loadConfig(file?: string, noToken = false, local = false):
     );
   }
   const base = path ? dirname(path) : dirname(process.execPath);
+  for (const server of Object.values(config.mcpServers ?? {})) {
+    if (server.kind === 'stdio' && /[\\/]/.test(server.command))
+      server.command = resolve(base, server.command);
+    server.cwd = resolve(base, server.cwd ?? '.');
+  }
   config.dataDir = isAbsolute(config.dataDir) ? config.dataDir : resolve(base, config.dataDir);
   config.skillRoots = config.skillRoots.map((p) => (isAbsolute(p) ? p : resolve(base, p)));
-  config.wikiRoots = [...new Set(config.wikiRoots.map((p) => resolve(base, p)))];
-  config.wikiIndexRoots = [...new Set(config.wikiIndexRoots.map((p) => resolve(base, p)))];
+  config.wiki.sources = config.wiki.sources.map((source) => ({
+      ...source,
+      path: resolve(base, source.path),
+    }));
   if (!local && !['127.0.0.1', 'localhost', '::1'].includes(config.host) && !config.allowRemote)
     throw new AppError('remote_binding', 'Non-loopback binding requires allowRemote');
   for (const value of Object.values(config.scriptEnv))

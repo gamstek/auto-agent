@@ -49,7 +49,8 @@ for (const status of [
     } else {
       expect(await registry.execute('execute_script', input, f.context)).toEqual({
         output: value,
-        status,
+        status: status as 'completed' | 'failed',
+        effect: 'acknowledged',
       });
     }
     expect(f.calls.filter((call) => call.name === 'begin')).toHaveLength(1);

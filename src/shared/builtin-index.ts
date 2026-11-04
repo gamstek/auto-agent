@@ -4,15 +4,15 @@ import { createHash } from 'node:crypto';
 import { AppError } from './types';
 
 export function collectBuiltinIndex(): Uint8Array {
-  return readFileSync(resolve(import.meta.dir, '../../wiki/indexes/library.sqlite'));
+  return readFileSync(resolve(import.meta.dir, '../../wiki/reference/library.sqlite'));
 }
 export function materializeBuiltinIndex(dataDir: string): string {
   const bytes = collectBuiltinIndex();
   if (
-    bytes.length > 64 * 1024 * 1024 ||
+    bytes.length > 256 * 1024 * 1024 ||
     Buffer.from(bytes.subarray(0, 16)).toString() !== 'SQLite format 3\0'
   )
-    throw new AppError('wiki_snapshot', 'Invalid bundled template database');
+    throw new AppError('wiki_snapshot', 'Invalid published Wiki index');
   const digest = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
   const hash = digest(bytes);
   mkdirSync(dataDir, { recursive: true });
@@ -32,6 +32,6 @@ export function materializeBuiltinIndex(dataDir: string): string {
   }
   const stat = lstatSync(path);
   if (!stat.isFile() || stat.isSymbolicLink() || digest(readFileSync(path)) !== hash)
-    throw new AppError('builtin_modified', 'Bundled template database was modified');
+    throw new AppError('builtin_modified', 'Published Wiki index was modified');
   return path;
 }

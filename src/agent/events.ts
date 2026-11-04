@@ -1,7 +1,7 @@
-import { AppError, type AgentEvent } from '../shared/types';
+import { AppError, type ServiceEvent } from '../shared/types';
 export class Events {
   private streams = 0;
-  private listeners = new Set<(event: AgentEvent) => void>();
+  private listeners = new Set<(event: ServiceEvent) => void>();
   private closers = new Set<() => void>();
   private closed = false;
   close(): void {
@@ -10,14 +10,15 @@ export class Events {
     for (const stop of [...this.closers]) stop();
     this.listeners.clear();
   }
-  publish(event: AgentEvent): void {
+  publish(event: ServiceEvent): void {
+    if (this.closed) return;
     for (const listener of this.listeners) {
       try {
         listener(event);
       } catch {}
     }
   }
-  subscribe(listener: (event: AgentEvent) => void): () => void {
+  subscribe(listener: (event: ServiceEvent) => void): () => void {
     if (this.closed) return () => {};
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);

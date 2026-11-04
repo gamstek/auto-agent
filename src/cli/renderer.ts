@@ -1,6 +1,6 @@
 import { safeTerminalText, TerminalMarkdown, TerminalText } from './markdown';
 import type { Writable } from 'node:stream';
-import type { AgentEvent, Message } from '../shared/types';
+import type { ServiceEvent, Message } from '../shared/types';
 import { ConsoleOutput } from '../shared/console';
 const colors = { user: 36, assistant: 32, system: 90, tool: 33, error: 31 };
 export class ReplRenderer {
@@ -62,7 +62,7 @@ export class ReplRenderer {
   prompt(): string {
     return this.style('you > ', 'user');
   }
-  event(event: AgentEvent): void {
+  event(event: ServiceEvent): void {
     const p = event.properties;
     switch (event.type) {
       case 'session.status':

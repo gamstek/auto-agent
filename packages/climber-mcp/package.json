@@ -1,0 +1,26 @@
+{
+  "name": "@auto-agent/climber-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/server.ts",
+    "./server": "./src/server.ts",
+    "./contracts": "./src/vendor.ts",
+    "./controller": "./src/controller.ts"
+  },
+  "scripts": {
+    "start": "bun --no-env-file src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test tests",
+    "build": "bun build src/cli.ts --target=bun --outfile dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

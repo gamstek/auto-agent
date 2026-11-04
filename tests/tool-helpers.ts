@@ -22,30 +22,15 @@ export function toolFixture() {
       },
       resolveScript: async () => ({ skill, path: 'C:\\skills\\example\\scripts\\main.js' }),
     },
-    wiki: {
-      query: async (query, limit) => {
-        calls.push({ name: 'query', input: { query, limit } });
-        return {
-          builtAt: 1,
-          revision: 'wiki-v1',
-          results: [],
-          truncated: false,
-          indexedRecords: 0,
-          matchedRecords: 0,
-          queryTruncated: false,
-          mode: 'keyword',
-          status: 'no_match',
-          warning: 'Fixture recommendations only.',
-        };
-      },
+    library: {
+      catalog: () => ({ sources: [] }),
       search: (input) => {
         calls.push({ name: 'wiki-search', input });
         return {
-          indexedAt: 1,
+          generation: 'fixture',
           results: [],
-          matchedRecords: 0,
-          truncated: false,
-          warning: 'Fixture source evidence only.',
+          nextCursor: null,
+          sourceVerified: false,
         };
       },
       read: async () => {

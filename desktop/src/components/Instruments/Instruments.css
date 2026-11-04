@@ -1,0 +1,48 @@
+.instruments-page {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 32px clamp(24px, 5vw, 64px);
+}
+.instruments-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 28px;
+}
+.instruments-heading h1 {
+  font-size: 20px;
+  font-weight: 600;
+}
+.instruments-heading p {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-top: 8px;
+}
+.instruments-empty {
+  display: grid;
+  justify-items: center;
+  gap: 16px;
+  padding: 60px 16px;
+  color: var(--text-secondary);
+  text-align: center;
+}
+.instruments-empty h2 {
+  font-size: 16px;
+  font-weight: 500;
+}
+.instruments-empty p {
+  font-size: 12px;
+  line-height: 1.8;
+}
+.instruments-error {
+  background: #fff6ef;
+  color: #92602d;
+  padding: 12px;
+  border-radius: 8px;
+  margin: 12px 0;
+  font-size: 12px;
+  line-height: 1.7;
+}

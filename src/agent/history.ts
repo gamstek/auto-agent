@@ -13,7 +13,7 @@ export async function loadSessionHistory(options: {
   toolTokens: number;
   timeoutMs: number;
   signal: AbortSignal;
-  model: ModelAdapter;
+  model: Pick<ModelAdapter, 'summarize'> & Partial<Pick<ModelAdapter, 'generate'>>;
   redact: (text: string) => string;
   onSummary?: (details: Record<string, unknown>) => void;
 }): Promise<ModelMessage[]> {
@@ -52,10 +52,11 @@ export async function loadSessionHistory(options: {
         content: redact(
           JSON.stringify({
             previousSummary: saved.summary,
-            messages: batch.messages.map(({ role, content, reasoning }) => ({
+            messages: batch.messages.map(({ role, content, reasoning, evidence }) => ({
               role,
               content,
               reasoning,
+              evidence,
             })),
           }),
         ),
@@ -118,16 +119,27 @@ export async function loadSessionHistory(options: {
       persisted: true,
     });
   }
-  const history: ModelMessage[] = tail.messages.map(({ role, content, reasoning }) =>
-    role === 'assistant' && reasoning
-      ? {
-          role,
-          content: [
-            { type: 'reasoning', text: redact(reasoning) },
-            { type: 'text', text: redact(content) },
-          ],
-        }
-      : { role, content: redact(content) },
+  const history: ModelMessage[] = tail.messages.flatMap(
+    ({ role, content, reasoning, evidence }): ModelMessage[] => [
+      role === 'assistant' && reasoning
+        ? {
+            role,
+            content: [
+              { type: 'reasoning', text: redact(reasoning) },
+              { type: 'text', text: redact(content) },
+            ],
+          }
+        : { role, content: redact(content) },
+      ...(evidence
+        ? [
+            historicalSummaryMessage(
+              redact(
+                `Recorded tool evidence (acknowledgement is not confirmation of external completion):\n${JSON.stringify(evidence)}`,
+              ),
+            ),
+          ]
+        : []),
+    ],
   );
   if (saved.summary) history.unshift(historicalSummaryMessage(redact(saved.summary)));
   return history;

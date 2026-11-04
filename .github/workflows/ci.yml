@@ -12,19 +12,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: bun install --frozen-lockfile
-      - run: bun run typecheck
-      - run: bun test
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run typecheck
+      - run: pnpm test
       - if: runner.os == 'Windows'
-        run: bun run build:windows
+        run: pnpm run build:windows
       - if: runner.os == 'Linux'
-        run: bun run build:linux
+        run: pnpm run build:linux
       - run: bun test tests/integration/binary.test.ts tests/integration/wiki-index.test.ts tests/unit/sam.test.ts
         env:
           AUTO_AGENT_TEST_BINARY: '1'
@@ -37,27 +39,28 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: desktop/src-tauri
-      - run: bun install --frozen-lockfile
-      - run: bun install --cwd desktop --frozen-lockfile
-      - run: bun run --cwd desktop prepare:backend
-      - run: bun run --cwd desktop build
-      - run: bunx playwright install chromium
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter auto-agent-desktop run prepare:backend
+      - run: pnpm --filter auto-agent-desktop run build
+      - run: pnpm exec playwright install chromium
         working-directory: desktop
-      - run: bun run desktop:test
+      - run: pnpm run desktop:test
         env:
           PLAYWRIGHT_CHANNEL: chromium
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
-      - run: bun run --cwd desktop release:build
+      - run: pnpm --filter auto-agent-desktop run release:build
         env:
           AUTO_AGENT_UPDATER_PUBLIC_KEY: ${{ vars.AUTO_AGENT_UPDATER_PUBLIC_KEY }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

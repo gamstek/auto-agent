@@ -4,10 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "test": "bun test tests",
     "test:ui": "playwright test",
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
-    "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit",
+    "build": "pnpm run typecheck && vite build",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "tauri": "tauri",
     "desktop:dev": "tauri dev",
     "desktop:build": "tauri build",
@@ -24,6 +25,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "@types/bun": "catalog:",
     "@playwright/test": "^1.64.1",
     "@tauri-apps/cli": "^2.0.0",
     "@types/react": "^19.0.0",

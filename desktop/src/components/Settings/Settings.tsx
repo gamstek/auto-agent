@@ -9,6 +9,7 @@ import {
   FolderOpen,
   Info,
   LoaderCircle,
+  Puzzle,
   Settings2,
   SlidersHorizontal,
   X,
@@ -47,9 +48,16 @@ const categories = [
     group: '工作空间',
   },
   {
-    id: 'resources',
-    label: '技能与知识库',
-    description: '来源 目录 Wiki 内置 技能',
+    id: 'skills',
+    label: '技能',
+    description: '技能 来源 目录 内置 脚本',
+    icon: Puzzle,
+    group: '工作空间',
+  },
+  {
+    id: 'knowledge',
+    label: '知识库',
+    description: '来源 目录 Wiki 内置 知识 模板',
     icon: BookOpen,
     group: '工作空间',
   },
@@ -309,7 +317,7 @@ export function Settings({
   );
   const toggle = (
     label: string,
-    name: 'builtinSkills' | 'builtinWiki' | 'webAllowPrivateAddresses',
+    name: 'builtinSkills' | 'builtinWiki' | 'webAllowPrivateAddresses' | 'climberEnabled',
     description: string,
   ) => (
     <Row
@@ -450,16 +458,23 @@ export function Settings({
               {initialTab === 'device' && (
                 <>
                   <Group title="Climber 厂家接口">
+                    {toggle(
+                      '启用 Climber MCP',
+                      'climberEnabled',
+                      '通过 MCP 接入仪器页和设备工具。启用不会登记批次或开始测量。',
+                    )}
                     {text(
                       '厂家 API 地址',
                       'manufacturerUrl',
-                      '同机使用默认地址，异机填写厂家 PC 地址。保留 /api/v1。',
+                      info?.deviceConnectionSource === 'mcp'
+                        ? '编辑共享配置中首台 Climber 的 MCP 连接地址，保留 /api/v1。'
+                        : '当前为脚本连接配置。仪器页需在共享配置中显式添加 Climber MCP 和 devices。',
                     )}
                     {numeric(
                       '请求超时',
                       'manufacturerTimeoutMs',
                       100,
-                      120000,
+                      60000,
                       '单位：毫秒。不是仪器实验时长。',
                     )}
                   </Group>
@@ -490,14 +505,20 @@ export function Settings({
                   </Group>
                 </>
               )}
-              {initialTab === 'resources' && (
+              {initialTab === 'skills' && (
+                <>
+                  <Group title="技能管理">
+                    {toggle('内置技能', 'builtinSkills', '加载随应用提供的技能。')}
+                    {paths('技能目录', 'skillRoots', '仅添加可信目录，脚本具有当前用户权限。')}
+                  </Group>
+                </>
+              )}
+              {initialTab === 'knowledge' && (
                 <>
                   <Group title="内置资源">
-                    {toggle('内置技能', 'builtinSkills', '加载随应用提供的设备自动化技能。')}
                     {toggle('内置知识库', 'builtinWiki', '使用推荐知识与历史模板参考。')}
                   </Group>
                   <Group title="外部来源">
-                    {paths('技能目录', 'skillRoots', '仅添加可信目录，脚本具有当前用户权限。')}
                     {paths('知识来源', 'wikiRoots', 'Markdown / TXT 内容，需要显式编译。')}
                     {paths('模板参考目录', 'wikiIndexRoots', 'SAM / SMP 案例，需要显式建立索引。')}
                   </Group>

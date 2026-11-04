@@ -60,7 +60,7 @@ System 3：<skill_guidance>（技能加载/信任规则及本步骤最新的可�
 | 压缩结果边界   | 同文件 / `HISTORY_SUMMARY_MARKER`、`HISTORY_SUMMARY_END`                             | 明确摘要是历史数据，通过标记后的user消息回填上下文                 |
 | Wiki知识提取   | `src/wiki/prompt.ts` / `KNOWLEDGE_PROMPT`                                            | 从编号源文档提取带精确引用的推荐记录、范围和歧义                   |
 | Wiki分段范围   | 同文件 / `knowledgeSourcePrompt()`                                                   | 输出截断后限定原始行范围，完整文档只作上下文                       |
-| 会话标题       | `src/llm/prompt.ts` / `SESSION_TITLE_PROMPT`                                         | 按用户语言生成短标题，输出仅标题                                   |
+| 会话标题       | `src/agent/title-prompt.ts` / `SESSION_TITLE_PROMPT`                                 | 按用户语言生成短标题，输出仅标题                                   |
 | 开发示例技能   | `examples/skills/*/SKILL.md`                                                         | 用户请求本地脚本演示时的问候或计算示例                             |
 
 工具正文仍放在各自的defineTool旁，不复制到系统提示。材料数值和真实案例放在Wiki知识源/SQLite中，不硬编码进角色提示。
@@ -95,7 +95,7 @@ System 3：<skill_guidance>（技能加载/信任规则及本步骤最新的可�
 
 ## 6. 维护与验证
 
-- 修改业务目标：改默认角色或明确的自定义角色。
+- 修改通用任务行为：改默认角色；具体业务目标和步骤由 Skill 或用户明确的自定义角色提供，不在通用执行层增加名称特判。
 - 修改具体设备操作：改技能和对应reference，保持代码实现与契约一致。
 - 修改工具：在同一defineTool内改说明、Schema和实现。发给服务商的输入Schema顶层保持object，动作分支在运行时校验。
 - 修改摘要、提取、标题规则：改各自常量，保持任务独立，不增加工具能力。

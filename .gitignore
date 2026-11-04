@@ -9,10 +9,11 @@ desktop/src-tauri/gen/
 desktop/test-results/
 desktop/playwright-report/
 .auto-agent/
+.wiki-data/
 .auto-agent-evaluations/
 logs/
 .env
 *.sqlite*
-!wiki/indexes/library.sqlite
+!wiki/reference/library.sqlite
 coverage/
 docs/internal/

@@ -147,11 +147,10 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(template.maxOutputTokens).toBe(16000);
     expect(template.maxInputTokens).toBe(1000000);
     expect(template.webAllowPrivateAddresses).toBe(true);
-    expect(template.wikiIndexRoots).toEqual([]);
-    expect(template.scriptEnv).toEqual({
-      CLIMBER_SERVICE_URL: 'http://127.0.0.1:18080/api/v1',
-      CLIMBER_TIMEOUT_MS: '5000',
-    });
+    expect(template.wiki.sources).toEqual([]);
+    expect(template.scriptEnv).toEqual({});
+    expect(template.mcpServers).toEqual({});
+    expect(template.devices).toBeUndefined();
     const config = await loadConfig(created.path, true, true);
     expect(config.maxSteps).toBe(24);
     expect(config.scriptEnv).toEqual(template.scriptEnv);
@@ -165,11 +164,9 @@ test('config defaults prefer Node and use per-request input/output token limits'
     expect(defaults.maxOutputTokens).toBe(16000);
     expect(defaults.maxInputTokens).toBe(1000000);
     expect(defaults.webAllowPrivateAddresses).toBe(true);
-    expect(defaults.wikiIndexRoots).toEqual([]);
-    await writeFile(created.path, JSON.stringify({ wikiIndexRoots: ['./external-cases'] }));
-    expect((await loadConfig(created.path, true, true)).wikiIndexRoots).toEqual([
-      join(home, '.auto-agent', 'external-cases'),
-    ]);
+    expect(defaults.wiki.sources).toEqual([]);
+    await writeFile(created.path, JSON.stringify({ wiki: { sources: [{ id: 'cases', type: 'directory', path: './external-cases' }] } }));
+    expect((await loadConfig(created.path, true, true)).wiki.sources[0]?.path).toBe(join(home, '.auto-agent', 'external-cases'));
     await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: false }));
     expect((await loadConfig(created.path, true, true)).webAllowPrivateAddresses).toBe(false);
     await writeFile(created.path, JSON.stringify({ webAllowPrivateAddresses: true }));

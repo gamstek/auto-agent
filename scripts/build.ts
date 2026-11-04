@@ -1,7 +1,9 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { collectBuiltinAssets } from '../src/shared/builtin';
-import { bundledSnapshotSchema, sourceHash } from '../src/wiki/knowledge';
+import { Database } from 'bun:sqlite';
+import { builtinParsers } from '@auto-agent/wiki-core';
+import { samParser } from '@auto-agent/wiki-sam';
 
 const platform = process.argv[2];
 if (platform !== 'windows' && platform !== 'linux')
@@ -11,25 +13,20 @@ const root = resolve(import.meta.dir, '..');
 const assetsModule = resolve(root, 'src', 'shared', 'builtin.ts');
 const indexModule = resolve(root, 'src', 'shared', 'builtin-index.ts');
 function validateBuiltinWiki(assets: Record<string, string>): void {
-  const text = assets['knowledge/recommendations.json'];
-  if (text === undefined) throw new Error('Built-in wiki knowledge snapshot is missing');
-  const snapshot = bundledSnapshotSchema.parse(JSON.parse(text));
-  const sources = Object.entries(assets)
-    .filter(
-      ([path]) =>
-        path.startsWith('sources/') &&
-        /\.(md|txt)$/i.test(path) &&
-        !path.split('/').some((part) => part.startsWith('.')),
-    )
-    .map(
-      ([path, content]) =>
-        [`builtin/${path.slice('sources/'.length)}`, sourceHash(content)] as const,
-    );
-  const analyzed = snapshot.sources.map((source) => [source.path, source.hash] as const);
-  if (JSON.stringify(analyzed) !== JSON.stringify(sources))
-    throw new Error(
-      'Built-in wiki knowledge snapshot is stale; regenerate wiki/knowledge/recommendations.json',
-    );
+  const db = new Database(resolve(root, 'wiki/reference/library.sqlite'), { readonly: true });
+  try {
+    if (db.query<{ user_version: number }, []>('PRAGMA user_version').get()!.user_version !== 3)
+      throw new Error('Published Wiki index does not match the current schema');
+    const parsers = new Map([...builtinParsers, samParser].map((parser) => [parser.id, parser.version]));
+    for (const row of db.query<{ parserId: string; parserVersion: string }, []>('SELECT DISTINCT parserId,parserVersion FROM representations').all())
+      if (parsers.get(row.parserId) !== row.parserVersion) throw new Error('Rebuild the published Wiki index with the current parsers');
+    for (const [path, content] of Object.entries(assets)) {
+      if (!path.startsWith('sources/') || !/\.(md|txt)$/i.test(path)) continue;
+      const units = db.query<{ text: string }, [string]>(`SELECT u.text FROM documents d JOIN representations r ON r.id=d.representationId
+        JOIN units u ON u.representationId=r.id WHERE d.active=1 AND d.path=? AND r.parserId IN ('builtin.markdown','builtin.text') ORDER BY u.ordinal`).all(path.slice('sources/'.length));
+      if (units.map((unit) => unit.text).join('\n') !== content.replace(/\r\n/g, '\n')) throw new Error('Published Wiki text is stale; run scripts/publish-wiki.ts');
+    }
+  } finally { db.close(); }
 }
 
 await mkdir(resolve(root, 'dist'), { recursive: true });
@@ -56,7 +53,7 @@ const result = await Bun.build({
           return {
             loader: 'ts',
             contents:
-              `import embeddedIndex from ${JSON.stringify(resolve(root, 'wiki/indexes/library.sqlite'))} with { type: 'file' };\n` +
+              `import embeddedIndex from ${JSON.stringify(resolve(root, 'wiki/reference/library.sqlite'))} with { type: 'file' };\n` +
               source.replace(
                 collector,
                 'export function collectBuiltinIndex(): Uint8Array { return readFileSync(embeddedIndex); }',

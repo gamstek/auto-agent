@@ -535,12 +535,7 @@ test('new SAM template feeds manufacturer registration followed by a separate Cl
       ['start', { batchId: 'NEW-BATCH' }],
     ] as const) {
       const child = Bun.spawn(
-        [
-          node!,
-          resolve('skills/device-automation/scripts/climber.js'),
-          command,
-          JSON.stringify(input),
-        ],
+        [node!, resolve('tests/fixtures/legacy-climber.js'), command, JSON.stringify(input)],
         {
           env: {
             CLIMBER_SERVICE_URL: `${server.url.origin}/api/v1`,

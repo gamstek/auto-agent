@@ -2,7 +2,7 @@ import { expect, test } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { resolve } from 'node:path';
 
-const script = resolve('skills/device-automation/scripts/climber.js');
+const script = resolve('tests/fixtures/legacy-climber.js');
 const node = Bun.which('node');
 if (!node) throw new Error('Node.js is required for portable skill script tests.');
 const submission = () => ({

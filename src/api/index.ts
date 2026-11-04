@@ -4,6 +4,13 @@ import { validatePage } from '../storage';
 import type { AgentService } from '../agent';
 import { AppError, errorText } from '../shared/types';
 import { home, llmText } from './home';
+import { libraryRoute } from './wiki-library';
+export type HttpExtension = (context: {
+  request: Request;
+  url: URL;
+  body: () => Promise<Record<string, unknown>>;
+  json: (value: unknown, status?: number) => Response;
+}) => Promise<Response | undefined>;
 function authorized(request: Request, token: string): boolean {
   const actual = Buffer.from(request.headers.get('authorization') ?? '');
   const expected = Buffer.from(`Bearer ${token}`);
@@ -12,6 +19,7 @@ function authorized(request: Request, token: string): boolean {
 export function handler(
   service: AgentService,
   desktopShutdown?: () => void,
+  extensions: readonly HttpExtension[] = [],
 ): (request: Request) => Promise<Response> {
   if (service.config.noToken && !['127.0.0.1', 'localhost', '::1'].includes(service.config.host))
     throw new AppError('no_token_remote', '--no-token is only permitted on loopback.');
@@ -41,7 +49,11 @@ export function handler(
           },
         });
       if (request.method === 'GET' && path === '/global/health')
-        return json({ healthy: true, version });
+        return json({
+          healthy: true,
+          version,
+          capabilities: { runInspection: 1, persistedReasoning: 1, conversationProcess: 1 },
+        });
       if (!service.config.noToken && !authorized(request, service.config.token))
         return json({ error: 'unauthorized' }, 401);
       if (request.method === 'GET' && path === '/event')
@@ -97,69 +109,12 @@ export function handler(
           throw new AppError('invalid_json', 'Expected a JSON object');
         }
       };
-      if (request.method === 'GET' && path === '/wiki') return json(await service.wiki.status());
-      if (request.method === 'GET' && path === '/wiki/index')
-        return json(service.wiki.indexStatus());
-      if (request.method === 'GET' && path === '/wiki/search') {
-        const limit = url.searchParams.get('limit');
-        if (limit !== null && !/^\d+$/.test(limit))
-          throw new AppError('wiki_index_query', 'limit must be an integer from 1 to 10');
-        let filters: unknown = {};
-        try {
-          filters = JSON.parse(url.searchParams.get('filters') ?? '{}');
-        } catch {
-          throw new AppError('wiki_index_query', 'filters must be a JSON object');
-        }
-        return json(
-          service.wiki.search({
-            query: url.searchParams.get('query') ?? '',
-            filters,
-            limit: limit === null ? 3 : Number(limit),
-          }),
-        );
+      for (const extension of extensions) {
+        const response = await extension({ request, url, body, json });
+        if (response) return response;
       }
-      const sourceId = /^\/wiki\/source\/([a-f0-9]{64})$/.exec(path);
-      if (request.method === 'GET' && sourceId)
-        return json(
-          await service.wiki.read(
-            {
-              id: sourceId[1],
-              query: url.searchParams.get('query') ?? '',
-              ...(url.searchParams.has('sections')
-                ? { sections: url.searchParams.get('sections')!.split(',') }
-                : {}),
-            },
-            request.signal,
-          ),
-        );
-      if (request.method === 'POST' && path === '/wiki/index/update') {
-        if (Object.keys(await body()).length)
-          throw new AppError(
-            'wiki_index_update',
-            'Update accepts only an empty object; Wiki source roots are server-configured',
-          );
-        return json(await service.updateWikiIndex(request.signal));
-      }
-      if (request.method === 'GET' && path === '/wiki/query') {
-        const rawLimit = url.searchParams.get('limit');
-        if (rawLimit !== null && !/^\d+$/.test(rawLimit))
-          throw new AppError('wiki_query', 'limit must be an integer from 1 to 10');
-        return json(
-          await service.wiki.query(
-            url.searchParams.get('query') ?? '',
-            rawLimit === null ? 5 : Number(rawLimit),
-          ),
-        );
-      }
-      if (request.method === 'POST' && path === '/wiki/update') {
-        const input = await body();
-        if (Object.keys(input).length)
-          throw new AppError(
-            'wiki_update',
-            'Update accepts only an empty object; sources and model are server-configured',
-          );
-        return json(await service.updateWiki(request.signal));
-      }
+      const libraryResponse = await libraryRoute(service, request, url, body, json);
+      if (libraryResponse) return libraryResponse;
       const page = (): [number, number] => {
         const values = ['limit', 'offset'].map((name, index) => {
           const raw = url.searchParams.get(name);
@@ -184,6 +139,27 @@ export function handler(
           return json(service.store.createSession(input.title as string | undefined), 201);
         }
       }
+      const traceMatch = /^\/session\/([^/]+)\/runs(?:\/([^/]+)\/trace)?$/.exec(path);
+      if (request.method === 'GET' && traceMatch) {
+        const [, sessionId, runId] = traceMatch;
+        service.store.getSession(sessionId);
+        if (!runId) return json(service.store.traces.list(sessionId, ...page()));
+        const entryId = url.searchParams.get('entry');
+        if (entryId) {
+          if (entryId.length > 512) throw new AppError('process_input', 'Invalid process entry ID');
+          return json(service.store.transcripts.readDetail(sessionId, runId, entryId));
+        }
+        if (url.searchParams.get('view') === 'process')
+          return json(service.store.transcripts.read(sessionId, runId));
+        const nodeId = url.searchParams.get('node');
+        if (nodeId && nodeId.length > 256)
+          throw new AppError('trace_input', 'Invalid trace node ID');
+        return json(
+          nodeId
+            ? service.store.traces.readRequest(sessionId, runId, nodeId)
+            : service.store.traces.read(sessionId, runId),
+        );
+      }
       const match =
         /^\/session\/([^/]+)(?:\/(message|prompt_async|abort|review|resolve_review|state))?$/.exec(
           path,
@@ -193,7 +169,14 @@ export function handler(
       service.store.getSession(id);
       if (request.method === 'GET' && !action) return json(service.store.getSession(id));
       if (request.method === 'GET' && action === 'message')
-        return json(service.store.messages(id, ...page()));
+        return json(
+          service.store.messages(
+            id,
+            ...page(),
+            url.searchParams.get('reasoning') === 'true',
+            url.searchParams.get('process') === 'true',
+          ),
+        );
       if (request.method === 'GET' && action === 'review') return json(service.review(id));
       if (request.method === 'GET' && action === 'state') return json(service.sessionState(id));
       if (request.method === 'POST' && action === 'resolve_review') {
@@ -240,12 +223,16 @@ export function handler(
     }
   };
 }
-export function serve(service: AgentService, desktopShutdown?: () => void) {
+export function serve(
+  service: AgentService,
+  desktopShutdown?: () => void,
+  extensions: readonly HttpExtension[] = [],
+) {
   return Bun.serve({
     hostname: service.config.host,
     port: service.config.port,
     idleTimeout: 0,
     maxRequestBodySize: service.config.requestLimitBytes,
-    fetch: handler(service, desktopShutdown),
+    fetch: handler(service, desktopShutdown, extensions),
   });
 }
