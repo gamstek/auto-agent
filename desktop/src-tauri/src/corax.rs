@@ -144,12 +144,10 @@ fn corax_command(runtime: &Path, project: &Path, config: &Path, data: &Path, tok
     let project = dunce::simplified(project);
     let mut command = Command::new(dunce::simplified(runtime));
     command.arg(cli_path(project)?).current_dir(project)
-        .env_clear().env("AUTO_AGENT_CONFIG", dunce::simplified(config)).env("AUTO_AGENT_PROJECT_ROOT", project)
+        .env("AUTO_AGENT_CONFIG", dunce::simplified(config)).env("AUTO_AGENT_PROJECT_ROOT", project)
         .env("CORAX_PROJECT_ROOT", project).env("CORAX_DATA_DIR", dunce::simplified(data)).env("AUTO_AGENT_TOKEN", token)
         .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-    for name in ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] {
-        if let Some(value) = std::env::var_os(name) { command.env(name, value); }
-    }
+    command.env_remove("AUTO_AGENT_API_KEY");
     if let Some(key) = key { command.env("AUTO_AGENT_API_KEY", key); }
     #[cfg(windows)] command.creation_flags(0x08000000);
     #[cfg(unix)] command.process_group(0);
@@ -331,7 +329,7 @@ async fn connection_has_active_work(state: &Desktop, backend: &Connection) -> Re
 pub fn allowed_request(method: &str, path: &str) -> bool {
     if !path.starts_with('/') || path.contains("..") || path.contains(['\\', '#', '\r', '\n']) { return false; }
     let route = path.split('?').next().unwrap_or("");
-    if method == "GET" && ["/global/health", "/runtime"].contains(&route) { return path == route; }
+    if method == "GET" && ["/global/health", "/runtime", "/capabilities"].contains(&route) { return path == route; }
     if method == "GET" && route == "/session" { return true; }
     if method == "POST" && route == "/session" { return true; }
     if method == "GET" && path == "/devices" { return true; }
@@ -377,6 +375,37 @@ async fn send_request(state: &Desktop, backend: &Connection, path: &str, payload
     }
 }
 
+fn capability_entry(entry: &Value, dynamic: bool) -> Result<Value, String> {
+    let name = entry[if dynamic { "slug" } else { "name" }].as_str().ok_or("Corax 能力名称无效")?;
+    let source = entry["owner"]["kind"].as_str().filter(|source| ["framework", "application", "extension"].contains(source)).ok_or("Corax 能力来源无效")?;
+    Ok(json!({"name":name,"description":entry["description"].as_str().unwrap_or(""),"source":source,"builtIn":source != "extension"}))
+}
+
+fn capability_catalog(info: &Value, configured: &Value) -> Result<Value, String> {
+    // Never forward the full info response: it also contains authored instructions,
+    // skill bodies, schemas and filesystem bindings which this view does not need.
+    let skills = info["skills"]["static"].as_array().ok_or("Corax 技能目录无效")?.iter().map(|entry| capability_entry(entry, false)).collect::<Result<Vec<_>, _>>()?;
+    let dynamic_skills = info["skills"]["dynamic"].as_array().ok_or("Corax 动态技能目录无效")?.iter().map(|entry| capability_entry(entry, true)).collect::<Result<Vec<_>, _>>()?;
+    let mut tools = std::collections::BTreeMap::new();
+    for entry in info["tools"]["static"].as_array().ok_or("Corax 工具目录无效")? {
+        let projected = capability_entry(entry, false)?;
+        tools.insert(projected["name"].as_str().unwrap().to_string(), projected);
+    }
+    let providers = configured["providers"].as_array().ok_or("动态工具目录无效")?;
+    let mut dynamic = vec![];
+    for resolver in info["tools"]["dynamic"].as_array().ok_or("Corax 动态工具目录无效")? {
+        let provider = providers.iter().find(|provider| provider["slug"] == resolver["slug"] && resolver["owner"]["kind"] == "application");
+        if let Some(provider) = provider {
+            for entry in provider["tools"].as_array().ok_or("动态工具列表无效")? {
+                let mut entry = entry.clone(); entry["owner"] = resolver["owner"].clone();
+                let projected = capability_entry(&entry, false)?;
+                tools.entry(projected["name"].as_str().unwrap().to_string()).or_insert(projected);
+            }
+        } else { dynamic.push(capability_entry(resolver, true)?); }
+    }
+    Ok(json!({"skills":skills,"tools":tools.into_values().collect::<Vec<_>>(),"dynamicProviders":dynamic,"dynamicSkills":dynamic_skills}))
+}
+
 #[tauri::command]
 pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, method: String, path: String, body: Option<Value>) -> Result<Value, Value> {
     if !allowed_request(&method, &path) { return Err("不支持的桌面接口请求".into()); }
@@ -398,6 +427,10 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
             "capabilities":{"devices":{"list":true},"sessions":{"create":true,"send":true,"history":true,"conversation":true,"cancel":true,"clear":true,"compact":true,"reset":true},"messages":{"text":true,"reasoning":true,"toolCalls":true},"events":{"notifications":true,"snapshot":true,"conversationUpdates":true},"interaction":{"respond":true}}}));
     }
     if path == "/runtime" { return Ok(json!({"busy":connection_has_active_work(&state, &backend).await?})); }
+    if path == "/capabilities" {
+        let (info, configured) = futures_util::future::try_join(request(&state, &backend, "GET", "/corax/v1/info", None), request(&state, &backend, "GET", "/desktop/tools", None)).await?;
+        return capability_catalog(&info, &configured).map_err(Value::from);
+    }
     if path == "/devices" || path == "/devices/climber/refresh" {
         return request(&state, &backend, &method, &format!("/desktop{path}"), if method == "POST" { Some(json!({})) } else { None }).await.map_err(Value::from);
     }
@@ -526,7 +559,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let package = root.join("node_modules/@coraxjs/core");
         std::fs::create_dir_all(package.join("bin")).unwrap();
         std::fs::write(package.join("package.json"), r#"{"exports":{"./bin":"./bin/corax.js"}}"#).unwrap();
-        std::fs::write(package.join("bin/corax.js"), "console.log(JSON.stringify({cwd:process.cwd(),project:process.env.CORAX_PROJECT_ROOT,config:process.env.AUTO_AGENT_CONFIG,data:process.env.CORAX_DATA_DIR}))").unwrap();
+        std::fs::write(package.join("bin/corax.js"), "console.log(JSON.stringify({cwd:process.cwd(),project:process.env.CORAX_PROJECT_ROOT,config:process.env.AUTO_AGENT_CONFIG,data:process.env.CORAX_DATA_DIR,inherited:process.env.NUMBER_OF_PROCESSORS??null}))").unwrap();
         std::fs::write(root.join("config.json"), "{}").unwrap();
         std::fs::create_dir(root.join("corax")).unwrap();
         let project = std::fs::canonicalize(&root).unwrap();
@@ -542,9 +575,10 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert_eq!(Path::new(paths["project"].as_str().unwrap()), dunce::simplified(&project));
         assert_eq!(Path::new(paths["config"].as_str().unwrap()), dunce::simplified(&config));
         assert_eq!(Path::new(paths["data"].as_str().unwrap()), dunce::simplified(&data));
+        assert_eq!(paths["inherited"], json!(std::env::var("NUMBER_OF_PROCESSORS").ok()));
         if let Some(packaged) = std::env::var_os("AUTO_AGENT_TEST_RUNTIME") {
             // In installer verification, also run the extracted real Corax with
-            // this exact launcher, canonical paths and restricted environment.
+            // this exact launcher, canonical paths and inherited host environment.
             let project = std::fs::canonicalize(packaged).unwrap();
             std::fs::write(&config, r#"{"model":"local","baseURL":"http://127.0.0.1:1/v1"}"#).unwrap();
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -564,11 +598,23 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
                 if client.get(format!("http://127.0.0.1:{port}/corax/v1/health")).basic_auth("auto-agent", Some("fixture")).send().await.is_ok_and(|response| response.status().is_success()) { healthy = true; break; }
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
+            let mut catalog = None;
+            if healthy {
+                let info: Value = client.get(format!("http://127.0.0.1:{port}/corax/v1/info")).basic_auth("auto-agent", Some("fixture")).timeout(Duration::from_secs(20)).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+                let configured: Value = client.get(format!("http://127.0.0.1:{port}/desktop/tools")).basic_auth("auto-agent", Some("fixture")).send().await.unwrap().error_for_status().unwrap().json().await.unwrap();
+                catalog = Some(capability_catalog(&info, &configured).unwrap());
+            }
             tree.stop();
             child.wait().await.unwrap();
             let errors = errors.await.unwrap();
             std::fs::remove_dir_all(&root).unwrap();
             assert!(healthy, "{}", String::from_utf8_lossy(&errors));
+            let catalog = catalog.unwrap();
+            assert!(catalog["skills"].as_array().unwrap().iter().any(|skill| skill["name"] == "device-automation"));
+            let tools = catalog["tools"].as_array().unwrap();
+            assert!(tools.iter().any(|tool| tool["name"] == "sam_file"));
+            assert!(tools.iter().any(|tool| tool["name"] == "wiki"));
+            assert!(!tools.iter().any(|tool| tool["name"] == "climber_start_batch"));
         } else {
             std::fs::remove_dir_all(&root).unwrap();
         }
@@ -576,6 +622,27 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
 
     fn connection(url: String) -> Arc<Connection> {
         Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })
+    }
+    #[test] fn capability_catalog_uses_runtime_entries_and_projects_only_display_metadata() {
+        let info = json!({
+            "skills":{"static":[{"name":"discovered-skill","description":"Actual skill","owner":{"kind":"application"},"markdown":"SECRET_BODY","binding":{"sourcePath":"SECRET_PATH"}}],"dynamic":[]},
+            "tools":{"static":[{"name":"bash","description":"Native tool","owner":{"kind":"framework"}},{"name":"wiki","description":"Application tool","owner":{"kind":"application"}}],
+                "dynamic":[{"slug":"climber","owner":{"kind":"application"}},{"slug":"external","owner":{"kind":"extension"}}]},
+            "instructions":"SECRET_PROMPT"
+        });
+        let configured = json!({"providers":[{"slug":"climber","tools":[{"name":"sam_file","description":"Offline SAM"}]}]});
+        let value = capability_catalog(&info, &configured).unwrap();
+        assert_eq!(value["skills"][0]["name"], "discovered-skill");
+        assert_eq!(value["skills"][0]["builtIn"], true);
+        assert_eq!(value["tools"].as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), vec!["bash", "sam_file", "wiki"]);
+        assert_eq!(value["dynamicProviders"][0]["builtIn"], false);
+        assert!(!value.to_string().contains("SECRET"));
+        assert!(capability_catalog(&json!({}), &configured).is_err());
+        let mut without_provider = info.clone();
+        without_provider["tools"]["dynamic"] = json!([]);
+        assert_eq!(capability_catalog(&without_provider, &configured).unwrap()["tools"].as_array().unwrap().len(), 2);
+        assert!(allowed_request("GET", "/capabilities"));
+        assert!(!allowed_request("POST", "/capabilities"));
     }
     fn state() -> Desktop {
         Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }

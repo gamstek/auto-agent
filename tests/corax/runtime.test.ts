@@ -17,6 +17,11 @@ for (const mode of [
     // cannot accidentally resolve from the developer's node_modules.
     const project = join(temporary, 'project');
     let usedWiki = false;
+    let usedHost = false;
+    let usedHostFile = false;
+    let usedSkillReference = false;
+    let usedRelocatedResource = false;
+    let usedResumedHost = false;
     const writes: unknown[] = [];
     let task: { batchId: string; state: string; experiments?: unknown[] } | null = null;
     const health = {
@@ -44,6 +49,33 @@ for (const mode of [
       },
     });
     const calls = [
+      {
+        name: 'bash',
+        arguments: {
+          command:
+            'printf \'HOST-SHELL-OK\\n%s\\n\' "$AUTO_AGENT_HOST_TEST"; test -z "$AUTO_AGENT_TOKEN"',
+        },
+      },
+      {
+        name: 'write_file',
+        arguments: { filePath: '/workspace/host-fixture.txt', content: 'HOST-FILE-OK' },
+      },
+      { name: 'read_file', arguments: { filePath: '/workspace/host-fixture.txt' } },
+      {
+        name: 'write_file',
+        arguments: { filePath: '/workspace/host-fixture.txt', content: 'HOST-FILE-UPDATED' },
+      },
+      { name: 'corax__skill', arguments: { name: 'device-automation' } },
+      {
+        name: 'read_file',
+        arguments: { filePath: '$HOME/.agents/skills/device-automation/references/methods.md' },
+      },
+      {
+        name: 'read_file',
+        arguments: {
+          filePath: '$HOME/.agents/skills/device-automation/references/host-resource-fixture.txt',
+        },
+      },
       { name: 'wiki', arguments: { action: 'catalog', collection: 'reference' } },
       {
         name: 'wiki',
@@ -83,6 +115,7 @@ for (const mode of [
       hostname: '127.0.0.1',
       port: 0,
       async fetch(request) {
+        if (mode === 'start') expect(request.headers.get('authorization')).toBeNull();
         const body = (await request.json()) as {
           tools?: { function: { name: string } }[];
           messages: { role: string; content: unknown }[];
@@ -96,6 +129,15 @@ for (const mode of [
           (message) =>
             message.role === 'tool' && JSON.stringify(message.content).includes('documentCount'),
         );
+        for (const message of body.messages.filter((message) => message.role === 'tool')) {
+          const output = JSON.stringify(message.content);
+          usedHost ||=
+            output.includes('HOST-SHELL-OK') && output.includes('native-host-environment');
+          usedHostFile ||= output.includes('HOST-FILE-OK');
+          usedSkillReference ||= output.includes('methods.md') && output.includes('totalLines');
+          usedRelocatedResource ||= output.includes('HOST-INSTALLED-RESOURCE-OK');
+          usedResumedHost ||= output.includes('RESUMED-HOST');
+        }
         const call = calls[nextCall++];
         if (call)
           expect(
@@ -160,6 +202,7 @@ for (const mode of [
       for (const name of [
         'agent.ts',
         'instructions.ts',
+        'sandbox.ts',
         'lib',
         'tools',
         'channels',
@@ -178,23 +221,32 @@ for (const mode of [
         '@auto-agent/desktop-protocol',
         '@modelcontextprotocol/sdk',
         'tsx',
+        'shelljs',
       ]) {
         const target = join(project, 'node_modules', name);
         await mkdir(dirname(target), { recursive: true });
         await symlink(await realpath(join(root, 'node_modules', name)), target, 'junction');
       }
     }
+    // Packaged mode adds this after deployment: its read proves the provider
+    // binds the relocated installation rather than the builder's resources.
+    await writeFile(
+      join(project, 'skills/device-automation/references/host-resource-fixture.txt'),
+      'HOST-INSTALLED-RESOURCE-OK',
+    );
     const env = {
       ...process.env,
       // Bun's test NODE_ENV enables Corax's authored-model stubs, bypassing this HTTP fake.
       NODE_ENV: mode === 'development' ? 'development' : 'production',
       AUTO_AGENT_CONFIG: config,
       AUTO_AGENT_TOKEN: token,
-      AUTO_AGENT_API_KEY: 'local-key',
+      // The production-start fixture is an anonymous local model service.
+      AUTO_AGENT_API_KEY: mode === 'start' ? undefined : 'local-key',
       AUTO_AGENT_PROJECT_ROOT: project,
       CORAX_PROJECT_ROOT: project,
       CORAX_DATA_DIR: join(temporary, 'corax'),
       CORAX_MOCK_AUTHORED_MODELS: '0',
+      AUTO_AGENT_HOST_TEST: 'native-host-environment',
     };
     const cli =
       mode === 'development'
@@ -234,15 +286,28 @@ for (const mode of [
     let child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
     let errors = new Response(child.stderr).text();
     const ready = async () => {
-      let text = '';
-      for await (const chunk of child.stdout) {
-        text += new TextDecoder().decode(chunk);
-        const match = /server listening at (http:\/\/127\.0\.0\.1:\d+)/.exec(
-          text.replace(/\x1b\[[0-9;]*m/g, ''),
-        );
-        if (match) return match[1]!;
-      }
-      throw new Error(await errors);
+      const process = child,
+        diagnostics = errors;
+      return await new Promise<string>((resolve, reject) => {
+        void (async () => {
+          let text = '',
+            listening = false;
+          // Returning from the iterator would close stdout: later native Bash
+          // progress logs then crash Corax dev with EPIPE. Drain until exit.
+          for await (const chunk of process.stdout) {
+            if (listening) continue;
+            text = (text + new TextDecoder().decode(chunk)).slice(-65536);
+            const match = /server listening at (http:\/\/127\.0\.0\.1:\d+)/.exec(
+              text.replace(/\x1b\[[0-9;]*m/g, ''),
+            );
+            if (match) {
+              listening = true;
+              resolve(match[1]!);
+            }
+          }
+          if (!listening) reject(new Error(await diagnostics));
+        })().catch(reject);
+      });
     };
     const stop = async () => {
       if (process.platform === 'win32' && child.exitCode === null)
@@ -266,6 +331,29 @@ for (const mode of [
         auth: { basic: { username: 'auto-agent', password: token } },
       });
       await client.health();
+      const information = await client.info();
+      expect(information.sandbox.provider).toBe('host');
+      for (const name of ['bash', 'read_file', 'write_file'])
+        expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
+          'framework',
+        );
+      expect(information.skills.static.map((skill) => skill.name)).toContain('device-automation');
+      expect(information.skills.static.map((skill) => skill.name)).toContain('llm-wiki');
+      expect(information.tools.dynamic.some((provider) => provider.slug === 'climber')).toBe(true);
+      expect(information.tools.static.some((tool) => tool.name === 'wiki')).toBe(true);
+      expect(information.tools.static.some((tool) => tool.owner.kind === 'framework')).toBe(true);
+      const dynamicCatalog = await client.fetch('/desktop/tools');
+      expect(dynamicCatalog.ok).toBe(true);
+      expect(
+        (await dynamicCatalog.json()).providers[0].tools.map((tool: { name: string }) => tool.name),
+      ).toEqual([
+        'sam_file',
+        'climber_get_health',
+        'climber_get_status',
+        'climber_register_batch',
+        'climber_start_batch',
+      ]);
+      expect((await fetch(`${host}/desktop/tools`)).status).toBe(401);
       const profiling = process.env.AUTO_AGENT_PROFILE_CHAT === '1';
       const timings: Record<string, unknown> = {};
       const probe = async (name: string, path: string, init?: RequestInit) => {
@@ -294,6 +382,13 @@ for (const mode of [
       const result = await response.result();
       expect(result.message).toContain('Wiki 已连接');
       expect(usedWiki).toBe(true);
+      expect(usedHost).toBe(true);
+      expect(usedHostFile).toBe(true);
+      expect(usedSkillReference).toBe(true);
+      expect(usedRelocatedResource).toBe(true);
+      expect(await Bun.file(join(temporary, 'workspace/host-fixture.txt')).text()).toBe(
+        'HOST-FILE-UPDATED',
+      );
       expect(result.message).toContain('Climber MCP 已连接');
       expect(writes).toHaveLength(2);
       const snapshot = await session.snapshot();
@@ -348,6 +443,11 @@ for (const mode of [
       }
       if (mode === 'start') {
         await stop();
+        nextCall = calls.length;
+        calls.push({
+          name: 'bash',
+          arguments: { command: 'cat host-fixture.txt; printf RESUMED-HOST' },
+        });
         child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
         errors = new Response(child.stderr).text();
         const restarted = await ready();
@@ -360,6 +460,7 @@ for (const mode of [
           .attach(session.state.sessionId)
           .send('重启后只读核对会话，不再登记或启动。');
         expect((await turn.result()).message).toContain('Wiki 已连接');
+        expect(usedResumedHost).toBe(true);
         expect(writes).toHaveLength(2);
       }
     } finally {

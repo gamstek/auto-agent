@@ -7,6 +7,7 @@
 - **Wiki Tool**：Agent 通用的知识查询与显式摄入能力，补齐 Corax 当前没有提供的 Wiki 功能。
 - **Climber Tool**：SAM 文件与仪器操作能力，通过 Climber MCP 实现。
 - **device-automation Skill**：方法、材料规则、文件准备及测样流程指导，按目标组合 Wiki 和 Climber。
+- **宿主执行环境**：通过 ShellJS 接入真实宿主 Bash 与文件系统，保留 Corax 原生工具，不使用 JustBash 虚拟环境。
 
 Wiki 统一提供 collections/catalog/search/read 等操作。knowledge 集合保存用户文本编译的知识页；reference 集合提供随版本发布的只读证据。统一工具入口不改变数据归属，不把预置资料送入用户摄入流程。
 
@@ -20,13 +21,13 @@ Wiki 统一提供 collections/catalog/search/read 等操作。knowledge 集合�
 
 ### 本机 SAM 文件操作
 
-`sam_file` 由 `@auto-agent/climber-mcp` 提供，支持 `profiles/inspect/compare/create/modify/save-as`。Auto-Agent 用官方 MCP SDK 和当前 Node 启动固定 stdio 服务，将其契约接入 Corax 工具；无需通过虚拟 shell 查找解释器，也无需配置厂家地址即可处理文件。SAM 实现和完整产品配置在 MCP 包内，Skill 只保留领域工作流。
+`sam_file` 由 `@auto-agent/climber-mcp` 提供，支持 `profiles/inspect/compare/create/modify/save-as`。Auto-Agent 用官方 MCP SDK 和当前 Node 启动固定 stdio 服务，将其契约接入 Corax 工具；无需通过 Shell 查找解释器，也无需配置厂家地址即可处理文件。SAM 实现和完整产品配置在 MCP 包内，Skill 只保留领域工作流。
 
-路径为当前宿主的绝对文件路径，不是 JustBash 的 `/workspace`。新建未指定路径时默认保存到用户主目录的 `Auto-Agent/templates`；复用返回的 `file.path`。修改/另存为核对源哈希；失败、超时或取消后先核验文件，不自动重试。文件成功写入不代表厂家主机可访问，也不会登记或启动仪器。
+路径为 MCP 宿主的原生绝对文件路径，不是 Shell 的 POSIX 路径表示或 `/workspace` 别名。新建未指定路径时默认保存到用户主目录的 `Auto-Agent/templates`；复用返回的 `file.path`。修改/另存为核对源哈希；失败、超时或取消后先核验文件，不自动重试。文件成功写入不代表厂家主机可访问，也不会登记或启动仪器。
 
 ### Climber 设备连接
 
-在桌面“设置 → 仪器连接”填写实际厂家 HTTP(S) `/api/v1` 地址并启用，或在唯一配置文件中设置 climber。设置空闲应用后，助手获得健康、当前状态、登记和启动四项工具；仪器页只读展示 MCP/厂家状态，不提供设备写入入口。
+在桌面“设置 → 仪器”填写实际厂家 HTTP(S) `/api/v1` 地址并启用，或在唯一配置文件中设置 climber。设置空闲应用后，助手获得健康、当前状态、登记和启动四项工具；仪器页只读展示 MCP/厂家状态，不提供设备写入入口。
 
 登记与启动分开执行，保留批次、实验、原管号及厂家路径。未知写入记录由 MCP 服务持久保存在 `dataDir/climber`，重启不解除阻断，也不重发操作。详情见 [Climber MCP](packages/climber-mcp/README.md)。
 
@@ -48,6 +49,8 @@ UTF-8 Markdown/TXT → LLM 分析 → 生成/合并 Markdown 知识页
 
 仅使用 **pnpm 10.15.1** 安装依赖。应用、Corax CLI、MCP、构建与发布脚本使用 **Node.js 24+**；系统 Bun 1.4.2 仅用于部分测试。
 
+ShellJS 调用宿主已安装的真实 Bash；Windows 使用 Git Bash，需使 Git/Bash 可通过 PATH 发现。ShellJS 不提供 Bash 解释器。`sandbox.ts` 使用 Corax 公开 Provider 接口，文件和程序都在真实宿主执行；工作目录为 `dataDir/workspace`，Skill 引用由 Provider 绑定到实际安装资源，不依赖构建机的模板缓存。
+
 ```powershell
 pnpm install --frozen-lockfile
 pnpm dev
@@ -60,6 +63,7 @@ pnpm dev:desktop
 - CLI 用 `AUTO_AGENT_CONFIG` 选择配置；桌面可传 `--config` 或隔离的 `--data-dir`。
 - Node 直接读取唯一 config.json，Corax 进程固定自己的内存配置。桌面忙碌时允许保存，空闲后重启生效。
 - API Key 来自 `AUTO_AGENT_API_KEY` 或桌面 OS keyring，不写进 JSON，也不返回 WebView 明文。
+- 是否需要 API Key 由所配置的模型服务决定；无需认证的本地或自建兼容模型服务可不填 Key。模型服务返回 HTTP 401/403 时，会明确提示检查服务地址、凭据和模型访问权限。
 
 ## 当前配置
 
@@ -84,7 +88,7 @@ pnpm dev:desktop
 
 在桌面“LLM Wiki”中添加文本文件或目录，等待设置生效后，明确要求助手“摄入配置的文本来源”。工具会调用模型并保存知识页；普通查询不会自动摄入。
 
-也可使用 CLI。摄入需要 `AUTO_AGENT_API_KEY`；桌面会使用传给 Corax 的系统凭据。
+也可使用 CLI。摄入使用当前配置的模型服务；服务需要认证时，CLI 从 `AUTO_AGENT_API_KEY` 读取 Key，桌面使用传给 Corax 的系统凭据。免认证服务可以不填 Key。
 
 ```powershell
 # 维护开发目录时明确选择开发配置
@@ -114,6 +118,7 @@ dataDir/
 ├─ .data-layout
 ├─ corax/                        Corax 会话、工作流、日志与缓存
 ├─ climber/                      MCP 拥有的设备预留与操作结果，按厂家端点区分
+├─ workspace/                    原生工具共享的真实宿主工作目录
 └─ llm-wiki/
    ├─ raw/sources/               原文固定版本
    ├─ purpose.md                知识库目标

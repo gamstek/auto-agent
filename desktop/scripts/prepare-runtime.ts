@@ -50,6 +50,8 @@ for (const path of [
   'node_modules/@auto-agent/climber-mcp/src/sam/sam-profiles.json',
   'node_modules/@coraxjs/core/bin/corax.js',
   'node_modules/tsx/package.json',
+  'node_modules/shelljs/package.json',
+  'sandbox.ts',
 ]) {
   if (!(await stat(join(output, path))).isFile())
     throw new Error(`Runtime resource missing: ${path}`);
@@ -59,6 +61,16 @@ if (!deployed.dependencies?.['@coraxjs/core'])
   throw new Error('Packaged runtime is missing its registry Corax dependency');
 if (!deployed.dependencies?.['@auto-agent/climber-mcp'])
   throw new Error('Packaged runtime is missing its Climber MCP dependency');
+const prepared = JSON.parse(
+  await readFile(join(output, '.output/.corax/compile/sandbox-prepared-artifacts.json'), 'utf8'),
+);
+if (
+  !prepared.entries?.length ||
+  prepared.entries.some((entry: { providerName: string }) => entry.providerName !== 'host')
+)
+  throw new Error(
+    'Packaged runtime must select the ShellJS host sandbox, not a virtual sandbox template',
+  );
 let sourceMapBytes = 0;
 async function preparePublishedTree(directory: string, dependencyArtifacts = false) {
   for (const entry of await readdir(directory, { withFileTypes: true })) {

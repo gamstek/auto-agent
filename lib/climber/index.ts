@@ -63,7 +63,7 @@ export async function callClimber(
   if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 24)
     return failure('UNSUPPORTED_RUNTIME', 'Climber MCP 需要 Node.js 24+。');
   if (name !== 'sam_file' && !config.climber.enabled)
-    return failure('NOT_CONFIGURED', '请先在仪器连接设置中启用 Climber 并配置厂家 /api/v1 地址。');
+    return failure('NOT_CONFIGURED', '请先在“设置 → 仪器”中启用 Climber 并配置厂家 /api/v1 地址。');
   const parsed = mcpTools[name].inputSchema.safeParse(raw);
   if (!parsed.success)
     return failure('INVALID_INPUT', '参数不符合 Climber MCP 工具契约，请核对本次操作字段。');

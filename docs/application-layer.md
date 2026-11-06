@@ -11,6 +11,7 @@ lib/
 │  ├─ paths.ts        默认配置位置与布局标识，不依赖 schema
 │  ├─ index.ts        统一入口：配置 IO、相对路径解析与进程内快照
 │  └─ runtime.ts      Corax 数据目录与宿主占用锁
+├─ host/              ShellJS 宿主 Provider、进程生命周期和原生路径/文件 I/O
 ├─ wiki/
 │  ├─ index.ts        用户知识库与预置集合装配，不创建另一个聊天循环
 │  ├─ ingest.ts       显式两阶段模型调用，无工具执行或自动重试
@@ -27,6 +28,9 @@ lib/
 - `config/runtime` 只管理数据目录占用，`config/index` 提供单份进程内配置快照；二者不依赖桌面 UI、协议或具体业务工具，也不重建 Corax 的运行循环。不另设 lib/runtime 或保留旧路径转发。
 - `desktop/src-tauri/src/corax.rs` 直接启停标准 Corax CLI、管理认证和事件传输；`desktop/src/lib/corax-projection.ts` 使用官方 reducer，不读取配置、不创建 Wiki、不生成本地会话 ID。
 - `channels/desktop.ts` 在 Corax 进程内使用官方 reducer 和会话句柄提供退出保护所需的活动状态；聊天命令与事件仍使用原生 Corax 路由。
+- 设置中的工具/技能目录由 Rust 读取官方 Corax info 并投影显示字段；`channels/desktop.ts` 仅补充与模型注册共用定义的动态工具元数据，不执行工具或连接仪器。内置能力不可禁用。
+- `lib/model.ts` 仅解释模型服务实际返回的认证错误，不按模型名、服务商或 Key 是否为空添加认证要求。
+- `sandbox.ts` 仅选择公开 Corax 宿主 Provider，lib/host 负责 ShellJS/文件 I/O；保留原生工具，不在应用里复制 Bash/read_file/write_file/glob/grep 实现。Provider 不需要 JustBash 模板或构建机个人缓存，也不负责设备协议。
 - lib/wiki 为统一 Wiki Tool 装配 knowledge/reference 集合；知识编译与只读检索保留各自数据边界。reference 适配器接收应用绑定的数据源，不在工具 schema 中暴露数据库路径、SQL 或领域专用字段；人工材料规则由 Skill references 阅读。
 - lib/climber 只启动随应用发布的固定 MCP CLI；不接受模型指定的解释器、脚本、环境或 shell 命令。SAM schema、完整产品配置、单位和文件写入由 MCP 包拥有。Corax 动态工具直接复用包导出的定义；Skill 只维护操作工作流和解释边界。
 - channels/instruments 通过同一 MCP 客户端只读查询，提供给受限 Rust IPC；不调用设备写工具，也不绕过 MCP 直接访问厂家。缓存仅用于显示最后已知状态，失败标 stale，不推断物理状态。

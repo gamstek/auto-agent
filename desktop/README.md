@@ -23,6 +23,10 @@ pnpm dev:desktop
 
 API Key 来自 `AUTO_AGENT_API_KEY` 或系统凭据库；不返回已保存的 Key 明文。后端的随机传输令牌只在 Rust 和 Node 子进程之间使用。
 
+是否需要 API Key 由实际模型服务决定，不根据服务商或模型名在桌面端硬编码拦截。无需认证的本地或自建兼容模型服务允许不填 Key；模型服务返回 HTTP 401/403 时会明确提示检查服务地址、凭据和模型访问权限。
+
+宿主执行使用 ShellJS 与真实 Bash（Windows 为 Git Bash），保留 Corax 原生工具。Rust 启动 Corax 时继承宿主环境；命令子进程不携带应用私有的传输令牌和模型 Key。文件可直接访问真实宿主，默认工作目录为 dataDir/workspace；Provider 关闭不会删除这些文件。没有 JustBash 模板的首启准备或个人缓存拷贝。
+
 调试时可给桌面程序传入 `--config <path>`，或以 `--data-dir <absolute-directory>` 隔离配置与运行数据。两者互斥。不要将个人配置用于测试。
 
 ## 聊天与能力
@@ -46,7 +50,9 @@ prepare-runtime 白名单部署 Corax 产物、生产依赖与技能（含 devic
 
 Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件进行冻结部署；仅发布目录使用 `node-linker=hoisted`，开发环境继续使用默认的 isolated 布局。发布时移除依赖 sourcemap，保留源码、声明、许可证和原生/WASM 资源。
 
-“设置 → 仪器连接”配置 Climber 厂家 /api/v1 地址、超时和启用状态；忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
+“设置 → 仪器”配置 Climber 厂家 /api/v1 地址、超时和启用状态；忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
+
+“工具 / 技能”展示 Corax 官方运行信息中的实际目录；Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“LLM Wiki”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
 
 Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v1 标识时清理并初始化，后续同布局安装保留数据；正常启动和开发不会清理个人目录。
 

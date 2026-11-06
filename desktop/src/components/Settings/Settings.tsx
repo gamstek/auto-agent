@@ -12,14 +12,18 @@ import {
   LoaderCircle,
   Puzzle,
   Settings2,
+  Wrench,
   X,
 } from 'lucide-react';
 import {
+  api,
   desktop,
   errorText,
   native,
   type Settings as Config,
   type SettingsInfo,
+  type CapabilityEntry,
+  type RuntimeCapabilities,
 } from '../../bridge';
 import { Maintenance } from '../Maintenance/Maintenance';
 import { Button } from '../Button/Button';
@@ -35,16 +39,23 @@ import './Settings.css';
 const categories = [
   {
     id: 'model',
-    label: '模型连接',
+    label: '模型',
     description: '服务地址 API Key 模型账户',
     icon: Cpu,
     group: '工作空间',
   },
   {
     id: 'device',
-    label: '仪器连接',
+    label: '仪器',
     description: 'Climber MCP 厂家 地址 超时 仪器',
     icon: Cable,
+    group: '工作空间',
+  },
+  {
+    id: 'tools',
+    label: '工具',
+    description: '工具 能力 内置 动态 MCP',
+    icon: Wrench,
     group: '工作空间',
   },
   {
@@ -135,6 +146,10 @@ export function Settings({
   instant?: boolean;
 }) {
   const [info, setInfo] = useState<SettingsInfo>();
+  const [capabilities, setCapabilities] = useState<RuntimeCapabilities>();
+  const [capabilitiesLoading, setCapabilitiesLoading] = useState(false);
+  const [capabilitiesError, setCapabilitiesError] = useState('');
+  const [capabilityRevision, setCapabilityRevision] = useState(0);
   const [draft, setDraft] = useState<Config>();
   const [key, setKey] = useState('');
   const [editingKey, setEditingKey] = useState(false);
@@ -166,6 +181,26 @@ export function Settings({
   useEffect(() => {
     if (!inFlight.current && (!info || (active && !changed))) reload();
   }, [active]);
+  useEffect(() => {
+    if (!active || !['skills', 'tools'].includes(initialTab)) return;
+    let disposed = false;
+    setCapabilitiesLoading(true);
+    setCapabilitiesError('');
+    setCapabilities(undefined);
+    void api<RuntimeCapabilities>('/capabilities')
+      .then((value) => {
+        if (!disposed) setCapabilities(value);
+      })
+      .catch((cause) => {
+        if (!disposed) setCapabilitiesError(errorText(cause));
+      })
+      .finally(() => {
+        if (!disposed) setCapabilitiesLoading(false);
+      });
+    return () => {
+      disposed = true;
+    };
+  }, [active, initialTab, capabilityRevision]);
   const changed = !!draft && (JSON.stringify(draft) !== JSON.stringify(info?.settings) || !!key);
   useEffect(() => {
     if (!changed || !draft) return;
@@ -184,6 +219,7 @@ export function Settings({
     let unlisten: (() => void) | undefined;
     void listen<{ applied: boolean; error?: string }>('settings-applied', ({ payload }) => {
       setPendingApply(false);
+      if (payload.applied) setCapabilityRevision((value) => value + 1);
       if (payload.error) setError(payload.error);
     }).then((fn) => {
       if (disposed) fn();
@@ -339,15 +375,16 @@ export function Settings({
     <>
       <Row
         label="纯文本来源"
-        description="添加文件或目录；目录内只导入 UTF-8 Markdown/TXT。"
+        description="添加文件或文件夹；文件夹内只导入 UTF-8 Markdown/TXT。"
+        wide
         control={
-          <div className="maintenance-actions">
+          <div className="setting-source-actions">
             <Button variant="subtle" onClick={() => void pickText('file')}>
               添加文件
             </Button>
             <Button variant="subtle" onClick={() => void pickText('directory')}>
               <FolderOpen size={15} />
-              添加目录
+              添加文件夹
             </Button>
           </div>
         }
@@ -356,6 +393,9 @@ export function Settings({
         <div className="setting-paths">
           {draft.llmWiki.sources.map((entry) => (
             <div key={entry.id}>
+              <span className="setting-source-kind">
+                {entry.type === 'directory' ? '文件夹' : '文件'}
+              </span>
               <code title={entry.path}>{entry.path}</code>
               <IconButton
                 label={`移除 ${entry.path}`}
@@ -372,6 +412,71 @@ export function Settings({
         </div>
       )}
     </>
+  );
+  const capabilityRows = (entries: CapabilityEntry[]) =>
+    entries.map((entry) => (
+      <Row
+        key={`${entry.source}:${entry.name}`}
+        label={entry.name}
+        description={entry.description}
+        control={
+          <span
+            className="setting-capability-state"
+            title={
+              entry.source === 'framework'
+                ? 'Corax 内置能力'
+                : entry.source === 'application'
+                  ? '随应用发布的内置能力'
+                  : 'Corax 已加载的扩展能力'
+            }
+          >
+            {entry.builtIn ? '内置 · 不可禁用' : '扩展 · 已加载'}
+          </span>
+        }
+      />
+    ));
+  const capabilityList = (kind: 'skills' | 'tools') => (
+    <div className="settings-capability-list">
+      {capabilitiesLoading && (
+        <p className="settings-section-note" role="status">
+          正在读取当前运行时的{kind === 'skills' ? '技能' : '工具'}…
+        </p>
+      )}
+      {capabilitiesError && (
+        <div className="error-banner" role="alert">
+          {capabilitiesError}
+          <Button variant="subtle" onClick={() => setCapabilityRevision((value) => value + 1)}>
+            重新读取列表
+          </Button>
+        </div>
+      )}
+      {capabilities && (
+        <>
+          <Group
+            title={`当前${kind === 'skills' ? '技能' : '工具'}（${capabilities[kind].length}）`}
+          >
+            {capabilityRows(capabilities[kind])}
+            {!capabilities[kind].length && (
+              <p className="settings-section-note">
+                当前运行时没有已加载的{kind === 'skills' ? '技能' : '工具'}。
+              </p>
+            )}
+          </Group>
+          {kind === 'tools' && capabilities.dynamicProviders.length > 0 && (
+            <Group title="动态工具提供器">{capabilityRows(capabilities.dynamicProviders)}</Group>
+          )}
+          {kind === 'skills' && capabilities.dynamicSkills.length > 0 && (
+            <Group title="动态技能提供器">{capabilityRows(capabilities.dynamicSkills)}</Group>
+          )}
+        </>
+      )}
+      <p className="settings-section-note">
+        {kind === 'skills'
+          ? '技能由 Corax 原生发现，定义操作方法并按需读取资源。'
+          : '工具是当前运行时提供的执行能力；动态工具按实际生效的配置展示。'}
+        内置{kind === 'skills' ? '技能' : '工具'}随应用或 Corax 发布，不能禁用。
+      </p>
+    </div>
   );
   return (
     <form
@@ -457,20 +562,8 @@ export function Settings({
                   </Group>
                 </>
               )}
-              {initialTab === 'skills' && (
-                <>
-                  <Group title="技能管理">
-                    <Row
-                      label="技能发现"
-                      description="由 Corax 加载随应用发布的 skills，按需读取技能内容与资源。"
-                      control={<span className="setting-value">Corax 原生技能</span>}
-                    />
-                  </Group>
-                  <p className="settings-section-note">
-                    技能定义操作方法，实际执行能力由当前工具提供。技能目录和工具模块属于应用版本，在构建时发布。
-                  </p>
-                </>
-              )}
+              {initialTab === 'skills' && capabilityList('skills')}
+              {initialTab === 'tools' && capabilityList('tools')}
               {initialTab === 'device' && (
                 <>
                   <Group title="Climber MCP">
@@ -612,7 +705,7 @@ export function Settings({
                     />
                     <Row
                       label="数据目录"
-                      description="会话、执行审计和知识快照存储在本机。"
+                      description="应用数据的根目录；Corax 会话位于 corax 子目录，知识与仪器记录分别存储。"
                       control={
                         <code className="directory-value selectable" title={info?.dataDirectory}>
                           {info?.dataDirectory}

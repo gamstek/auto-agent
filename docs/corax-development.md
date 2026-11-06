@@ -22,7 +22,7 @@ backend_watch 经 corax-events 发送事件，watchId 隔离旧订阅，断线�
 
 HTTP409/session_not_ready 是 Corax 明确未受理，普通 send 按官方客户端策略最多等待20秒、250毫秒起退避；其他错误和效果未知不自动重发。开发态仅对超过250毫秒的请求/投影输出不含消息、路径、凭据或会话标识的分段耗时元数据。
 
-channels/desktop.ts 只提供活动状态：在 Corax 进程内读取事件、使用官方 reducer 并识别失效会话，供退出、设置应用和更新检查使用。聊天不经过它代理。
+channels/desktop.ts 提供活动状态和只读动态工具目录：在 Corax 进程内读取事件、使用官方 reducer 并识别失效会话，供退出、设置应用和更新检查使用；目录复用真实工具注册定义。聊天不经过它代理。
 
 Rust 使用 Windows Job Object 托管子进程树。设置只写 config.json，Corax 的进程内配置在空闲重启后更新。
 
@@ -33,6 +33,8 @@ lib/config 统一管理 schema、路径、IO、进程内快照与数据目录占
 lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI 使用固定 tsx loader；工具 schema/说明从 @auto-agent/climber-mcp/contracts 导入，经 tools/climber.ts 动态适配。sam_file 离线可用，climber.enabled 后提供四项设备能力。当前 Corax 原生 MCP connection 只接受 HTTP/SSE，所以这里采用公开工具接口适配，不创建私有 Corax 连接实现。channels/instruments 只提供认证的桌面只读投影。
 
 模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。没有领域专用资料 Tool、Wiki HTTP channel 或数据库导入。
+
+sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 ShellJS 实现宿主进程/文件 I/O；不替换 Corax 原生工具。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 需可发现的 Git Bash，继承宿主环境而非虚拟解释器。
 
 ## 构建与验证
 

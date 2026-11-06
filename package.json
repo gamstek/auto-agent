@@ -6,6 +6,7 @@
   "files": [
     "agent.ts",
     "instructions.ts",
+    "sandbox.ts",
     "channels",
     "tools",
     "lib",
@@ -43,12 +44,14 @@
     "@coraxjs/core": "0.1.0",
     "@modelcontextprotocol/sdk": "catalog:",
     "ai": "7.0.137",
+    "shelljs": "^0.10.0",
     "tsx": "^4.23.15",
     "zod": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
     "@types/node": "^24.19.2",
+    "@types/shelljs": "^0.10.0",
     "esbuild": "^0.28.2",
     "prettier": "3.9.9",
     "typescript": "catalog:"

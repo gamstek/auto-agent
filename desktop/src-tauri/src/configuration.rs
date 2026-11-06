@@ -71,9 +71,12 @@ pub fn read(path: &Path) -> Result<Document, String> {
     settings.validate()?;
     Ok(Document { raw, revision: format!("{:x}", Sha256::digest(&bytes)) })
 }
+pub fn display_path(path: &Path) -> PathBuf {
+    dunce::simplified(path).components().collect()
+}
 fn resolve(path: &Path, value: &str) -> String {
     let value = Path::new(value);
-    if value.is_absolute() { value.to_path_buf() } else { path.parent().unwrap().join(value) }.to_string_lossy().into_owned()
+    display_path(&if value.is_absolute() { value.to_path_buf() } else { path.parent().unwrap().join(value) }).to_string_lossy().into_owned()
 }
 pub fn data_directory(path: &Path, raw: &Value) -> Result<PathBuf, String> {
     let settings: Settings = serde_json::from_value(raw.clone()).map_err(|_| "配置字段无效")?;
@@ -183,6 +186,21 @@ pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, Stri
         let projected = serde_json::to_value(settings(&f.path, &raw).unwrap()).unwrap();
         assert_eq!(projected["dataDir"], json!(f.root.join("data")));
         assert_eq!(projected["llmWiki"]["sources"][0]["path"], json!(f.root.join("docs")));
+    }
+    #[test] fn displayed_data_root_is_normalized_without_changing_relative_configuration() {
+        let f = Fixture::new();
+        let path = f.root.join("./config.json");
+        let raw = json!({"dataDir":"."});
+        assert_eq!(display_path(&path), f.root.join("config.json"));
+        assert_eq!(data_directory(&path, &raw).unwrap(), f.root);
+        let values = settings(&path, &raw).unwrap();
+        assert_eq!(merged(&path, &raw, &values).unwrap()["dataDir"], ".");
+    }
+    #[cfg(windows)]
+    #[test] fn windows_display_paths_use_native_separators_and_drop_redundant_dots() {
+        assert_eq!(display_path(Path::new(r"C:\Users\example\.auto-agent/config.json")), PathBuf::from(r"C:\Users\example\.auto-agent\config.json"));
+        assert_eq!(display_path(Path::new(r"C:\Users\example\.auto-agent\.\corax")), PathBuf::from(r"C:\Users\example\.auto-agent\corax"));
+        assert_eq!(display_path(Path::new(r"\\?\C:\Users\example\.auto-agent\config.json")), PathBuf::from(r"C:\Users\example\.auto-agent\config.json"));
     }
     #[test] fn stale_save_cannot_overwrite_external_changes() {
         let f = Fixture::new(); ensure(&f.path).unwrap();

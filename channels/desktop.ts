@@ -1,7 +1,18 @@
-import { defineChannel, POST, SessionStrandedError } from '@coraxjs/core/channels';
+import { defineChannel, GET, POST, SessionStrandedError } from '@coraxjs/core/channels';
 import { sessions } from '@coraxjs/core/server';
 import { conversationReducer } from '@coraxjs/core/client';
 import { z } from 'zod';
+import { getRuntimeConfig } from '../lib/config';
+import { climberToolCatalog } from '../lib/climber/catalog';
+
+function authorized(request: Request) {
+  const token = process.env.AUTO_AGENT_TOKEN;
+  return (
+    !!token &&
+    request.headers.get('authorization') ===
+      `Basic ${Buffer.from(`auto-agent:${token}`).toString('base64')}`
+  );
+}
 
 const input = z
   .object({
@@ -21,14 +32,14 @@ const input = z
 /** Host activity only. Chat commands and event streams stay on the native Corax routes. */
 export default defineChannel({
   routes: [
+    GET('/desktop/tools', async (request) => {
+      if (!authorized(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      return Response.json({
+        providers: [{ slug: 'climber', tools: climberToolCatalog(getRuntimeConfig()) }],
+      });
+    }),
     POST('/desktop/activity', async (request, context) => {
-      const token = process.env.AUTO_AGENT_TOKEN;
-      if (
-        !token ||
-        request.headers.get('authorization') !==
-          `Basic ${Buffer.from(`auto-agent:${token}`).toString('base64')}`
-      )
-        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      if (!authorized(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       try {
         const query = input.parse(await request.json());
         const result = await Promise.all(

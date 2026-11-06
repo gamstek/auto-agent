@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { generateText } from 'ai';
+import { generateText, wrapLanguageModel } from 'ai';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { discoverText, type IngestModel } from '@auto-agent/llm-wiki';
 import type { AppConfig } from '../config/schema';
 import { openLlmWiki, referenceSource } from './index';
+import { modelErrorMiddleware } from '../model';
 
 /** Explicit knowledge compilation, not another chat/Agent loop. No tools or automatic retries. */
 export async function ingestLlmWiki(
@@ -34,8 +35,6 @@ export async function ingestLlmWiki(
       note: '没有可摄入的纯文本，未调用模型。',
     };
   const key = process.env.AUTO_AGENT_API_KEY;
-  if (!key?.trim())
-    throw new Error('摄入会调用模型，需要 AUTO_AGENT_API_KEY；桌面会使用已配置的系统凭据');
   const provider = createOpenAICompatible({
     name: 'llm-wiki',
     baseURL: config.baseURL,
@@ -53,7 +52,10 @@ export async function ingestLlmWiki(
       if (Buffer.byteLength(system + prompt) > maxPromptBytes)
         throw new Error('摄入上下文超出当前输入预算，请拆分资料或提升容量');
       const result = await generateText({
-        model: provider.chatModel(config.model),
+        model: wrapLanguageModel({
+          model: provider.chatModel(config.model),
+          middleware: modelErrorMiddleware,
+        }),
         system,
         prompt,
         maxOutputTokens: config.maxOutputTokens,
@@ -71,10 +73,8 @@ export async function ingestLlmWiki(
     try {
       completed.push(await wiki.ingest(document, model, signal));
     } catch (error) {
-      const message = (error instanceof Error ? error.message : '摄入失败').replaceAll(
-        key,
-        '[redacted]',
-      );
+      const detail = error instanceof Error ? error.message : '摄入失败';
+      const message = key ? detail.replaceAll(key, '[redacted]') : detail;
       return {
         status: signal.aborted ? 'cancelled' : 'failed',
         completed,

@@ -16,7 +16,7 @@
 
 两份材料规则是 Skill references/materials 内的人工指导，按需通过原生资源阅读。历史 SQLite 是 Wiki reference 集合的只读证据，用户知识在 knowledge 集合；二者共享通用 Wiki Tool，不共享摄入流程。Skill 按目标组织方法解释、资料查询、文件准备和执行，不再提供领域专用查询工具或 guidance 操作。加载技能不自动提供设备连接或宿主执行。
 
-当前应用通过 Climber MCP 的 sam_file 提供 SAM 宿主文件能力；启用配置后再提供设备工具。MCP 包拥有工具契约、实现与完整产品配置，Skill 参考文档拥有产品、单位和工作流指导；角色不重复这些契约。默认虚拟 shell 不因此获得宿主解释器或任意程序执行能力。
+当前应用通过 Climber MCP 的 sam_file 提供 SAM 宿主文件能力；启用配置后再提供设备工具。MCP 包拥有工具契约、实现与完整产品配置，Skill 参考文档拥有产品、单位和工作流指导；角色不重复这些契约。通用宿主执行由独立的 ShellJS Provider 提供，仍保留 Corax 原生工具；角色只追加实际 OS、工作目录和资源目录等运行环境事实，不复制工具 schema 或领域程序。
 
 ## LLM Wiki 摄入
 

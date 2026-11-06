@@ -58,7 +58,7 @@ try {
   await assert.rejects(stat(join(extracted, 'auto-agent-backend.exe')), { code: 'ENOENT' });
 
   // Exercise the actual Rust launcher with canonicalized Windows paths, the
-  // bundled Node and its restricted environment (not just the test harness).
+  // bundled Node and inherited host environment (not just the test harness).
   const launcher = startProcess(
     'cargo',
     [

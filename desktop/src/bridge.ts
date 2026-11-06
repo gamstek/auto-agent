@@ -75,3 +75,16 @@ export interface SettingsInfo {
   dataDirectory: string;
   version: string;
 }
+
+export interface CapabilityEntry {
+  name: string;
+  description: string;
+  source: 'framework' | 'application' | 'extension';
+  builtIn: boolean;
+}
+export interface RuntimeCapabilities {
+  skills: CapabilityEntry[];
+  tools: CapabilityEntry[];
+  dynamicProviders: CapabilityEntry[];
+  dynamicSkills: CapabilityEntry[];
+}

@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LlmWiki, discoverText, type IngestModel } from '@auto-agent/llm-wiki';
 import { configSchema, DATA_LAYOUT, ensureConfig, loadConfig } from '../../lib/config';
+import { ingestLlmWiki } from '../../lib/wiki/ingest';
+import { listenFetch } from './http-fixture';
 
 test('configuration exposes only text LLM Wiki sources and rejects SQLite bundle configuration', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auto-agent-llm-config-'));
@@ -102,6 +104,69 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
       /纯文本/,
     );
   } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('Wiki ingestion can compile knowledge through an anonymous private model service', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent-anonymous-wiki-'));
+  const previousKey = process.env.AUTO_AGENT_API_KEY;
+  delete process.env.AUTO_AGENT_API_KEY;
+  let calls = 0;
+  const server = await listenFetch(async (request) => {
+    assert.equal(request.headers.get('authorization'), null);
+    const body = (await request.json()) as { messages: { role: string; content: string }[] };
+    calls++;
+    let answer = '原文提供私有资料的概念和来源。';
+    if (calls > 1) {
+      const prompt = body.messages.find((message) => message.role === 'user')!.content;
+      const input = JSON.parse(prompt.split('\n\n')[0]);
+      answer = JSON.stringify({
+        pages: [
+          {
+            path: input.source.summaryPath,
+            title: '私有资料',
+            type: 'source',
+            summary: '来源摘要',
+            body: '# 私有资料\n保留原始说明。',
+            sources: [input.source.reference],
+            related: [],
+          },
+        ],
+        issues: [],
+      });
+    }
+    return Response.json({
+      id: 'anonymous-local',
+      object: 'chat.completion',
+      created: 1,
+      model: 'private-model',
+      choices: [
+        { index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+    });
+  });
+  try {
+    const path = join(root, 'source.md');
+    await writeFile(path, '# 私有资料\n保留原始说明。');
+    const result = await ingestLlmWiki(
+      configSchema.parse({
+        dataDir: root,
+        model: 'arbitrary-private-model',
+        baseURL: `${server.origin}/v1`,
+        llmWiki: { sources: [{ id: 'private', type: 'file', path }] },
+      }),
+      undefined,
+      new AbortController().signal,
+    );
+    assert.equal(result.status, 'completed');
+    assert.equal(result.completed.length, 1);
+    assert.equal(calls, 2);
+  } finally {
+    if (previousKey === undefined) delete process.env.AUTO_AGENT_API_KEY;
+    else process.env.AUTO_AGENT_API_KEY = previousKey;
+    await server.stop();
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -78,9 +78,9 @@ fn settings_read(state: State<'_, Desktop>) -> Result<Value, String> {
     let document = configuration::read(&state.config_path)?;
     let environment_key = std::env::var("AUTO_AGENT_API_KEY").ok().is_some_and(|v| !v.trim().is_empty());
     Ok(json!({ "settings": configuration::settings(&state.config_path, &document.raw)?, "configRevision": document.revision,
-        "configPath": state.config_path, "apiKeySource": if environment_key { "environment" } else { "keyring" },
+        "configPath": configuration::display_path(&state.config_path), "apiKeySource": if environment_key { "environment" } else { "keyring" },
         "hasApiKey": environment_key || read_key(&state.root)?.is_some(), "pendingApply": state.pending_apply.load(Ordering::SeqCst),
-        "dataDirectory": configuration::data_directory(&state.config_path, &document.raw)?.join("corax"), "version": env!("CARGO_PKG_VERSION") }))
+        "dataDirectory": configuration::data_directory(&state.config_path, &document.raw)?, "version": env!("CARGO_PKG_VERSION") }))
 }
 async fn apply_when_idle(app: tauri::AppHandle) {
     loop {

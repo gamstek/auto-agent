@@ -20,6 +20,7 @@ Corax 管理会话 ID、标题、消息和持久化；应用不另建 Agent 循�
 | 路径                                | 职责                                                |
 | ----------------------------------- | --------------------------------------------------- |
 | agent.ts / instructions.ts          | 动态模型与角色/共享原则                             |
+| sandbox.ts / lib/host               | 公开 Corax Provider、ShellJS 宿主进程与真实文件 I/O |
 | tools/wiki.ts                       | Agent 通用 Wiki：知识、只读证据与显式摄入           |
 | tools/climber.ts                    | MCP 契约驱动的动态 SAM/Climber 工具                 |
 | channels/corax.ts                   | 原生 HTTP 与认证                                    |
@@ -53,7 +54,11 @@ Corax 动态工具 → 官方 MCP SDK stdio 客户端 → 当前 Node + 固定 t
 
 sam_file 始终提供 profiles/inspect/compare/create/modify/save-as。配置 climber.enabled 与显式厂家 URL 后，才提供四项设备工具。每次调用拥有固定 stdio 子进程并在 finally 关闭，无连接时不阻塞启动；数据和预留由 MCP 保存在 dataDir/climber。稳定 session/call 身份经受信 MCP metadata 注入；模型不能提供这些字段，操作者 reconcile_operation 不进入 Agent 工具列表。
 
-SAM 路径属于 MCP 执行宿主，不是虚拟文件系统。默认输出为用户主目录下 Auto-Agent/templates；桌面发行版用随包 Node。SAM 调用限30秒，JSON 参数限16384字节，完整回执限60000字节；stdio 帧限256 KiB，诊断限16 KiB，不截断配置。子进程只传系统路径与固定部署参数，不继承凭据/用户加载钩子；Node 默认不自动读取 .env。设备预算覆盖状态前置检查与厂家写入各一次；失败/取消不自动重试，未知文件写先核对路径/哈希，未知设备写按原批次/操作核对。
+SAM 路径属于 MCP 执行宿主，使用其原生绝对路径，不能直接把 Shell 的 POSIX 别名当作厂家路径。默认输出为用户主目录下 Auto-Agent/templates；桌面发行版用随包 Node。SAM 调用限30秒，JSON 参数限16384字节，完整回执限60000字节；stdio 帧限256 KiB，诊断限16 KiB，不截断配置。MCP 子进程只传系统路径与固定部署参数，不继承凭据/用户加载钩子；Node 默认不自动读取 .env。设备预算覆盖状态前置检查与厂家写入各一次；失败/取消不自动重试，未知文件写先核对路径/哈希，未知设备写按原批次/操作核对。
+
+## 宿主环境
+
+`sandbox.ts` 用公开 defineSandbox/defineSandboxProvider 绑定 ShellJS。Bash/read_file/write_file 等仍是 Corax 原生工具；适配只发生在 Provider 的进程和文件 I/O 边界。执行真实宿主 Bash，继承 PATH 等宿主变量，Windows 使用 Git Bash；不回退 JustBash，也不把 ShellJS 当解释器。工作目录 dataDir/workspace 为真实文件目录，Skill 资源路径映射到当前应用资源，不写入个人全局 skills 目录；关闭句柄只停止自己持有的命令，不删除工作文件。
 
 ## 配置与发布
 

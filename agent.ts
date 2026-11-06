@@ -2,6 +2,7 @@ import { defineAgent, defineDynamic } from '@coraxjs/core';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { defaultSettingsMiddleware, wrapLanguageModel } from 'ai';
 import { getRuntimeConfig } from './lib/config';
+import { modelErrorMiddleware } from './lib/model';
 
 const config = getRuntimeConfig();
 
@@ -14,9 +15,12 @@ function model() {
   return {
     model: wrapLanguageModel({
       model: provider.chatModel(config.model),
-      middleware: defaultSettingsMiddleware({
-        settings: { maxOutputTokens: config.maxOutputTokens },
-      }),
+      middleware: [
+        modelErrorMiddleware,
+        defaultSettingsMiddleware({
+          settings: { maxOutputTokens: config.maxOutputTokens },
+        }),
+      ],
     }),
     modelContextWindowTokens: config.maxInputTokens,
   };

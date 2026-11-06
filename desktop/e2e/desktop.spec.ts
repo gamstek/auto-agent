@@ -9,7 +9,12 @@ async function nativeDesktop(page: Page, existing = false) {
     const records: any[] = [];
     const secondId = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TC';
     const histories: Record<string, any[]> = { [sessionId]: records };
-    const testState = { requests: [] as string[], rejectSend: false };
+    const testState = {
+      requests: [] as string[],
+      rejectSend: false,
+      dialogs: [] as any[],
+      saves: [] as any[],
+    };
     (window as any).__desktopTest = testState;
     let next = 0,
       watchId = '',
@@ -69,6 +74,10 @@ async function nativeDesktop(page: Page, existing = false) {
         delete callbacks[id];
       },
       async invoke(command: string, args: any) {
+        if (command === 'plugin:dialog|open') {
+          testState.dialogs.push(args.options);
+          return args.options.directory ? 'C:\\fixtures\\knowledge' : 'C:\\fixtures\\notes.md';
+        }
         if (command === 'plugin:event|listen') {
           const id = ++next;
           listeners[id] = { event: args.event, handler: args.handler };
@@ -83,13 +92,14 @@ async function nativeDesktop(page: Page, existing = false) {
         if (command === 'settings_read')
           return {
             settings,
-            configPath: 'C:/isolated/config.json',
+            configPath: 'C:\\isolated\\config.json',
             configRevision: 'revision',
             hasApiKey: false,
-            dataDirectory: 'C:/isolated/corax',
+            dataDirectory: 'C:\\isolated',
             version: '2.0.0-beta.1',
           };
         if (command === 'settings_save') {
+          testState.saves.push(structuredClone(args.settings));
           Object.assign(settings, args.settings);
           return { saved: true, applied: true, configRevision: 'revision' };
         }
@@ -111,6 +121,35 @@ async function nativeDesktop(page: Page, existing = false) {
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          if (args.path === '/capabilities')
+            return {
+              skills: [
+                {
+                  name: 'device-automation',
+                  description: '仪器操作方法',
+                  source: 'application',
+                  builtIn: true,
+                },
+                {
+                  name: 'runtime-discovered-skill',
+                  description: '运行时发现的其他技能',
+                  source: 'extension',
+                  builtIn: false,
+                },
+              ],
+              tools: [
+                { name: 'bash', description: 'Corax 原生工具', source: 'framework', builtIn: true },
+                { name: 'wiki', description: '通用 Wiki', source: 'application', builtIn: true },
+                {
+                  name: 'sam_file',
+                  description: '离线 SAM 文件工具',
+                  source: 'application',
+                  builtIn: true,
+                },
+              ],
+              dynamicProviders: [],
+              dynamicSkills: [],
+            };
           if (args.path === '/global/health')
             return {
               healthy: true,
@@ -138,8 +177,9 @@ async function nativeDesktop(page: Page, existing = false) {
               : submitted
                 ? [{ id: sessionId, title: '原生会话', updatedAt: 1800000000000 }]
                 : [];
-          if (args.path === '/session' && args.method === 'POST')
+          if (args.path === '/session' && args.method === 'POST') {
             return { id: sessionId, title: '新会话', updatedAt: 1800000000000 };
+          }
           if (args.path.split('?')[0].endsWith('/events')) {
             const params = new URLSearchParams(args.path.split('?')[1]);
             const startIndex = Number(params.get('startIndex') ?? 0);
@@ -220,9 +260,64 @@ test('current settings edit one canonical configuration', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
   await expect(page.getByLabel('模型名称', { exact: false })).toHaveValue('local');
+  await expect(page.getByRole('heading', { name: '模型', exact: true })).toBeVisible();
+  await expect(
+    page.locator('.settings-menu').getByRole('button', { name: '仪器', exact: true }),
+  ).toBeVisible();
   await page.getByRole('button', { name: 'LLM Wiki', exact: true }).click();
   await expect(page.getByText('纯文本来源', { exact: true })).toBeVisible();
   await expect(page.getByText('SQLite 资料包', { exact: true })).toHaveCount(0);
+});
+
+test('settings show discovered skills and tools without built-in disable controls', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const navigation = page.locator('.settings-menu');
+  await navigation.getByRole('button', { name: '技能', exact: true }).click();
+  await expect(page.getByText('runtime-discovered-skill', { exact: true })).toBeVisible();
+  await expect(page.getByText('device-automation', { exact: true })).toBeVisible();
+  await expect(page.getByText('内置 · 不可禁用', { exact: true })).toHaveCount(1);
+  await navigation.getByRole('button', { name: '工具', exact: true }).click();
+  await expect(page.getByText('bash', { exact: true })).toBeVisible();
+  await expect(page.getByText('wiki', { exact: true })).toBeVisible();
+  await expect(page.getByText('sam_file', { exact: true })).toBeVisible();
+  await expect(page.getByText('内置 · 不可禁用', { exact: true })).toHaveCount(3);
+  await expect(page.locator('.settings-capability-list').getByRole('checkbox')).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__desktopTest.saves.length)).toBe(0);
+});
+
+test('Wiki sources accept both text files and directories through the native picker', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: 'LLM Wiki', exact: true }).click();
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(page.getByText('C:\\fixtures\\notes.md', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '添加文件夹', exact: true }).click();
+  await expect(page.getByText('C:\\fixtures\\knowledge', { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.saves.at(-1)?.llmWiki.sources.map((entry: any) => entry.type),
+      ),
+    )
+    .toEqual(['file', 'directory']);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.dialogs.map((options: any) => options.directory),
+    ),
+  ).toEqual([false, true]);
+  await page
+    .locator('.settings-menu')
+    .getByRole('button', { name: '关于与诊断', exact: true })
+    .click();
+  await expect(page.locator('code[title="C:\\\\isolated\\\\config.json"]')).toHaveCount(1);
+  await expect(page.getByText('C:\\isolated', { exact: true })).toBeVisible();
 });
 
 test('known admission rejection keeps the draft and does not claim the send outcome is unknown', async ({
