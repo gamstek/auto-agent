@@ -14,6 +14,7 @@ fn trusted_download(url: &reqwest::Url) -> bool {
 
 #[tauri::command]
 pub async fn update_check(app: tauri::AppHandle, updates: State<'_, Updates>) -> Result<Value, String> {
+    if !cfg!(all(windows, target_arch = "x86_64")) { return Err("当前更新渠道仅提供 Windows x64 安装包".into()); }
     let mut pending = updates.0.try_lock().map_err(|_| "更新操作正在进行")?;
     *pending = None;
     let key = option_env!("AUTO_AGENT_UPDATER_PUBLIC_KEY").filter(|s| !s.trim().is_empty())

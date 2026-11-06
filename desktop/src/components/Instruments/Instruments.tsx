@@ -28,13 +28,15 @@ export function Instruments({ onConfigure }: { onConfigure: () => void }) {
         <div className="instruments-empty">
           <InstrumentIcon size={28} />
           <h2>{loading ? '正在读取仪器配置…' : '尚未配置仪器'}</h2>
-          <p>在设备连接设置中确认厂家地址并启用 Climber MCP。</p>
-          <Button onClick={onConfigure}>配置仪器</Button>
+          <p>在仪器连接设置中配置 Climber 厂家地址。</p>
         </div>
       )}
       {devices.map((device) => (
         <InstrumentCard key={device.deviceId} device={device} />
       ))}
+      <Button variant="subtle" onClick={onConfigure}>
+        配置仪器连接
+      </Button>
     </section>
   );
 }

@@ -1,48 +1,28 @@
 ## Auto-Agent 2.0 Beta 1
 
-首个 Windows 桌面预发布版本，采用 **Tauri 2 + React + TypeScript**，随安装包提供独立的本地 Agent 后端。CLI 和 HTTP 集成方式继续保留。
+本版使用 **Node.js 24+ 与标准 npm `@coraxjs/core`**，由 Corax 管理聊天、技能、工具、工作流和会话持久化。桌面继续使用 Tauri 2 + React，安装包内置 Node 运行时；Climber MCP 使用同一 Node 与 node:sqlite。
 
-### Windows 桌面端
+### 安装前的数据变化
 
-- 自定义标题栏与窗口控制：拖动、双击最大化/还原、最小化、关闭；关闭窗口收起至悬浮助手，右键悬浮助手可退出应用。
-- 统一蓝色主题和共用组件，导航/会话选中态一致；支持侧栏与页面过渡、键盘即时操作和减少动态效果模式，列表与反馈按钮无按压缩放。
-- 聊天、会话历史、Markdown表格、流式回复/思考、工具过程、取消、复制和本机反馈标记；常见问题单击即发送。
-- 设置页按模型、设备、技能/知识库、运行参数与诊断分组。文本防抖自动保存，开关/目录立即保存，离开设置仍继续保存，无保存按钮或未保存确认。
-- 后端工作期间允许保存设置，空闲后再应用，避免打断当前任务。未知执行结果保留操作者对账入口，重连不自动重发写请求。
-- 模型 API Key 保存至操作系统凭据库，前端不读取已保存的明文 Key；桌面配置与CLI数据分开管理。
-- WebView通过受限本地命令访问后端，后端使用本机动态端口和随机Bearer令牌，不向页面暴露令牌或任意shell/文件访问能力。
+这是一次不兼容的数据布局切换。Windows 安装器会在旧 `~/.auto-agent` 没有当前 `corax-node-llm-wiki-v1` 标识时，**删除其中的旧配置、会话和本地资料**；首次启动重新生成新配置。需要保留的旧数据请在安装前自行备份。
 
-### 安装与启动
+已经使用此布局的后续安装与更新保留数据，不会每次安装都清空。正常启动不执行数据删除或自动迁移。自定义外部数据目录不由安装器追踪清理。
 
-| 用途                   | 下载文件                                |
-| ---------------------- | --------------------------------------- |
-| Windows x64 桌面安装包 | `Auto-Agent_2.0.0-beta.1_x64-setup.exe` |
-| Windows x64 CLI        | `auto-agent.exe`                        |
-| Linux x64 CLI          | `auto-agent`                            |
+### 主要变化
 
-**桌面用户请下载安装包。** 安装后在“设置 → 模型连接”中填写服务地址、模型名称和 API Key。无需安装 Bun、Node.js 或 Rust；Windows缺少WebView2时，安装引导会下载运行时，需要网络。
+- 移除 vendor Corax、旧 Agent 引擎和旧配置兼容路径；统一标准 Corax dev/start。
+- 桌面和 CLI 共用 `~/.auto-agent/config.json`，Token 与 API Key 不进入配置文件。
+- 保留流式正文、思考、工具/技能过程、人工输入、会话历史、取消及上下文管理。
+- 用户 LLM Wiki 只导入纯文本，显式摄入时由 LLM 分析并生成/合并持久 Markdown 知识页。
+- device-automation 的两份人工规则与 178 份历史参考独立内置，不进入用户模型摄入，不开放数据库导入。
+- 设置只包含当前生效的模型、角色、容量和 Wiki 来源；任务忙碌时保存，空闲后应用。
+- 关闭窗口会先安全停止后端并退出；悬浮助手动作仍可隐藏主窗口。
+- Windows x64 支持签名更新的检查、下载与安装，以及有界诊断导出。安装前验证签名并检查是否仍有任务。
 
-默认桌面数据目录为 `%APPDATA%\com.gamstek.autoagent`，不自动读取CLI的 `~/.auto-agent` 配置。已有CLI用户如需使用相同模型/厂家地址，请在桌面设置中填写；不要复制模型Key到配置JSON。
+### 当前能力范围
 
-当前桌面安装与原生联调范围是Windows x64，Linux下载文件仍为CLI。本版本未提供自动更新或代码签名；独立知识浏览页、诊断包导出等后续能力尚未加入。配置参考和本地mock测试不等于真实仪器验收。
+设备自动化 Skill、SAM 脚本与独立 Climber MCP 包保留领域契约；本版应用尚未自动接入本机文件执行和设备控制，仪器页按后端能力禁用。配置参考、模板写入成功或本地 mock 测试不等于真实仪器验收。
 
-### CLI / HTTP
+桌面下载文件：`Auto-Agent_2.0.0-beta.1_x64-setup.exe`。安装后在模型连接设置中填写服务地址、模型名和 API Key；无需另外安装 Node、Bun 或 Rust。Windows 缺少 WebView2 时安装器会下载其运行时。
 
-```powershell
-$env:AUTO_AGENT_API_KEY = '替换为模型服务的 API Key'
-.\auto-agent.exe
-```
-
-```bash
-chmod +x ./auto-agent
-export AUTO_AGENT_API_KEY='替换为模型服务的 API Key'
-./auto-agent
-```
-
-HTTP服务使用 `serve`，仍需设置独立的 `AUTO_AGENT_TOKEN`。默认端口4096；桌面自身使用动态本机端口。首次CLI运行创建 `~/.auto-agent/config.json`，已有配置不被覆盖。
-
-新增鉴权的 `/runtime` 和 `/session/{id}/state` 用于桌面断线恢复。只有受桌面管理的后端启用关闭入口，运行中的任务阻止退出或重启。
-
-详细配置与开发说明见 [README](https://github.com/gamstek/auto-agent#readme) 和 [桌面说明](https://github.com/gamstek/auto-agent/blob/v2.0.0-beta.1/desktop/README.md)。
-
----
+更新由用户在“关于与诊断”中触发，预览版使用 Beta 渠道，正式版使用稳定渠道。Updater 签名不等同于 Windows 代码签名。

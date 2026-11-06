@@ -6,12 +6,12 @@ import {
   BookOpen,
   Check,
   Cpu,
+  Cable,
   FolderOpen,
   Info,
   LoaderCircle,
   Puzzle,
   Settings2,
-  SlidersHorizontal,
   X,
 } from 'lucide-react';
 import {
@@ -42,9 +42,9 @@ const categories = [
   },
   {
     id: 'device',
-    label: '设备连接',
-    description: 'Climber 模板 输出目录 超时',
-    icon: SlidersHorizontal,
+    label: '仪器连接',
+    description: 'Climber MCP 厂家 地址 超时 仪器',
+    icon: Cable,
     group: '工作空间',
   },
   {
@@ -56,15 +56,15 @@ const categories = [
   },
   {
     id: 'knowledge',
-    label: '知识库',
-    description: '来源 目录 Wiki 内置 知识 模板',
+    label: 'LLM Wiki',
+    description: '纯文本 来源 Markdown 知识 摄入',
     icon: BookOpen,
     group: '工作空间',
   },
   {
     id: 'advanced',
     label: '运行参数',
-    description: '高级 Token 步数 网络 提示词 超时',
+    description: 'Token 容量 角色 提示词',
     icon: Settings2,
     group: '应用',
   },
@@ -213,19 +213,39 @@ export function Settings({
   }, [initialTab]);
   function update<K extends keyof Config>(name: K, value: Config[K]) {
     revision.current++;
-    delay.current =
-      typeof value === 'boolean' || Array.isArray(value) || name === 'templateDirectory' ? 0 : 700;
+    delay.current = typeof value === 'boolean' || name === 'llmWiki' ? 0 : 700;
     setDraft((valueBefore) => valueBefore && { ...valueBefore, [name]: value });
     setError('');
   }
-  async function pick(name: 'templateDirectory' | 'skillRoots' | 'wikiRoots' | 'wikiIndexRoots') {
+  async function pickText(kind: 'file' | 'directory') {
     try {
-      const path = await open({ directory: true, multiple: false, title: '选择目录' });
-      if (typeof path === 'string')
-        update(
-          name,
-          name === 'templateDirectory' ? path : [...new Set([...(draft![name] as string[]), path])],
-        );
+      const path = await open(
+        kind === 'directory'
+          ? { directory: true, multiple: false, title: '选择 Markdown / TXT 来源目录' }
+          : {
+              directory: false,
+              multiple: false,
+              title: '选择纯文本文件',
+              filters: [{ name: 'Markdown / TXT', extensions: ['md', 'markdown', 'txt'] }],
+            },
+      );
+      if (
+        typeof path === 'string' &&
+        draft &&
+        !draft.llmWiki.sources.some((entry) => entry.path === path)
+      ) {
+        const id = `text-${crypto.randomUUID()}`;
+        update('llmWiki', {
+          sources: [
+            ...draft.llmWiki.sources,
+            {
+              id,
+              type: kind,
+              path,
+            },
+          ],
+        });
+      }
     } catch (e) {
       setError(errorText(e));
     }
@@ -315,52 +335,34 @@ export function Settings({
       }
     />
   );
-  const toggle = (
-    label: string,
-    name: 'builtinSkills' | 'builtinWiki' | 'webAllowPrivateAddresses' | 'climberEnabled',
-    description: string,
-  ) => (
-    <Row
-      id={name}
-      label={label}
-      description={description}
-      control={
-        <Switch
-          id={name}
-          checked={draft?.[name] ?? false}
-          onChange={(event) => update(name, event.target.checked)}
-        />
-      }
-    />
-  );
-  const paths = (
-    label: string,
-    name: 'skillRoots' | 'wikiRoots' | 'wikiIndexRoots',
-    description: string,
-  ) => (
+  const paths = () => (
     <>
       <Row
-        label={label}
-        description={description}
+        label="纯文本来源"
+        description="添加文件或目录；目录内只导入 UTF-8 Markdown/TXT。"
         control={
-          <Button variant="subtle" onClick={() => void pick(name)}>
-            <FolderOpen size={15} />
-            添加目录
-          </Button>
+          <div className="maintenance-actions">
+            <Button variant="subtle" onClick={() => void pickText('file')}>
+              添加文件
+            </Button>
+            <Button variant="subtle" onClick={() => void pickText('directory')}>
+              <FolderOpen size={15} />
+              添加目录
+            </Button>
+          </div>
         }
       />
-      {!!draft?.[name].length && (
+      {!!draft?.llmWiki.sources.length && (
         <div className="setting-paths">
-          {draft[name].map((path) => (
-            <div key={path}>
-              <code title={path}>{path}</code>
+          {draft.llmWiki.sources.map((entry) => (
+            <div key={entry.id}>
+              <code title={entry.path}>{entry.path}</code>
               <IconButton
-                label={`移除 ${path}`}
+                label={`移除 ${entry.path}`}
                 onClick={() =>
-                  update(
-                    name,
-                    draft[name].filter((value) => value !== path),
-                  )
+                  update('llmWiki', {
+                    sources: draft.llmWiki.sources.filter((value) => value.id !== entry.id),
+                  })
                 }
               >
                 <X size={14} />
@@ -455,89 +457,101 @@ export function Settings({
                   </Group>
                 </>
               )}
-              {initialTab === 'device' && (
-                <>
-                  <Group title="Climber 厂家接口">
-                    {toggle(
-                      '启用 Climber MCP',
-                      'climberEnabled',
-                      '通过 MCP 接入仪器页和设备工具。启用不会登记批次或开始测量。',
-                    )}
-                    {text(
-                      '厂家 API 地址',
-                      'manufacturerUrl',
-                      info?.deviceConnectionSource === 'mcp'
-                        ? '编辑共享配置中首台 Climber 的 MCP 连接地址，保留 /api/v1。'
-                        : '当前为脚本连接配置。仪器页需在共享配置中显式添加 Climber MCP 和 devices。',
-                    )}
-                    {numeric(
-                      '请求超时',
-                      'manufacturerTimeoutMs',
-                      100,
-                      60000,
-                      '单位：毫秒。不是仪器实验时长。',
-                    )}
-                  </Group>
-                  <Group title="文件位置">
-                    <Row
-                      label="模板输出目录"
-                      description="新建模板的默认保存位置。异机登记使用厂家可读的盘符文件路径。"
-                      control={
-                        <div className="directory-control">
-                          <code title={draft.templateDirectory}>
-                            {draft.templateDirectory || '默认用户目录'}
-                          </code>
-                          <Button variant="subtle" onClick={() => void pick('templateDirectory')}>
-                            更改
-                          </Button>
-                          {draft.templateDirectory && (
-                            <IconButton
-                              label="恢复默认模板目录"
-                              title="恢复默认目录"
-                              onClick={() => update('templateDirectory', '')}
-                            >
-                              <X size={14} />
-                            </IconButton>
-                          )}
-                        </div>
-                      }
-                    />
-                  </Group>
-                </>
-              )}
               {initialTab === 'skills' && (
                 <>
                   <Group title="技能管理">
-                    {toggle('内置技能', 'builtinSkills', '加载随应用提供的技能。')}
-                    {paths('技能目录', 'skillRoots', '仅添加可信目录，脚本具有当前用户权限。')}
+                    <Row
+                      label="技能发现"
+                      description="由 Corax 加载随应用发布的 skills，按需读取技能内容与资源。"
+                      control={<span className="setting-value">Corax 原生技能</span>}
+                    />
                   </Group>
+                  <p className="settings-section-note">
+                    技能定义操作方法，实际执行能力由当前工具提供。技能目录和工具模块属于应用版本，在构建时发布。
+                  </p>
+                </>
+              )}
+              {initialTab === 'device' && (
+                <>
+                  <Group title="Climber MCP">
+                    <Row
+                      id="climberEnabled"
+                      label="启用设备连接"
+                      description="通过内置 MCP 服务查询仪器、登记批次和启动。SAM 文件能力独立可用。"
+                      control={
+                        <Switch
+                          id="climberEnabled"
+                          checked={draft.climber.enabled}
+                          disabled={!draft.climber.serviceURL && !draft.climber.enabled}
+                          onChange={(event) =>
+                            update('climber', { ...draft.climber, enabled: event.target.checked })
+                          }
+                        />
+                      }
+                    />
+                    <Row
+                      id="climberServiceURL"
+                      label="厂家接口地址"
+                      description="厂家主机的 HTTP(S) /api/v1 地址；先填写地址，再启用连接。"
+                      control={
+                        <Input
+                          id="climberServiceURL"
+                          value={draft.climber.serviceURL}
+                          spellCheck={false}
+                          placeholder="http://厂家主机:端口/api/v1"
+                          onChange={(event) =>
+                            update('climber', { ...draft.climber, serviceURL: event.target.value })
+                          }
+                        />
+                      }
+                    />
+                    <Row
+                      id="climberTimeoutMs"
+                      label="厂家请求超时"
+                      description="单位为毫秒，范围100–60000；写入超时不代表设备没有执行。"
+                      control={
+                        <Input
+                          id="climberTimeoutMs"
+                          className="setting-number"
+                          type="number"
+                          min={100}
+                          max={60000}
+                          value={draft.climber.timeoutMs}
+                          onChange={(event) =>
+                            update('climber', {
+                              ...draft.climber,
+                              timeoutMs: Number(event.target.value),
+                            })
+                          }
+                        />
+                      }
+                    />
+                  </Group>
+                  <p className="settings-section-note">
+                    连接设置保存后在空闲时应用，不会自动登记或启动设备。SAM
+                    路径必须由厂家主机实际可读；跨机生成需要部署映射。
+                  </p>
                 </>
               )}
               {initialTab === 'knowledge' && (
                 <>
-                  <Group title="内置资源">
-                    {toggle('内置知识库', 'builtinWiki', '使用推荐知识与历史模板参考。')}
-                  </Group>
-                  <Group title="外部来源">
-                    {paths('知识来源', 'wikiRoots', 'Markdown / TXT 内容，需要显式编译。')}
-                    {paths('模板参考目录', 'wikiIndexRoots', 'SAM / SMP 案例，需要显式建立索引。')}
-                  </Group>
+                  <Group title="LLM Wiki 来源">{paths()}</Group>
                   <p className="settings-section-note">
-                    添加目录不会自动扫描或调用模型。外部知识与案例索引由显式更新命令维护。
+                    添加来源只保存配置。明确要求助手摄入这些来源，或运行 pnpm llm-wiki
+                    ingest，才会调用模型分析并生成持久 Markdown 知识页。普通问答只查询已整理的知识。
                   </p>
+                  <Group title="内置仪器资料">
+                    <Row
+                      label="device-automation"
+                      description="人工规则属于技能指导，历史参考由 Wiki 只读集合提供；不进入用户摄入流程。"
+                      control={<span className="setting-value">只读内置资料</span>}
+                    />
+                  </Group>
                 </>
               )}
               {initialTab === 'advanced' && (
                 <>
                   <Group title="请求与容量">
-                    {numeric('最大步骤数', 'maxSteps', 1, 100, '一次请求允许的模型步骤上限。')}
-                    {numeric(
-                      '模型请求超时',
-                      'modelTimeoutMs',
-                      1000,
-                      600000,
-                      '每次模型请求的等待上限，单位毫秒。',
-                    )}
                     {numeric(
                       '输入 Token 容量',
                       'maxInputTokens',
@@ -551,20 +565,6 @@ export function Settings({
                       1,
                       1000000,
                       '每次模型响应的输出上限。',
-                    )}
-                    {numeric(
-                      '脚本超时',
-                      'scriptTimeoutMs',
-                      1000,
-                      600000,
-                      '单位毫秒。启动后中断可能进入待对账状态。',
-                    )}
-                  </Group>
-                  <Group title="网络">
-                    {toggle(
-                      '允许网页工具访问内网',
-                      'webAllowPrivateAddresses',
-                      '允许访问本机、内网及保留地址，适用于可信部署。',
                     )}
                   </Group>
                   <Group title="个性化">
@@ -621,7 +621,7 @@ export function Settings({
                     />
                     <Row
                       label="诊断日志"
-                      description="agent.jsonl / skills.jsonl"
+                      description="Corax 运行日志"
                       control={
                         <Button
                           variant="subtle"

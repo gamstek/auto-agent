@@ -1,1 +1,0 @@
-Accept finite decimal numbers. Reject missing or nonnumeric values. No units or experimental interpretation is supplied.

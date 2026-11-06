@@ -201,3 +201,11 @@
     transform: none;
   }
 }
+.chat-activity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}

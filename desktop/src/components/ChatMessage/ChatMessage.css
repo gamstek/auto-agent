@@ -1,0 +1,52 @@
+.corax-message.assistant {
+  display: flex;
+}
+.chat-output {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-primary);
+  line-height: 1.8;
+}
+.chat-entry[hidden] {
+  display: none;
+}
+.chat-entry + .chat-entry {
+  margin-top: 12px;
+}
+.chat-output[data-process-open='false'] .chat-answer-part {
+  margin-top: 0;
+}
+.chat-compaction {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.chat-processing {
+  color: var(--text-secondary);
+  margin: 12px 0;
+  font-size: 13px;
+}
+.chat-authorization,
+.chat-file {
+  margin: 10px 0;
+  padding: 12px;
+  background: var(--control-bg);
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  overflow-wrap: anywhere;
+}
+.chat-output .markdown pre {
+  background: var(--surface);
+  border-color: var(--control-border);
+}
+.chat-output .markdown code {
+  background: var(--surface);
+}
+.chat-output .markdown pre code {
+  background: none;
+}
+.corax-message [data-streaming='true'] {
+  min-height: 1em;
+}

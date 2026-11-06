@@ -1,8 +1,8 @@
 # SAM/SMP 模板新建、修改与另存为
 
-使用 `scripts/sam.js`，需要 Node.js 22 或宿主支持的 JavaScript 运行时。每次调用传入命令名和一个完整 JSON 参数，不拼接 shell 字符串。文件检查与对比见 [SAM 解析接口](./sam.md)。
+使用当前工具目录中的 SAM 文件能力。Climber MCP 的 `sam_file` 接收 `{"operation":"profiles","input":{"product":"g5"}}`；新建则传 `{"operation":"create","input":{"product":"g5","settings":{"analysisType":"bet"}}}`。input 是对象，实现与完整配置由 MCP 服务提供，不需要虚拟 shell、PATH 或额外安装运行时。文件检查与对比见 [SAM 解析接口](./sam.md)。
 
-脚本参数数组严格为两项：`["profiles", "{\"product\":\"g5\"}"]`、`["create", "<JSON>"]`、`["modify", "<JSON>"]` 或 `["save-as", "<JSON>"]`。JSON 对象不是命令名；先放独立命令字符串，再放序列化后的单个 JSON 字符串。
+文件能力无需厂家连接；登记和启动仍要求明确配置厂家地址及设备能力。以下 JSON 示例均是 input 的内容，operation 是独立字段。
 
 ## 按测样需求直接生成（优先路径）
 
@@ -22,7 +22,7 @@
 }
 ```
 
-将此 JSON 作为 `create` 的一个参数，脚本自行装配完整配置、生成独立 UUID 与新建状态并保存真实 SAM。`path` 可选，省略时写入 `SAM_OUTPUT_DIR`（如部署设置），否则写入当前操作系统用户主目录下 `Auto-Agent/templates`，目录自动创建；文件名由方法和随机标识组成，不覆盖已有文件。`profile` 可选，用 profiles 返回的 id 精确选择配置。参数中的示例称量不是默认值，必须使用实际值。
+将此 JSON 作为 `create` 的 input，脚本自行装配完整配置、生成独立 UUID 与新建状态并保存真实 SAM。`path` 可选，省略时写入 `SAM_OUTPUT_DIR`（如宿主部署设置），否则写入当前操作系统用户主目录下 `Auto-Agent/templates`，目录自动创建；文件名由方法和随机标识组成，不覆盖已有文件。路径属于宿主，不是虚拟 shell 的 `/workspace`。`profile` 可选，用 profiles 返回的 id 精确选择配置。参数中的示例称量不是默认值，必须使用实际值。
 
 生成后使用结果中的 `file.path` 继续任务，不再要求用户提供同一文件或重填路径。按已知部署规则将其用于厂家登记；仅在厂家访问条件或跨机路径映射缺失时询问该缺项，不能把本机生成成功当成厂家读取已验证。批次和实验标识按 Climber 契约生成或复用，不与真实样品编号混淆。
 
@@ -40,7 +40,7 @@ settings 使用归一化单位，支持以下字段：
 - `lowPressureEnabled`、`lowPressureDoseCm3StpPerG`、`lowPressureMinHours`、`lowPressureMaxHours` 作用于实际活动路径的 T_ 或 D_ 选项，不混用秒和小时。
 - `reportTypes` 可选，非空、无重复的报告类型编号，必须是 profiles 返回的本产品版本已有类型。脚本只切换完整 options 对象的 selected，不凭编号拼造报告结构。未指定时 BET 选择概要、等温线、BET，其它方法保留本产品配置的勾选项。DFT 等报告的模型文件与方法适用性仍需核对，不以勾选替代物性或模型配置。
 
-未提供的配置由有来源的内置配置及方法程序补齐：BET 使用5点0.05–0.3 P/P0目标压力程序；介孔保留可执行 G5 模板的有序吸脱附段和未启用的增量表；微孔保留来源的注气增量模式、两张表及低压选项，不强制改为目标压力。结合 Wiki 推荐和本次目标决定是否覆盖这些设置；默认程序不是任意材料的科学批准。
+未提供的配置由有来源的内置配置及方法程序补齐：BET 使用5点0.05–0.3 P/P0目标压力程序；介孔保留可执行 G5 模板的有序吸脱附段和未启用的增量表；微孔保留来源的注气增量模式、两张表及低压选项，不强制改为目标压力。结合内置规则和本次已确认目标决定是否覆盖这些设置；默认程序不是任意材料的科学批准。
 
 完整保留版本相关字段与报告 options（G5含 historicalPdfComparison、fluid properties file、tubeCode 等），不能将 reports 清为 null，也不能仅提供 type/name/selected 三个字段。新建时至少勾选一个完整报告；概要、等温线、BET、Langmuir、t-Plot、BJH等的独立配置按来源保留。清除 reports[].result 及已识别的计算缓存，不删掉报告选项结构。保留 analysis data=null、dropDatas=null、labData=""、started="" 等厂家空值结构，而不是省略字段；不继承旧时间、仪器序列号、样品质量或历史结果。UUID重建，文件头和analysisStatus统一为新建。自由空间默认测量并清空旧数值；样品管选项与产品腔体配置仍按实际仪器核对。
 
@@ -94,6 +94,8 @@ settings 使用归一化单位，支持以下字段：
 脚本从源文件读取完整报告对象，仅改各自 options.selected，保留所有拟合、图表及扩展选项，也保持路径、UUID、样品、压力程序和版本。可同时用 changes 修改其他字段，但不能同时提供 changes.reports。save-as 也接受顶层 reportTypes 并保留原文件。按已知命令完成后可 inspect 回读核对；普通参数/报告选择修改不需要重新推荐方案、搜索历史案例或研究脚本源码。
 
 成功返回 `backend=sam-file-write`、`operation`、`written=true` 和目标文件摘要/哈希；修改与另存为还返回 source 来源哈希。新建和另存为不覆盖现有目标；modify 必须在用户授权的覆盖范围内。发生写入错误、超时或回执不明时，先核对目标路径和哈希，不自动重试。
+
+Auto-Agent 的执行限时为30秒；启动前拒绝标为 `writeOutcome=not-started`，已启动的失败写入保守标为 `unknown`。取消/超时不证明未发布文件，也不保证临时文件已经清理。新建省略 path 且回执不明时，按 profiles 返回的默认输出目录核验，不直接重新 create。
 
 save-as 的目标存在检查与无覆盖发布由脚本自身完成，直接按本文命令提交明确的新路径，不额外调用未定义的元数据或目录探测命令。使用 inspect 核对源文件及写入后的结果即可。
 

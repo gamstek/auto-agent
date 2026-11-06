@@ -1,0 +1,26 @@
+{
+  "name": "@auto-agent/wiki-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts.ts",
+    "./sqlite": "./src/sqlite.ts",
+    "./parsers": "./src/parsers.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/bun": "catalog:",
+    "@types/node": "^24.19.2",
+    "expect": "^30.5.2",
+    "tsx": "^4.23.15",
+    "typescript": "catalog:"
+  }
+}

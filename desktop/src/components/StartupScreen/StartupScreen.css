@@ -1,0 +1,50 @@
+.app.startup-shell {
+  grid-template-columns: minmax(0, 1fr);
+}
+.startup-screen {
+  grid-row: 2;
+  grid-column: 1;
+  min-height: 0;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  overflow: auto;
+}
+.startup-content {
+  width: min(100%, 440px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 18px;
+  color: var(--text-primary);
+}
+.startup-content .avatar {
+  width: 76px;
+  height: 76px;
+}
+.startup-content h1 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 600;
+}
+.startup-content > p {
+  margin: 0;
+  color: var(--text-secondary);
+  line-height: 1.8;
+  font-size: 14px;
+}
+.startup-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--accent);
+  font-size: 13px;
+}
+.startup-content .startup-error {
+  color: #9f6239;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 240px;
+  overflow: auto;
+}

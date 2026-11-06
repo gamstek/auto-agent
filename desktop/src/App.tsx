@@ -1,25 +1,18 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import {
-  History,
-  LoaderCircle,
-  MessageSquarePlus,
-  RefreshCw,
-  ShieldAlert,
-  X,
-} from 'lucide-react';
+import { History, MessageSquarePlus, RefreshCw, X } from 'lucide-react';
+import type { BackendCapabilities, InputResponse } from '@auto-agent/desktop-protocol';
 import {
   api,
   type BackendHealth,
   assertDesktopProtocol,
   desktop,
   errorText,
+  sendErrorText,
   native,
   type ServiceEvent,
   isAgentEvent,
-  type Message,
   type Session,
-  type SessionState,
 } from './bridge';
 import { Settings, SettingsNavigation } from './components/Settings/Settings';
 import { Titlebar } from './components/Titlebar/Titlebar';
@@ -29,20 +22,16 @@ import { IconButton } from './components/IconButton/IconButton';
 import { SessionList } from './components/SessionList/SessionList';
 import { useSessions } from './hooks/useSessions';
 import { SearchField } from './components/SearchField/SearchField';
-import { Textarea } from './components/Textarea/Textarea';
-import { MarkdownAnswer } from './components/MarkdownAnswer/MarkdownAnswer';
-import { Avatar } from './components/Avatar/Avatar';
-import { ResponseActions } from './components/ResponseActions/ResponseActions';
 import { Welcome } from './components/Welcome/Welcome';
 import { MessageList } from './components/MessageList/MessageList';
 import { Instruments } from './components/Instruments/Instruments';
 import { NavigationRail } from './components/NavigationRail/NavigationRail';
-import { RunInspector } from './components/RunInspector/RunInspector';
-import { RunTimeline } from './components/RunTimeline/RunTimeline';
+import { ChatMessage } from './components/ChatMessage/ChatMessage';
+import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest';
+import { useChat } from './hooks/useChat';
+import { StartupScreen } from './components/StartupScreen/StartupScreen';
+import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
 import './App.css';
-
-const welcome =
-  '你好！我是量仔，你的 Climber 专属小助理。可以帮你查阅知识、准备测样方案和跟踪仪器任务。有什么可以帮到你的吗？';
 
 export function App() {
   const [sidebar, setSidebar] = useState(true),
@@ -51,7 +40,7 @@ export function App() {
   const setSettings = (value: boolean) => setPage(value ? 'settings' : 'chat');
   const [sessionFilter, setSessionFilter] = useState('');
   const [settingsTab, setSettingsTab] = useState('model');
-  const [inspectRun, setInspectRun] = useState(false);
+  const [capabilities, setCapabilities] = useState<BackendCapabilities>({});
   const [maximized, setMaximized] = useState(false),
     [instant, setInstant] = useState(false);
   const mainRef = useRef<HTMLElement>(null),
@@ -129,27 +118,49 @@ export function App() {
     loadMore: loadMoreSessions,
   } = useSessions();
   const [sessionId, setSessionId] = useState('');
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [state, setState] = useState<SessionState | null>(null),
-    [input, setInput] = useState('');
+  const [input, setInput] = useState('');
   const [connection, setConnection] = useState<'starting' | 'connected' | 'disconnected'>(
     'starting',
   );
+  const [initialized, setInitialized] = useState(false);
+  const [booting, setBooting] = useState(true);
+  const [bootStage, setBootStage] = useState<'server' | 'workspace'>('server');
+  const bootLock = useRef(false);
   const [error, setError] = useState(''),
-    [sending, setSending] = useState(false),
-    [busy, setBusy] = useState(false),
-    [note, setNote] = useState('');
-  const [showBottom, setShowBottom] = useState(false),
-    [older, setOlder] = useState(false);
+    [sending, setSending] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
+  const [showBottom, setShowBottom] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(50);
+  const {
+    snapshot,
+    loading: chatLoading,
+    error: chatError,
+    refresh: sync,
+  } = useChat(sessionId, connection === 'connected');
+  const messages = snapshot?.conversation.messages ?? [];
+  const busy = snapshot?.turnActive ?? false;
+  const backgroundBusy = !!snapshot?.busy && !busy;
+  const hasActiveAssistant = messages.some(
+    (message) =>
+      message.role === 'assistant' &&
+      message.metadata?.turnId &&
+      snapshot?.conversation.turns[message.metadata.turnId]?.status === 'active',
+  );
+  const streamPaused = connection !== 'connected' || !!snapshot?.connectionError || !!chatError;
+  const inputs = snapshot?.closed
+    ? []
+    : Object.values(snapshot?.conversation.inputs ?? {}).filter((value) => value.status === 'open');
+  const older = messages.length > visibleCount;
   const idRef = useRef(''),
     scroll = useRef<HTMLDivElement>(null),
     bottom = useRef<HTMLDivElement>(null),
     stick = useRef(true);
   const requestLock = useRef(false),
     inputRef = useRef<HTMLTextAreaElement>(null);
-  const olderExhausted = useRef(false);
+  const navigationEpoch = useRef(0);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
+      if (!initialized) return;
       if (event.isComposing || event.repeat) return;
       if (event.ctrlKey || event.metaKey) {
         if (event.key === ',') {
@@ -169,61 +180,49 @@ export function App() {
     };
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
-  }, [settings, sidebar]);
-  const sync = useCallback(async () => {
-    const id = idRef.current;
-    if (!id) return;
-    const [history, status] = await Promise.all([
-      api<Message[]>(`/session/${id}/message?limit=100&reasoning=true&process=true`),
-      api<SessionState>(`/session/${id}/state`),
-    ]);
-    if (id !== idRef.current) return;
-    setMessages((previous) => {
-      const combined = new Map(
-        previous
-          .filter((message) => message.sessionId === id)
-          .map((message) => [message.id, message]),
-      );
-      for (const message of history) combined.set(message.id, message);
-      return [...combined.values()].sort((a, b) => a.createdAt - b.createdAt);
-    });
-    setState(status);
-    setBusy(status.running);
-    setOlder(!olderExhausted.current && history.length === 100);
-  }, []);
+  }, [settings, sidebar, initialized]);
   function select(id: string) {
-    olderExhausted.current = false;
+    navigationEpoch.current++;
+    setVisibleCount(50);
+    setCancelling(false);
     idRef.current = id;
     setSessionId(id);
-    setMessages([]);
-    setState(null);
-    setBusy(false);
     setError('');
     stick.current = true;
     localStorage.setItem('last-session', id);
-    void sync().catch((e) => setError(errorText(e)));
   }
   async function boot() {
+    if (bootLock.current) return;
+    bootLock.current = true;
+    setBooting(true);
+    setBootStage('server');
     setConnection('starting');
     setError('');
     try {
       await native('backend_start');
       const health = await api<BackendHealth>('/global/health');
       assertDesktopProtocol(health);
-      setConnection('connected');
+      setCapabilities(health.capabilities ?? {});
+      setBootStage('workspace');
       const list = await refreshSessions();
       const previous = localStorage.getItem('last-session');
       if (idRef.current) await sync();
       else if (previous && list.some((s) => s.id === previous)) select(previous);
+      setConnection('connected');
+      setInitialized(true);
     } catch (e) {
       setConnection('disconnected');
       setError(errorText(e));
+    } finally {
+      bootLock.current = false;
+      setBooting(false);
     }
   }
   useEffect(() => {
     if (!desktop) {
+      setBooting(false);
       setConnection('disconnected');
-      setError('浏览器中仅预览界面。请运行 pnpm desktop:dev 启动完整桌面应用。');
+      setError('请运行 pnpm dev:desktop，通过桌面应用连接本地 Corax 服务。');
       return;
     }
     let disposed = false;
@@ -233,31 +232,26 @@ export function App() {
         if (!isAgentEvent(event)) return;
         if (event.type === 'session.updated') void refreshSessions().catch(() => {});
         if (event.sessionId !== idRef.current) return;
-        const p = event.properties;
-        if (event.type === 'session.status') {
-          setBusy(p.status === 'busy');
-          void sync().catch((e) => setError(errorText(e)));
-          if (p.status === 'idle') {
-            void refreshSessions().catch(() => {});
-          }
-        }
-        if (event.type === 'message.completed') {
-          void sync().catch((e) => setError(errorText(e)));
-          void refreshSessions().catch(() => {});
-        }
         if (event.type === 'session.error') {
-          setError(String(p.message ?? '请求失败'));
+          setError(String(event.properties.message ?? '请求失败'));
           void sync().catch(() => {});
         }
       });
       const streams = await listen<string>('backend-stream', ({ payload }) => {
+        if (bootLock.current) return;
         if (payload === 'connected') {
-          void api<BackendHealth>('/global/health').then((health) => {
-            assertDesktopProtocol(health);
-            setConnection('connected');
-            void sync().catch(() => {});
-            void refreshSessions().catch(() => {});
-          }).catch((e) => { setConnection('disconnected'); setError(errorText(e)); });
+          void api<BackendHealth>('/global/health')
+            .then((health) => {
+              assertDesktopProtocol(health);
+              setCapabilities(health.capabilities ?? {});
+              setConnection('connected');
+              void sync().catch(() => {});
+              void refreshSessions().catch(() => {});
+            })
+            .catch((e) => {
+              setConnection('disconnected');
+              setError(errorText(e));
+            });
         } else setConnection('disconnected');
       });
       if (disposed) {
@@ -269,6 +263,7 @@ export function App() {
       await boot();
     })().catch((e) => {
       if (!disposed) {
+        setBooting(false);
         setConnection('disconnected');
         setError(errorText(e));
       }
@@ -279,37 +274,50 @@ export function App() {
     };
   }, []);
   useEffect(() => {
-    if (!desktop || connection !== 'connected') return;
-    const timer = setInterval(() => void sync().catch(() => setConnection('disconnected')), 4000);
-    return () => clearInterval(timer);
-  }, [connection, sync]);
+    if (!busy) setCancelling(false);
+  }, [busy]);
   useEffect(() => {
     if (stick.current) bottom.current?.scrollIntoView({ behavior: 'instant' });
-  }, [messages, settings]);
+  }, [snapshot?.revision, settings]);
   async function send(text = input) {
-    if (!text.trim() || requestLock.current || busy || connection !== 'connected' || state?.pending)
+    if (
+      !text.trim() ||
+      requestLock.current ||
+      busy ||
+      chatLoading ||
+      chatError ||
+      snapshot?.connectionError ||
+      connection !== 'connected' ||
+      inputs.length ||
+      snapshot?.closed ||
+      capabilities.sessions?.send !== true
+    )
       return;
     requestLock.current = true;
     setSending(true);
     setError('');
     stick.current = true;
+    const epoch = navigationEpoch.current;
     try {
       let id = idRef.current;
       if (!id) {
         const session = await api<Session>('/session', 'POST', {});
         id = session.id;
-        idRef.current = id;
-        setSessionId(id);
-        localStorage.setItem('last-session', id);
+        if (navigationEpoch.current === epoch) {
+          idRef.current = id;
+          setSessionId(id);
+          localStorage.setItem('last-session', id);
+        }
       }
       await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
-      setInput('');
-      if (inputRef.current) inputRef.current.style.height = 'auto';
-      setBusy(true);
-      await sync();
+      if (navigationEpoch.current === epoch) {
+        setInput('');
+        if (inputRef.current) inputRef.current.style.height = 'auto';
+        await sync();
+      }
       await refreshSessions();
     } catch (e) {
-      setError(`${errorText(e)}。请先刷新会话状态确认是否已受理。`);
+      if (navigationEpoch.current === epoch) setError(sendErrorText(e));
       await sync().catch(() => {});
     } finally {
       requestLock.current = false;
@@ -317,44 +325,23 @@ export function App() {
     }
   }
   function newSession() {
-    olderExhausted.current = false;
+    navigationEpoch.current++;
+    setVisibleCount(50);
+    setCancelling(false);
     idRef.current = '';
     setSessionId('');
-    setMessages([]);
-    setState(null);
-    setBusy(false);
     setError('');
     setInput('');
     localStorage.removeItem('last-session');
     stick.current = true;
     inputRef.current?.focus();
   }
-  async function resolveReview() {
-    if (!state?.pending || !note.trim() || !sessionId) return;
-    try {
-      await api(`/session/${sessionId}/resolve_review`, 'POST', { runId: state.pending.id, note });
-      setNote('');
-      await sync();
-    } catch (e) {
-      setError(errorText(e));
-    }
-  }
-  async function loadOlder() {
+  async function respond(response: InputResponse) {
     const id = sessionId;
-    try {
-      const page = await api<Message[]>(
-        `/session/${id}/message?limit=100&offset=${messages.length}&reasoning=true&process=true`,
-      );
-      if (id !== idRef.current) return;
-      stick.current = false;
-      setMessages((old) => [...page, ...old]);
-      olderExhausted.current = page.length < 100;
-      setOlder(!olderExhausted.current);
-    } catch (e) {
-      setError(errorText(e));
-    }
+    await api(`/session/${id}/respond`, 'POST', { responses: [response] });
+    if (idRef.current === id) await sync();
   }
-  const hasConversation = messages.length > 0 || busy || !!state?.pending;
+  const hasConversation = !!sessionId || messages.length > 0 || sending;
   const composer = (
     <Composer
       input={input}
@@ -362,14 +349,36 @@ export function App() {
       inputRef={inputRef}
       onSend={() => void send()}
       onCancel={() => {
-        void api(`/session/${sessionId}/abort`, 'POST', {})
-          .then(sync)
-          .catch((e) => setError(errorText(e)));
+        if (cancelling || capabilities.sessions?.cancel !== true) return;
+        const id = sessionId,
+          epoch = navigationEpoch.current;
+        setCancelling(true);
+        void api<{ status: string }>(`/session/${id}/abort`, 'POST', {})
+          .then(async (result) => {
+            if (idRef.current !== id || navigationEpoch.current !== epoch) return;
+            if (result.status === 'no_active_turn') setCancelling(false);
+            await sync();
+          })
+          .catch((e) => {
+            if (idRef.current !== id || navigationEpoch.current !== epoch) return;
+            setCancelling(false);
+            setError(errorText(e));
+          });
       }}
       busy={busy}
       sending={sending}
-      connected={connection === 'connected'}
-      pendingReview={!!state?.pending}
+      canCancel={
+        capabilities.sessions?.cancel === true && !cancelling && connection === 'connected'
+      }
+      connected={
+        connection === 'connected' &&
+        !chatLoading &&
+        !chatError &&
+        !snapshot?.connectionError &&
+        !snapshot?.closed &&
+        capabilities.sessions?.send === true
+      }
+      waitingForInput={inputs.length > 0}
       showBottom={showBottom && hasConversation}
       onBottom={() => {
         stick.current = true;
@@ -377,6 +386,20 @@ export function App() {
       }}
     />
   );
+  // Only initial boot gates mounting the workspace; reconnects retain the user's current view and draft.
+  if (!initialized)
+    return (
+      <StartupScreen
+        busy={booting}
+        stage={bootStage}
+        error={error}
+        canRetry={desktop}
+        maximized={maximized}
+        onRetry={() => void boot()}
+        onError={setError}
+        onWindowState={setMaximized}
+      />
+    );
   return (
     <div
       className={`app ${sidebar ? 'with-sidebar' : ''} ${maximized ? 'is-maximized' : ''} ${instant ? 'instant-motion' : ''}`}
@@ -389,6 +412,7 @@ export function App() {
         onWindowState={setMaximized}
       />
       <NavigationRail
+        instrumentsAvailable={capabilities.devices?.list === true}
         page={page}
         onNavigate={(target, animate) => {
           if (target === 'settings') showSettings('model', animate);
@@ -502,21 +526,10 @@ export function App() {
               >
                 <MessageSquarePlus size={18} />
               </IconButton>
-              <Button variant="ghost" disabled={!sessionId} onClick={() => setInspectRun(true)}>
-                运行图
-              </Button>
             </div>
           </div>
         )}
         <div className="view-host" ref={viewRef}>
-          {inspectRun && sessionId && (
-            <RunInspector
-              key={sessionId}
-              sessionId={sessionId}
-              running={busy}
-              onClose={() => setInspectRun(false)}
-            />
-          )}
           <Settings
             initialTab={settingsTab}
             onSaved={(applied) => {
@@ -552,6 +565,28 @@ export function App() {
                   </Button>
                 </div>
               )}
+              {(chatError || snapshot?.connectionError || snapshot?.error) && (
+                <div className="chat-notice" role="alert">
+                  <span>{chatError || snapshot?.connectionError || snapshot?.error}</span>
+                  <Button variant="ghost" onClick={() => void sync()}>
+                    刷新会话状态
+                  </Button>
+                </div>
+              )}
+              {snapshot?.closed && (
+                <div className="chat-notice" role="status">
+                  此会话已结束，历史记录仍可查看。
+                  <Button
+                    onClick={() => {
+                      const draft = input;
+                      newSession();
+                      setInput(draft);
+                    }}
+                  >
+                    新建会话
+                  </Button>
+                </div>
+              )}
               <MessageList
                 ref={scroll}
                 onScroll={() => {
@@ -562,15 +597,23 @@ export function App() {
                 }}
               >
                 {older && (
-                  <Button variant="ghost" className="older-button" onClick={() => void loadOlder()}>
+                  <Button
+                    variant="ghost"
+                    className="older-button"
+                    onClick={() => {
+                      const element = scroll.current;
+                      const anchor = element?.querySelector<HTMLElement>('[data-message-id]');
+                      const position = anchor?.getBoundingClientRect().top;
+                      stick.current = false;
+                      setVisibleCount((value) => value + 50);
+                      requestAnimationFrame(() => {
+                        if (element && anchor?.isConnected && position !== undefined)
+                          element.scrollTop += anchor.getBoundingClientRect().top - position;
+                      });
+                    }}
+                  >
                     加载更早的消息
                   </Button>
-                )}
-                {hasConversation && (
-                  <div className="message assistant welcome">
-                    <Avatar />
-                    <div className="bubble">{welcome}</div>
-                  </div>
                 )}
                 {!hasConversation && (
                   <Welcome
@@ -579,87 +622,69 @@ export function App() {
                     onQuestion={(question) => void send(question)}
                   />
                 )}
-                {messages.map((message) => (
-                  <div className={`message ${message.role}`} key={message.id}>
-                    {message.role === 'assistant' && <Avatar />}
-                    <div className={`bubble ${message.runId ? 'has-process' : ''}`}>
-                      {message.role === 'assistant' ? (
-                        <>
-                          {message.runId && (
-                            <RunTimeline
-                              sessionId={sessionId}
-                              runId={message.runId}
-                              finalText={message.content}
-                              onUpdate={() => {
-                                if (stick.current && message.id === messages.at(-1)?.id)
-                                  bottom.current?.scrollIntoView({ behavior: 'instant' });
-                              }}
-                            />
-                          )}
-                          <MarkdownAnswer text={message.content} />
-                          <ResponseActions message={message} />
-                        </>
-                      ) : (
-                        <div className="user-text">{message.content}</div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-                {busy && (!state?.run || state.run.status === 'running') && (
-                  <div className="message assistant">
-                    <Avatar />
-                    <div className="bubble live-bubble has-process">
-                      {state?.running && state.run ? (
-                        <RunTimeline
-                          sessionId={sessionId}
-                          runId={state.run.id}
-                          running
-                          onUpdate={() => {
-                            if (stick.current)
-                              bottom.current?.scrollIntoView({ behavior: 'instant' });
-                          }}
-                        />
-                      ) : (
-                        <div className="working"><LoaderCircle className="spin" size={16} />正在创建运行记录…</div>
-                      )}
-                    </div>
-                  </div>
-                )}
-                {state?.pending && (
-                  <section className="review-card">
-                    <h2>
-                      <ShieldAlert size={20} />
-                      执行结果需要核对
-                    </h2>
-                    <p>
-                      本次操作的外部效果尚未确认。请核对外部操作的实际状态，再记录处理结果；不会自动重放旧请求。
-                    </p>
-                    {[...state.pending.executions, ...(state.pending.operations ?? [])]
-                      .filter((e) => e.status === 'unknown')
-                      .map((e) => (
-                        <div className="review-detail" key={e.id}>
-                          <code>{e.diagnostic?.code ?? 'OUTCOME_UNKNOWN'}</code>
-                          <p>{e.diagnostic?.message ?? '原执行未保留详细诊断，请查看日志。'}</p>
-                          {e.diagnostic?.batchId && <span>批次：{e.diagnostic.batchId}</span>}
-                        </div>
-                      ))}
-                    <label className="field">
-                      <span>操作者核对说明</span>
-                      <Textarea
-                        value={note}
-                        onChange={(e) => setNote(e.target.value)}
-                        placeholder="记录已核对的对象、状态和处理结论"
+                {snapshot &&
+                  messages
+                    .slice(-visibleCount)
+                    .map((message) => (
+                      <ChatMessage
+                        key={`${sessionId}:${message.id}`}
+                        sessionId={sessionId}
+                        message={message}
+                        conversation={snapshot.conversation}
+                        callStates={snapshot.calls}
+                        details={
+                          message.metadata?.turnId
+                            ? snapshot.turnDetails[message.metadata.turnId]
+                            : undefined
+                        }
+                        stopped={snapshot.closed}
+                        paused={streamPaused}
                       />
-                    </label>
-                    <Button
-                      variant="primary"
-                      disabled={!note.trim()}
-                      onClick={() => void resolveReview()}
-                    >
-                      记录核对结果
-                    </Button>
-                  </section>
+                    ))}
+                {(chatLoading ||
+                  sending ||
+                  cancelling ||
+                  backgroundBusy ||
+                  (busy && (!hasActiveAssistant || snapshot?.waiting || streamPaused))) && (
+                  <div className="chat-activity" role="status">
+                    <ProcessingLabel
+                      active={busy && !streamPaused && !snapshot?.waiting}
+                      text={
+                        chatLoading
+                          ? '正在读取会话…'
+                          : cancelling
+                            ? '正在取消，等待后端确认…'
+                            : streamPaused
+                              ? '等待恢复事件连接…'
+                              : snapshot?.waiting
+                                ? '等待输入或任务完成'
+                                : sending
+                                  ? '正在提交…'
+                                  : backgroundBusy
+                                    ? '后台任务执行中，可继续对话'
+                                    : '正在处理'
+                      }
+                    />
+                  </div>
                 )}
+                {inputs.map((input) => (
+                  <ChatInputRequest
+                    key={`${sessionId}:${input.request.requestId}`}
+                    input={input}
+                    disabled={
+                      connection !== 'connected' ||
+                      !!chatError ||
+                      !!snapshot?.connectionError ||
+                      capabilities.interaction?.respond !== true
+                    }
+                    onRespond={respond}
+                  />
+                ))}
+                {snapshot &&
+                  !busy &&
+                  Object.values(snapshot.conversation.turns).at(-1)?.status === 'cancelled' && (
+                    <p role="status">本轮已取消。</p>
+                  )}
                 <div ref={bottom} />
               </MessageList>
               {hasConversation && composer}

@@ -1,0 +1,82 @@
+.chat-tool {
+  margin: 4px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.chat-tool > summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 5px 0;
+  cursor: pointer;
+  list-style: none;
+  line-height: 1.6;
+}
+.chat-tool > summary::-webkit-details-marker {
+  display: none;
+}
+.chat-tool > summary > svg {
+  flex-shrink: 0;
+}
+.chat-tool-kind,
+.chat-tool-status {
+  flex-shrink: 0;
+}
+.chat-tool-caption {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-tool-status {
+  font-size: 12px;
+}
+.chat-tool[data-kind='subagent-call'] > summary > svg {
+  color: #c58048;
+}
+.chat-tool-body {
+  margin: 5px 0 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--control-border);
+  border-radius: 8px;
+  background: var(--surface);
+  line-height: 1.6;
+}
+.chat-tool-console-title {
+  margin-bottom: 10px;
+  font-size: 12px;
+}
+.chat-tool-body pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 260px;
+  overflow: auto;
+  font-family: Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.65;
+  margin: 0;
+  tab-size: 2;
+}
+.chat-tool-body h4 {
+  font-size: 12px;
+  font-weight: 500;
+  margin: 10px 0 5px;
+}
+.chat-tool-body .chat-tool-command {
+  margin-bottom: 12px;
+}
+.chat-tool-body p {
+  margin: 8px 0 0;
+  overflow-wrap: anywhere;
+}
+.chat-tool[data-status='失败'] > summary,
+.chat-tool[data-status='已拒绝'] > summary {
+  color: #a44f45;
+}
+.chat-tool-chevron {
+  flex-shrink: 0;
+}
+.chat-tool[open] > summary .chat-tool-chevron {
+  transform: rotate(180deg);
+}

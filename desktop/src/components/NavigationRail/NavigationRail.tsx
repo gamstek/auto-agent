@@ -9,10 +9,12 @@ export function NavigationRail({
   page,
   onNavigate,
   onHide,
+  instrumentsAvailable,
 }: {
   page: Page;
   onNavigate: (page: Page, animate: boolean) => void;
   onHide: () => void;
+  instrumentsAvailable: boolean;
 }) {
   return (
     <nav className="navigation-rail" aria-label="主导航">
@@ -30,6 +32,8 @@ export function NavigationRail({
           variant="rail"
           selected={page === 'instruments'}
           label="仪器"
+          disabled={!instrumentsAvailable}
+          title={instrumentsAvailable ? '仪器' : '当前版本尚未接入仪器页'}
           onClick={(event) => onNavigate('instruments', event.detail > 0)}
         >
           <InstrumentIcon />

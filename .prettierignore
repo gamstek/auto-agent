@@ -8,6 +8,7 @@ desktop/node_modules/
 desktop/dist/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
-desktop/src-tauri/binaries/
+desktop/src-tauri/backend/
+.output/
 desktop/test-results/
 desktop/playwright-report/

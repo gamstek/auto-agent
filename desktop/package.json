@@ -6,16 +6,19 @@
   "scripts": {
     "test": "bun test tests",
     "test:ui": "playwright test",
+    "smoke:native": "node --import tsx tests/native/smoke.ts",
     "dev": "vite --host 127.0.0.1 --port 1420 --strictPort",
     "build": "pnpm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "tauri": "tauri",
-    "desktop:dev": "tauri dev",
+    "dev:desktop": "tauri dev",
     "desktop:build": "tauri build",
-    "release:build": "bun scripts/release.ts",
-    "prepare:backend": "bun scripts/prepare-backend.ts"
+    "release:build": "node --import tsx scripts/release.ts",
+    "prepare:backend": "node --import tsx scripts/prepare-backend.ts"
   },
   "dependencies": {
+    "@coraxjs/core": "0.1.0",
+    "@auto-agent/desktop-protocol": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",
     "lucide-react": "^0.468.0",

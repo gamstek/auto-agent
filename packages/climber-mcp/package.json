@@ -3,24 +3,34 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "files": [
+    "src",
+    "dist"
+  ],
   "exports": {
     ".": "./src/server.ts",
     "./server": "./src/server.ts",
-    "./contracts": "./src/vendor.ts",
-    "./controller": "./src/controller.ts"
+    "./contracts": "./src/contracts.ts",
+    "./controller": "./src/controller.ts",
+    "./cli": "./src/cli.ts"
   },
   "scripts": {
-    "start": "bun --no-env-file src/cli.ts",
+    "start": "node --import tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun test tests",
-    "build": "bun build src/cli.ts --target=bun --outfile dist/server.js"
+    "test": "node --import tsx --test tests/*.test.ts",
+    "build": "node --import tsx scripts/build.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "catalog:",
+    "tsx": "^4.23.15",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@types/bun": "catalog:",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
     "typescript": "catalog:"
   }
 }

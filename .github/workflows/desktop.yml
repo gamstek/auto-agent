@@ -6,10 +6,14 @@ on:
     paths:
       [
         'desktop/**',
-        'src/**',
-        'scripts/build.ts',
+        'agent.ts',
+        'instructions.ts',
+        'lib/**',
+        'tools/**',
+        'channels/**',
+        'scripts/**',
         'skills/**',
-        'wiki/**',
+        'resources/**',
         'package.json',
         'pnpm-lock.yaml',
         'pnpm-workspace.yaml',
@@ -21,10 +25,14 @@ on:
     paths:
       [
         'desktop/**',
-        'src/**',
-        'scripts/build.ts',
+        'agent.ts',
+        'instructions.ts',
+        'lib/**',
+        'tools/**',
+        'channels/**',
+        'scripts/**',
         'skills/**',
-        'wiki/**',
+        'resources/**',
         'package.json',
         'pnpm-lock.yaml',
         'pnpm-workspace.yaml',
@@ -43,7 +51,7 @@ jobs:
           bun-version: 1.4.2
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
@@ -57,7 +65,7 @@ jobs:
         env:
           PLAYWRIGHT_CHANNEL: chromium
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
-      - run: pnpm run desktop:build
+      - run: pnpm run build:desktop
       - uses: actions/upload-artifact@v4
         with:
           name: auto-agent-desktop-windows-x64

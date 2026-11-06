@@ -1,20 +1,74 @@
 use super::*;
 use sha2::{Digest, Sha256};
 use std::io::Write;
+use std::collections::HashSet;
 
-const FIELDS: &[&str] = &["model", "baseURL", "builtinSkills", "builtinWiki", "skillRoots", "wikiRoots", "wikiIndexRoots", "maxSteps", "maxInputTokens", "maxOutputTokens", "modelTimeoutMs", "scriptTimeoutMs", "webAllowPrivateAddresses", "systemPrompt"];
+const FIELDS: &[&str] = &["dataDir", "model", "baseURL", "maxInputTokens", "maxOutputTokens", "systemPrompt", "llmWiki", "climber"];
+pub const DATA_LAYOUT: &str = "corax-node-llm-wiki-v1";
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct ClimberSettings {
+    enabled: bool,
+    #[serde(rename = "serviceURL")]
+    service_url: String,
+    timeout_ms: u64,
+}
+impl Default for ClimberSettings {
+    fn default() -> Self { Self { enabled: false, service_url: String::new(), timeout_ms: 5000 } }
+}
+impl ClimberSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.timeout_ms < 100 || self.timeout_ms > 60000 || self.service_url.len() > 4096 { return Err("Climber 超时应为100–60000毫秒".into()); }
+        if !self.enabled && self.service_url.is_empty() { return Ok(()); }
+        let url = reqwest::Url::parse(&self.service_url).map_err(|_| "Climber 地址不是有效 URL")?;
+        if !["http", "https"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() || !["/api/v1", "/api/v1/"].contains(&url.path()) {
+            return Err("Climber 地址须为不含凭据、查询参数或片段的 HTTP(S) /api/v1 地址".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TextSource {
+    id: String,
+    #[serde(rename = "type")]
+    kind: String,
+    path: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LlmWikiSettings { sources: Vec<TextSource> }
+impl Default for LlmWikiSettings {
+    fn default() -> Self { Self { sources: vec![] } }
+}
+fn identifier(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 128 && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-".contains(&c))
+}
+impl LlmWikiSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.sources.len() > 100 { return Err("LLM Wiki 来源数量超过上限".into()); }
+        let mut ids = HashSet::new();
+        for source in &self.sources {
+            if !identifier(&source.id) || !ids.insert(&source.id)
+                || !["file", "directory"].contains(&source.kind.as_str()) || source.path.is_empty() || source.path.len() > 4096
+                || (source.kind == "file" && !["md", "markdown", "txt"].contains(&Path::new(&source.path).extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase().as_str())) {
+                return Err("LLM Wiki 只接受 Markdown/TXT 文本来源，且来源 ID 必须唯一".into());
+            }
+        }
+        Ok(())
+    }
+}
 
 pub struct Document { pub raw: Value, pub revision: String }
-pub fn climber_server(raw: &Value) -> Option<&str> {
-    raw.get("devices")?.as_array()?.iter().find_map(|device| {
-        let id = device.get("mcpServer")?.as_str()?;
-        if device["kind"] == "climber" && raw["mcpServers"][id].is_object() { Some(id) } else { None }
-    })
-}
 pub fn read(path: &Path) -> Result<Document, String> {
-    let bytes = std::fs::read(path).map_err(|_| "无法读取共享 config.json")?;
-    let raw: Value = serde_json::from_slice(&bytes).map_err(|_| "共享 config.json 必须是有效 JSON 对象")?;
-    if !raw.is_object() { return Err("共享 config.json 必须是 JSON 对象".into()); }
+    let bytes = std::fs::read(path).map_err(|_| "无法读取 config.json")?;
+    let raw: Value = serde_json::from_slice(&bytes).map_err(|_| "config.json 必须是有效 JSON 对象")?;
+    let settings: Settings = serde_json::from_value(raw.clone()).map_err(|_| "配置字段无效；当前版本只接受现行配置结构")?;
+    settings.validate()?;
     Ok(Document { raw, revision: format!("{:x}", Sha256::digest(&bytes)) })
 }
 fn resolve(path: &Path, value: &str) -> String {
@@ -22,148 +76,60 @@ fn resolve(path: &Path, value: &str) -> String {
     if value.is_absolute() { value.to_path_buf() } else { path.parent().unwrap().join(value) }.to_string_lossy().into_owned()
 }
 pub fn data_directory(path: &Path, raw: &Value) -> Result<PathBuf, String> {
-    let value = raw.get("dataDir").map(|v| v.as_str().ok_or("dataDir 必须为字符串")).transpose()?;
-    // The selected default config explicitly uses '.', just like the CLI-generated file.
-    let default = std::env::home_dir().ok_or("无法定位用户目录")?.join(".auto-agent");
-    Ok(value.map(|s| PathBuf::from(resolve(path, s))).unwrap_or(default))
+    let settings: Settings = serde_json::from_value(raw.clone()).map_err(|_| "配置字段无效")?;
+    Ok(PathBuf::from(resolve(path, &settings.data_dir)))
 }
 pub fn settings(path: &Path, raw: &Value) -> Result<Settings, String> {
-    let mut projection = serde_json::to_value(Settings::default()).unwrap();
-    for field in FIELDS { if let Some(value) = raw.get(*field) { projection[*field] = value.clone(); } }
-    if raw.get("maxInputTokens").is_none() {
-        if let Some(window) = raw.get("contextWindow") {
-            let input = window.as_u64().and_then(|w| w.checked_sub(projection["maxOutputTokens"].as_u64()?)).filter(|n| *n > 0).ok_or("contextWindow 必须容纳输入和输出容量")?;
-            projection["maxInputTokens"] = json!(input);
-        }
-    }
-    if let Some(env) = raw.get("scriptEnv") {
-        let env = env.as_object().ok_or("scriptEnv 必须是字符串映射")?;
-        if env.values().any(|v| !v.is_string()) { return Err("scriptEnv 必须是字符串映射".into()); }
-        if let Some(url) = env.get("CLIMBER_SERVICE_URL") { projection["manufacturerUrl"] = url.clone(); }
-        if let Some(timeout) = env.get("CLIMBER_TIMEOUT_MS") {
-            projection["manufacturerTimeoutMs"] = json!(timeout.as_str().unwrap().parse::<u64>().map_err(|_| "CLIMBER_TIMEOUT_MS 必须是正整数")?);
-        }
-        if let Some(directory) = env.get("SAM_OUTPUT_DIR") { projection["templateDirectory"] = directory.clone(); }
-    }
-    if let Some(id) = climber_server(raw) {
-        projection["climberEnabled"] = raw["mcpServers"][id].get("enabled").cloned().unwrap_or(json!(true));
-        if let Some(url) = raw["mcpServers"][id]["env"].get("CLIMBER_SERVICE_URL") { projection["manufacturerUrl"] = url.clone(); }
-        if let Some(timeout) = raw["mcpServers"][id]["env"]["CLIMBER_TIMEOUT_MS"].as_str() { projection["manufacturerTimeoutMs"] = json!(timeout.parse::<u64>().map_err(|_| "厂家超时配置无效")?); }
-    }
-    let mut settings: Settings = serde_json::from_value(projection).map_err(|_| "共享配置字段类型无效")?;
-    for roots in [&mut settings.skill_roots, &mut settings.wiki_roots, &mut settings.wiki_index_roots] {
-        for root in roots.iter_mut() { *root = resolve(path, root); }
-    }
-    // Script environment values retain their original meaning; relative SAM_OUTPUT_DIR
-    // is interpreted from the config directory by the desktop sidecar working directory.
-    if !settings.template_directory.is_empty() { settings.template_directory = resolve(path, &settings.template_directory); }
+    let mut settings: Settings = serde_json::from_value(raw.clone()).map_err(|_| "配置字段无效")?;
+    settings.validate()?;
+    settings.data_dir = resolve(path, &settings.data_dir);
+    for source in &mut settings.llm_wiki.sources { source.path = resolve(path, &source.path); }
     Ok(settings)
 }
 pub fn merged(path: &Path, raw: &Value, next: &Settings) -> Result<Value, String> {
+    next.validate()?;
     let before = serde_json::to_value(settings(path, raw)?).unwrap();
     let after = serde_json::to_value(next).unwrap();
     let mut result = raw.clone();
-    if before["climberEnabled"] != after["climberEnabled"] {
-        if let Some(id) = climber_server(raw) { result["mcpServers"][id]["enabled"] = json!(next.climber_enabled); }
-        else if next.climber_enabled {
-            if raw.get("mcpServers").is_some_and(|v| !v.is_object()) || raw.get("devices").is_some_and(|v| !v.is_array()) { return Err("MCP/仪器配置结构无效".into()); }
-            if raw["mcpServers"].get("climber-local").is_some() || raw["devices"].as_array().is_some_and(|items| items.iter().any(|d| d["id"] == "climber-01")) { return Err("默认 Climber 配置标识已被占用，请编辑共享配置".into()); }
-            if result.get("mcpServers").is_none() { result["mcpServers"] = json!({}); }
-            if result.get("devices").is_none() { result["devices"] = json!([]); }
-            result["mcpServers"]["climber-local"] = json!({"kind":"stdio","enabled":true,"command":"builtin","args":["--mcp-server","climber"],"timeoutMs":125000,"outcomeContract":"structured-v1",
-                "env":{"CLIMBER_SERVICE_URL":next.manufacturer_url,"CLIMBER_TIMEOUT_MS":next.manufacturer_timeout_ms.to_string()},
-                "tools":{"get_health":"read","get_status":"read","register_batch":"write","start_batch":"write"}});
-            result["devices"].as_array_mut().unwrap().push(json!({"id":"climber-01","name":"Climber","kind":"climber","mcpServer":"climber-local"}));
-        }
-    }
-    for field in FIELDS {
-        if before[*field] != after[*field] { result[*field] = after[*field].clone(); }
-    }
-    if raw.get("contextWindow").is_some() && before["maxOutputTokens"] != after["maxOutputTokens"] {
-        result["maxInputTokens"] = after["maxInputTokens"].clone();
-    }
-    for (setting, name) in [("manufacturerUrl", "CLIMBER_SERVICE_URL"), ("manufacturerTimeoutMs", "CLIMBER_TIMEOUT_MS"), ("templateDirectory", "SAM_OUTPUT_DIR")] {
-        if before[setting] == after[setting] { continue; }
-        if setting != "templateDirectory" {
-            if let Some(id) = climber_server(&result).map(str::to_owned) {
-                if result["mcpServers"][&id]["envFrom"].get(name).is_some() { return Err("此连接字段由环境引用提供，请编辑 MCP 配置".into()); }
-                if result["mcpServers"][&id].get("env").is_none() { result["mcpServers"][&id]["env"] = json!({}); }
-                result["mcpServers"][&id]["env"][name] = if setting == "manufacturerTimeoutMs" { json!(next.manufacturer_timeout_ms.to_string()) } else { after[setting].clone() };
-                continue;
+    // Keep unchanged relative paths, without translating historical fields or schemas.
+    for field in FIELDS { if *field != "llmWiki" && before[*field] != after[*field] { result[*field] = after[*field].clone(); } }
+    if before["llmWiki"] != after["llmWiki"] {
+        let mut wiki = after["llmWiki"].clone();
+        for field in ["sources"] {
+            for entry in wiki[field].as_array_mut().unwrap() {
+                let previous = before["llmWiki"][field].as_array().unwrap().iter().find(|item| item["id"] == entry["id"]);
+                if previous.is_some_and(|item| item["path"] == entry["path"]) {
+                    if let Some(original) = raw["llmWiki"][field].as_array().and_then(|items| items.iter().find(|item| item["id"] == entry["id"])) {
+                        entry["path"] = original["path"].clone();
+                    }
+                }
             }
         }
-        if result.get("scriptEnv").is_none() { result["scriptEnv"] = json!({}); }
-        if setting == "templateDirectory" && next.template_directory.is_empty() {
-            result["scriptEnv"].as_object_mut().unwrap().remove(name);
-        } else {
-            result["scriptEnv"][name] = if setting == "manufacturerTimeoutMs" { json!(next.manufacturer_timeout_ms.to_string()) } else { after[setting].clone() };
-        }
+        result["llmWiki"] = wiki;
     }
-    if let Some(window) = result.get("contextWindow") {
-        let projected = settings(path, &result)?;
-        if window.as_u64().and_then(|n| n.checked_sub(projected.max_output_tokens)).is_none_or(|input| projected.max_input_tokens > input) {
-            return Err("输入/输出容量超过共享配置中的 contextWindow，请调整容量或编辑配置文件".into());
-        }
-    }
+    let checked: Settings = serde_json::from_value(result.clone()).map_err(|_| "配置字段无效")?;
+    checked.validate()?;
     Ok(result)
 }
 pub fn ensure(path: &Path) -> Result<(), String> {
     if path.exists() { return Ok(()); }
-    std::fs::create_dir_all(path.parent().ok_or("配置路径无效")?).map_err(|_| "无法创建配置目录")?;
-    let defaults = Settings::default();
-    let mut raw = json!({"dataDir":".", "host":"127.0.0.1", "port":4096, "allowRemote":false,
-        "interpreters": {".js":"node", ".sh":"bash", ".ps1":"powershell.exe"},
-        "scriptEnv": {}, "mcpServers": {}, "devices": []});
-    let settings = serde_json::to_value(defaults).unwrap();
-    for field in FIELDS { raw[*field] = settings[*field].clone(); }
+    let root = path.parent().ok_or("配置路径无效")?;
+    std::fs::create_dir_all(root).map_err(|_| "无法创建配置目录")?;
+    let raw = serde_json::to_vec_pretty(&Settings::default()).unwrap();
     match std::fs::OpenOptions::new().write(true).create_new(true).open(path) {
-        Ok(mut file) => file.write_all(&serde_json::to_vec_pretty(&raw).unwrap()).map_err(|_| "无法创建共享配置".into()),
+        Ok(mut file) => {
+            file.write_all(&raw).map_err(|_| "无法创建配置")?;
+            std::fs::write(root.join(".data-layout"), DATA_LAYOUT).map_err(|_| "无法写入数据目录版本".to_string())
+        },
         Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => Ok(()),
-        Err(_) => Err("无法创建共享配置".into()),
+        Err(_) => Err("无法创建配置".into()),
     }
 }
 pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, String> {
     let document = read(path)?;
-    if document.revision != revision { return Err("共享配置已被外部修改，请重新读取配置后再编辑".into()); }
-    let merged = merged(path, &document.raw, next)?;
-    write_json(path, &merged)?;
+    if document.revision != revision { return Err("配置已被外部修改，请重新读取配置后再编辑".into()); }
+    write_json(path, &merged(path, &document.raw, next)?)?;
     Ok(read(path)?.revision)
-}
-pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
-    let mut result = raw.clone();
-    result["dataDir"] = json!(data_directory(path, raw)?);
-    // Only transport belongs to the desktop lifecycle; never persist these overrides.
-    result["host"] = json!("127.0.0.1"); result["port"] = json!(0); result["allowRemote"] = json!(false);
-    result.as_object_mut().unwrap().remove("token");
-    result.as_object_mut().unwrap().remove("apiKey");
-    for field in ["skillRoots", "wikiRoots", "wikiIndexRoots"] {
-        if let Some(roots) = result.get_mut(field) {
-            for root in roots.as_array_mut().ok_or("资源目录必须是数组")? {
-                *root = json!(resolve(path, root.as_str().ok_or("资源目录必须是字符串")?));
-            }
-        }
-    }
-    if let Some(wiki) = result.get_mut("wiki") {
-        if let Some(sources) = wiki.get_mut("sources") {
-            for source in sources.as_array_mut().ok_or("Wiki sources 必须是数组")? {
-                let source_path = source.get("path").and_then(Value::as_str).ok_or("Wiki 来源路径必须是字符串")?;
-                let absolute = resolve(path, source_path);
-                source["path"] = json!(absolute);
-            }
-        }
-    }
-    if let Some(servers) = result.get_mut("mcpServers").and_then(Value::as_object_mut) {
-        for server in servers.values_mut() {
-            if server["kind"].is_null() || server["kind"] == "stdio" {
-                let cwd = server.get("cwd").map(|value| value.as_str().ok_or("MCP cwd 必须是字符串")).transpose()?.unwrap_or(".");
-                server["cwd"] = json!(resolve(path,cwd));
-                if let Some(command) = server["command"].as_str() {
-                    if command.contains(['/', '\\']) { server["command"] = json!(resolve(path, command)); }
-                }
-            }
-        }
-    }
-    Ok(result)
 }
 
 #[cfg(test)] mod tests {
@@ -177,151 +143,72 @@ pub fn runtime(path: &Path, raw: &Value) -> Result<Value, String> {
         }
     }
     impl Drop for Fixture { fn drop(&mut self) { let _ = std::fs::remove_dir_all(&self.root); } }
-    #[test] fn default_is_cli_shaped_and_ignores_old_desktop_settings() {
-        let fixture = Fixture::new();
-        std::fs::write(fixture.root.join("settings.json"), "{\"model\":\"old-desktop\"}").unwrap();
-        ensure(&fixture.path).unwrap();
-        let document = read(&fixture.path).unwrap();
-        assert_eq!(document.raw["model"], "deepseek-flash");
+    #[test] fn defaults_create_current_configuration_and_layout() {
+        let f = Fixture::new(); ensure(&f.path).unwrap();
+        let document = read(&f.path).unwrap();
         assert_eq!(document.raw["dataDir"], ".");
-        assert_eq!(document.raw["port"], 4096);
-        assert!(document.raw.get("manufacturerUrl").is_none());
-        assert_eq!(document.raw["scriptEnv"], json!({}));
-        assert_eq!(document.raw["mcpServers"], json!({}));
-        assert_eq!(document.raw["devices"], json!([]));
-        ensure(&fixture.path).unwrap();
-        assert_eq!(read(&fixture.path).unwrap().revision, document.revision);
+        assert_eq!(document.raw["llmWiki"], json!({"sources":[]}));
+        assert_eq!(document.raw["climber"], json!({"enabled":false,"serviceURL":"","timeoutMs":5000}));
+        assert_eq!(std::fs::read_to_string(f.root.join(".data-layout")).unwrap(), DATA_LAYOUT);
+        ensure(&f.path).unwrap();
+        assert_eq!(read(&f.path).unwrap().revision, document.revision);
     }
-    #[test] fn edits_preserve_unexposed_fields_and_relative_paths() {
-        let fixture = Fixture::new();
-        let raw = json!({"model":"cli-model", "dataDir":"data", "skillRoots":["skills"], "wikiRoots":["wiki"],
-            "port":4098, "host":"localhost", "outputLimitBytes":123456, "maxConcurrent":2,
-            "interpreters": {".js":"builtin"}, "scriptEnv":{"CLIMBER_SERVICE_URL":"http://localhost:18080/api/v1", "CUSTOM":"keep"}});
-        write_json(&fixture.path, &raw).unwrap();
-        let document = read(&fixture.path).unwrap();
-        let mut next = settings(&fixture.path, &document.raw).unwrap();
-        assert_eq!(next.model, "cli-model");
-        assert!(Path::new(&next.skill_roots[0]).is_absolute());
-        next.model = "desktop-model".into();
-        next.manufacturer_timeout_ms = 9000;
-        save(&fixture.path, &document.revision, &next).unwrap();
-        let result = read(&fixture.path).unwrap().raw;
-        let mut expected = raw;
-        expected["model"] = json!("desktop-model");
-        expected["scriptEnv"]["CLIMBER_TIMEOUT_MS"] = json!("9000");
-        assert_eq!(result, expected);
+    #[test] fn historical_configuration_is_rejected_without_translation() {
+        let f = Fixture::new();
+        for raw in [json!({"contextWindow":32000}), json!({"wiki":{}}), json!({"llmWiki":{"bundles":[]}}), json!({"scriptEnv":{}}), json!({"mcpServers":{}})] {
+            write_json(&f.path, &raw).unwrap(); assert!(read(&f.path).is_err());
+        }
     }
-    #[test] fn stale_autosave_never_overwrites_external_changes() {
-        let fixture = Fixture::new(); ensure(&fixture.path).unwrap();
-        let original = read(&fixture.path).unwrap();
-        let mut edited = settings(&fixture.path, &original.raw).unwrap(); edited.model = "draft".into();
+    #[test] fn climber_requires_explicit_valid_manufacturer_configuration() {
+        let f = Fixture::new();
+        for climber in [json!({"enabled":true}), json!({"serviceURL":"http://localhost/health"}), json!({"serviceURL":"http://user:secret@localhost/api/v1"}), json!({"timeoutMs":99}), json!({"command":"arbitrary"})] {
+            write_json(&f.path, &json!({"climber":climber})).unwrap(); assert!(read(&f.path).is_err());
+        }
+        let raw = json!({"climber":{"enabled":true,"serviceURL":"http://localhost:18080/api/v1","timeoutMs":1000}});
+        write_json(&f.path, &raw).unwrap(); assert!(read(&f.path).is_ok());
+        let mut edited = settings(&f.path, &raw).unwrap(); edited.model = "another-model".into();
+        assert_eq!(merged(&f.path, &raw, &edited).unwrap()["climber"], raw["climber"]);
+    }
+    #[test] fn unchanged_relative_paths_are_preserved_and_runtime_paths_resolved() {
+        let f = Fixture::new();
+        let raw = json!({"dataDir":"data","llmWiki":{"sources":[{"id":"manuals","type":"directory","path":"docs"}]}});
+        let mut edited = settings(&f.path, &raw).unwrap();
+        assert_eq!(Path::new(&edited.llm_wiki.sources[0].path), f.root.join("docs"));
+        edited.model = "another-model".into();
+        let merged = merged(&f.path, &raw, &edited).unwrap();
+        assert_eq!(merged["llmWiki"], raw["llmWiki"]);
+        edited.llm_wiki.sources.push(TextSource { id: "extra".into(), kind: "file".into(), path: f.root.join("extra.md").to_string_lossy().into_owned() });
+        let changed = super::merged(&f.path, &raw, &edited).unwrap();
+        assert_eq!(changed["llmWiki"]["sources"][0]["path"], "docs");
+        let projected = serde_json::to_value(settings(&f.path, &raw).unwrap()).unwrap();
+        assert_eq!(projected["dataDir"], json!(f.root.join("data")));
+        assert_eq!(projected["llmWiki"]["sources"][0]["path"], json!(f.root.join("docs")));
+    }
+    #[test] fn stale_save_cannot_overwrite_external_changes() {
+        let f = Fixture::new(); ensure(&f.path).unwrap();
+        let original = read(&f.path).unwrap();
+        let edited = settings(&f.path, &original.raw).unwrap();
         let mut external = original.raw; external["model"] = json!("external");
-        write_json(&fixture.path, &external).unwrap();
-        assert!(save(&fixture.path, &original.revision, &edited).unwrap_err().contains("外部修改"));
-        assert_eq!(read(&fixture.path).unwrap().raw, external);
+        write_json(&f.path, &external).unwrap();
+        assert!(save(&f.path, &original.revision, &edited).is_err());
+        assert_eq!(read(&f.path).unwrap().raw, external);
     }
-    #[test] fn runtime_resolves_shared_paths_and_keeps_transport_overrides_ephemeral() {
-        let fixture = Fixture::new();
-        let raw = json!({"dataDir":"data", "skillRoots":["skills"], "wikiIndexRoots":["index"], "host":"0.0.0.0", "port":7000,
-            "allowRemote":true, "token":"private", "apiKey":"ignored", "resourceLimitBytes":5555,
-            "interpreters":{}, "scriptEnv":{"CUSTOM":"value"}});
-        write_json(&fixture.path, &raw).unwrap();
-        let result = runtime(&fixture.path, &raw).unwrap();
-        assert_eq!(result["dataDir"], json!(fixture.root.join("data")));
-        assert_eq!(result["skillRoots"][0], json!(fixture.root.join("skills")));
-        assert_eq!(result["host"], "127.0.0.1"); assert_eq!(result["port"], 0);
-        assert!(result.get("token").is_none()); assert!(result.get("apiKey").is_none());
-        assert_eq!(result["resourceLimitBytes"], 5555); assert_eq!(result["interpreters"], json!({}));
-        assert_eq!(read(&fixture.path).unwrap().raw, raw);
+    #[test] fn invalid_existing_file_is_not_replaced() {
+        let f = Fixture::new(); std::fs::write(&f.path, "not json").unwrap();
+        ensure(&f.path).unwrap(); assert!(read(&f.path).is_err());
+        assert_eq!(std::fs::read_to_string(&f.path).unwrap(), "not json");
     }
-    #[test] fn unified_wiki_paths_use_source_config_and_survive_unrelated_saves() {
-        let fixture = Fixture::new();
-        let raw = json!({"wiki":{"sources":[{"id":"manuals","type":"directory","path":"materials"}],"parsers":["builtin.markdown"]}});
-        write_json(&fixture.path,&raw).unwrap();
-        let result = runtime(&fixture.path,&raw).unwrap();
-        assert_eq!(result["wiki"]["sources"][0]["path"],json!(fixture.root.join("materials")));
-        let mut next = settings(&fixture.path,&raw).unwrap();
-        next.max_steps = 30;
-        let saved = merged(&fixture.path,&raw,&next).unwrap();
-        assert_eq!(saved["wiki"],raw["wiki"]);
-        assert_eq!(read(&fixture.path).unwrap().raw,raw);
-    }
-    #[test] fn derived_capacity_and_unrelated_script_env_are_preserved() {
-        let fixture = Fixture::new();
-        let raw = json!({"contextWindow":32000, "maxOutputTokens":8000, "scriptEnv":{"CUSTOM":"keep", "SAM_OUTPUT_DIR":"templates"}});
-        let mut next = settings(&fixture.path, &raw).unwrap();
-        assert_eq!(next.max_input_tokens, 24000);
-        next.max_steps = 30;
-        let result = merged(&fixture.path, &raw, &next).unwrap();
-        assert!(result.get("maxInputTokens").is_none());
-        assert_eq!(result["scriptEnv"], raw["scriptEnv"]);
-        next.template_directory.clear();
-        let result = merged(&fixture.path, &raw, &next).unwrap();
-        assert_eq!(result["scriptEnv"], json!({"CUSTOM":"keep"}));
-        next.max_output_tokens = 16000;
-        assert!(merged(&fixture.path, &raw, &next).is_err());
-    }
-    #[test] fn malformed_shared_config_is_not_replaced() {
-        let fixture = Fixture::new();
-        std::fs::write(&fixture.path, "not json").unwrap();
-        ensure(&fixture.path).unwrap();
-        assert!(read(&fixture.path).is_err());
-        assert_eq!(std::fs::read_to_string(&fixture.path).unwrap(), "not json");
-    }
-    #[test] fn cli_loader_reads_desktop_edits_from_the_same_file() {
-        let fixture = Fixture::new(); ensure(&fixture.path).unwrap();
-        let document = read(&fixture.path).unwrap();
-        let mut edited = settings(&fixture.path, &document.raw).unwrap();
-        edited.model = "shared-model-test".into(); edited.manufacturer_timeout_ms = 9000;
-        save(&fixture.path, &document.revision, &edited).unwrap();
-        let output = std::process::Command::new("bun")
+    #[test] fn node_loader_accepts_the_same_native_configuration() {
+        let f = Fixture::new(); ensure(&f.path).unwrap();
+        let output = std::process::Command::new("node")
             .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap())
-            .env_remove("AUTO_AGENT_API_KEY").env_remove("AUTO_AGENT_TOKEN")
-            .env("CONFIG_TEST_PATH", &fixture.path)
-            .args(["-e", "const {loadConfig}=await import('./src/config/index.ts'); const c=await loadConfig(process.env.CONFIG_TEST_PATH,false,true); console.log(JSON.stringify({model:c.model,dataDir:c.dataDir,port:c.port,timeout:c.scriptEnv.CLIMBER_TIMEOUT_MS}));"])
-            .output().expect("Repository tests require system Bun");
-        assert!(output.status.success(), "CLI must accept the shared desktop config");
+            .env_remove("AUTO_AGENT_API_KEY").env_remove("AUTO_AGENT_TOKEN").env("CONFIG_TEST_PATH", &f.path)
+            .args(["--import", "tsx", "--input-type=module", "-e", "const {loadConfig}=await import('./lib/config/index.ts'); console.log(JSON.stringify(loadConfig(process.env.CONFIG_TEST_PATH)));"])
+            .output().expect("Repository tests require Node.js 24+");
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let value: Value = serde_json::from_slice(&output.stdout).unwrap();
-        assert_eq!(value["model"], "shared-model-test");
-        assert_eq!(value["port"], 4096);
-        assert_eq!(value["timeout"], "9000");
-        assert_eq!(value["dataDir"], json!(fixture.root));
-    }
-    #[test] fn mcp_manufacturer_settings_edit_the_actual_server_without_rewriting_other_fields() {
-        let fixture = Fixture::new();
-        let raw = json!({"mcpServers":{"climber":{"command":"builtin","args":["--mcp-server","climber"],"env":{"CLIMBER_SERVICE_URL":"http://localhost:18080/api/v1"},"enabled":true}},
-            "devices":[{"id":"c1","name":"Climber","kind":"climber","mcpServer":"climber"}],
-            "scriptEnv":{"CLIMBER_SERVICE_URL":"http://legacy.invalid/api/v1","CUSTOM":"keep"}});
-        let mut next = settings(&fixture.path,&raw).unwrap();
-        assert_eq!(next.manufacturer_url,"http://localhost:18080/api/v1");
-        next.manufacturer_timeout_ms = 9000;
-        let changed = merged(&fixture.path,&raw,&next).unwrap();
-        assert_eq!(changed["mcpServers"]["climber"]["env"]["CLIMBER_TIMEOUT_MS"],"9000");
-        assert_eq!(changed["scriptEnv"],raw["scriptEnv"]);
-        assert_eq!(changed["devices"],raw["devices"]);
-    }
-    #[test] fn explicit_enable_creates_mcp_configuration_without_importing_old_desktop_settings() {
-        let fixture = Fixture::new();
-        let raw = json!({"dataDir":".","interpreters":{},"custom":"preserve"});
-        let mut next = settings(&fixture.path,&raw).unwrap();
-        assert!(!next.climber_enabled);
-        assert_eq!(merged(&fixture.path,&raw,&next).unwrap(),raw);
-        next.climber_enabled = true;
-        let changed = merged(&fixture.path,&raw,&next).unwrap();
-        assert_eq!(changed["mcpServers"]["climber-local"]["enabled"],true);
-        assert_eq!(changed["devices"][0]["mcpServer"],"climber-local");
-        assert_eq!(changed["custom"],"preserve");
-        let mut disabled = settings(&fixture.path,&changed).unwrap(); disabled.climber_enabled = false;
-        let after = merged(&fixture.path,&changed,&disabled).unwrap();
-        assert_eq!(after["mcpServers"]["climber-local"]["enabled"],false);
-        assert_eq!(after["devices"],changed["devices"]);
-    }
-    #[test] fn runtime_mcp_cwd_uses_shared_source_not_snapshot_directory() {
-        let fixture=Fixture::new();
-        let raw=json!({"dataDir":".","mcpServers":{"helper":{"command":"helpers/server","args":["relative-config.json"]}}});
-        let snapshot=runtime(&fixture.path,&raw).unwrap();
-        assert_eq!(Path::new(snapshot["mcpServers"]["helper"]["cwd"].as_str().unwrap()),fixture.root.as_path());
-        assert_eq!(snapshot["mcpServers"]["helper"]["command"],json!(fixture.root.join("helpers/server")));
-        assert!(raw["mcpServers"]["helper"].get("cwd").is_none());
+        assert_eq!(value["model"], "deepseek-flash");
+        assert_eq!(value["maxInputTokens"], 128000);
+        assert_eq!(Path::new(value["dataDir"].as_str().unwrap()), f.root);
     }
 }

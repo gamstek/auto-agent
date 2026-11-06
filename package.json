@@ -3,45 +3,53 @@
   "version": "2.0.0-beta.1",
   "private": true,
   "type": "module",
+  "files": [
+    "agent.ts",
+    "instructions.ts",
+    "channels",
+    "tools",
+    "lib",
+    "skills",
+    ".output"
+  ],
   "packageManager": "pnpm@10.15.1",
   "engines": {
-    "node": ">=22",
-    "pnpm": ">=10.15.1 <11",
-    "bun": ">=1.4.2"
+    "node": ">=24",
+    "pnpm": ">=10.15.1 <11"
   },
   "scripts": {
-    "preinstall": "node scripts/require-pnpm.cjs",
-    "desktop:dev": "pnpm --filter auto-agent-desktop run desktop:dev",
-    "desktop:build": "pnpm --filter auto-agent-desktop run desktop:build",
-    "desktop:test": "pnpm --filter auto-agent-desktop run test:ui",
-    "dev": "bun scripts/dev.ts",
-    "start": "bun src/index.ts",
-    "test": "bun test && pnpm -r --if-present run test",
-    "test:agent": "bun test",
+    "dev:desktop": "pnpm --filter auto-agent-desktop run dev:desktop",
+    "build:desktop": "pnpm --filter auto-agent-desktop run desktop:build",
+    "test:desktop": "pnpm --filter auto-agent-desktop run test:ui",
+    "dev": "node --import tsx scripts/corax.ts dev",
+    "build": "node --import tsx scripts/corax.ts build",
+    "start": "node --import tsx scripts/corax.ts start",
+    "llm-wiki": "node --import tsx scripts/llm-wiki.ts",
+    "device-reference:prepare": "node --import tsx scripts/prepare-device-reference.ts",
+    "test": "bun test tests/corax && node --import tsx --test tests/node/*.test.ts && pnpm -r --if-present run test",
+    "test:agent": "bun test tests/corax",
     "typecheck": "pnpm run typecheck:agent && pnpm -r --if-present run typecheck",
     "typecheck:agent": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "build:windows": "bun scripts/build.ts windows",
-    "build:linux": "bun scripts/build.ts linux"
+    "prepare:backend": "node --import tsx desktop/scripts/prepare-backend.ts"
   },
   "dependencies": {
-    "@auto-agent/climber-mcp": "workspace:*",
-    "@auto-agent/wiki-core": "workspace:*",
-    "@auto-agent/wiki-sam": "workspace:*",
-    "@modelcontextprotocol/sdk": "catalog:",
-    "ajv": "8.20.0",
     "@ai-sdk/openai-compatible": "3.0.67",
-    "@langchain/langgraph": "1.4.21",
-    "@langchain/langgraph-checkpoint": "1.1.6",
-    "ai": "7.0.136",
-    "marked": "17.0.1",
-    "yaml": "2.9.1",
+    "@auto-agent/climber-mcp": "workspace:*",
+    "@auto-agent/desktop-protocol": "workspace:*",
+    "@auto-agent/llm-wiki": "workspace:*",
+    "@coraxjs/core": "0.1.0",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "ai": "7.0.137",
+    "tsx": "^4.23.15",
     "zod": "catalog:"
   },
   "devDependencies": {
-    "prettier": "3.9.9",
     "@types/bun": "catalog:",
+    "@types/node": "^24.19.2",
+    "esbuild": "^0.28.2",
+    "prettier": "3.9.9",
     "typescript": "catalog:"
   }
 }

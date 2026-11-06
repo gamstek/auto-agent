@@ -1,0 +1,25 @@
+.chat-thinking {
+  margin: 4px 0;
+  color: var(--text-secondary, #64748b);
+}
+.chat-thinking > button {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 6px 0;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+}
+.chat-thinking .expanded {
+  transform: rotate(180deg);
+}
+.chat-thinking-content {
+  margin: 5px 0;
+  padding: 4px 0 8px;
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}

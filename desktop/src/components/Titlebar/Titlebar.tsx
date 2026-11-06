@@ -10,11 +10,13 @@ export function Titlebar({
   onToggleSidebar,
   onError,
   onWindowState,
+  showSidebarToggle = true,
 }: {
   sidebar: boolean;
   onToggleSidebar: (animate: boolean) => void;
   onError: (message: string) => void;
   onWindowState: (maximized: boolean) => void;
+  showSidebarToggle?: boolean;
 }) {
   const [maximized, setMaximized] = useState(false);
   async function action(action: string) {
@@ -49,14 +51,16 @@ export function Titlebar({
       <span className="titlebar-brand" aria-hidden="true">
         Ai
       </span>
-      <IconButton
-        className="sidebar-toggle"
-        title={sidebar ? '收起会话列表' : '展开会话列表'}
-        label="切换会话列表"
-        onClick={(event) => onToggleSidebar(event.detail > 0)}
-      >
-        {sidebar ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
-      </IconButton>
+      {showSidebarToggle && (
+        <IconButton
+          className="sidebar-toggle"
+          title={sidebar ? '收起会话列表' : '展开会话列表'}
+          label="切换会话列表"
+          onClick={(event) => onToggleSidebar(event.detail > 0)}
+        >
+          {sidebar ? <PanelLeftClose size={17} /> : <PanelLeftOpen size={17} />}
+        </IconButton>
+      )}
       <div
         className="titlebar-drag"
         onMouseDown={(event) => {

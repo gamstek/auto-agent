@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { pnpmCommand } from '../scripts/pnpm';
+import { pnpmCommand } from '../../scripts/shared/pnpm';
 import { resolve } from 'node:path';
 
 test('workspace build launcher invokes the same pnpm without shell quoting', async () => {

@@ -12,7 +12,8 @@ export function Composer({
   busy,
   sending,
   connected,
-  pendingReview,
+  waitingForInput,
+  canCancel = true,
   showBottom,
   onBottom,
 }: {
@@ -24,7 +25,8 @@ export function Composer({
   busy: boolean;
   sending: boolean;
   connected: boolean;
-  pendingReview: boolean;
+  waitingForInput: boolean;
+  canCancel?: boolean;
   showBottom: boolean;
   onBottom: () => void;
 }) {
@@ -124,8 +126,10 @@ export function Composer({
             ref={inputRef}
             rows={1}
             value={input}
-            disabled={pendingReview}
-            placeholder={pendingReview ? '请先完成上方执行对账' : '询问量仔，或描述你的测样需求…'}
+            disabled={waitingForInput}
+            placeholder={
+              waitingForInput ? '请先回答上方问题或确认调用' : '询问量仔，或描述你的测样需求…'
+            }
             aria-label="输入消息"
             onChange={(event) => onInput(event.target.value)}
             onInput={resize}
@@ -217,6 +221,7 @@ export function Composer({
               className="send-button stop"
               title="取消本次回复，不代表仪器停止"
               aria-label="取消本次回复"
+              disabled={!canCancel}
               onClick={onCancel}
             >
               <Square size={16} fill="currentColor" />
@@ -225,7 +230,7 @@ export function Composer({
             <button
               className="send-button"
               aria-label="发送消息"
-              disabled={!input.trim() || sending || !connected || pendingReview}
+              disabled={!input.trim() || sending || !connected || waitingForInput}
             >
               {sending ? <LoaderCircle className="spin" size={19} /> : <SendIcon />}
             </button>

@@ -1,5 +1,11 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": { "types": ["bun"], "lib": ["ES2022", "DOM", "DOM.Iterable"] },
-  "include": ["scripts/**/*.ts", "tests/**/*.ts", "e2e/**/*.ts", "playwright.config.ts"]
+  "include": [
+    "scripts/**/*.ts",
+    "src-tauri/installer/**/*.ts",
+    "tests/**/*.ts",
+    "e2e/**/*.ts",
+    "playwright.config.ts"
+  ]
 }

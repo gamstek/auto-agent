@@ -1,0 +1,24 @@
+.chat-input-request {
+  padding: 14px 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: 12px;
+  margin: 12px 0;
+  background: var(--accent-soft);
+}
+.chat-input-request p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-input-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.chat-input-request form {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.chat-input-request form button {
+  justify-self: end;
+}

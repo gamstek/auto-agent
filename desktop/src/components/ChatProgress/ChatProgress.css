@@ -1,0 +1,32 @@
+.chat-progress {
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 10px;
+  margin-bottom: 16px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  font-variant-numeric: tabular-nums;
+}
+.chat-progress > button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: none;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+.chat-progress button > svg {
+  transform: rotate(0deg);
+}
+.chat-progress button[data-animate='true'] > svg {
+  transition: transform 160ms var(--ease-out);
+}
+.chat-progress button > svg.expanded {
+  transform: rotate(90deg);
+}
+@media (prefers-reduced-motion: reduce) {
+  .chat-progress button > svg {
+    transition: none;
+  }
+}

@@ -1,10 +1,9 @@
 import { useState } from 'react';
 import { Check, Copy, Heart, ThumbsDown } from 'lucide-react';
-import type { Message } from '../../bridge';
 import { IconButton } from '../IconButton/IconButton';
 import './ResponseActions.css';
 
-export function ResponseActions({ message }: { message: Message }) {
+export function ResponseActions({ message }: { message: { id: string; content: string } }) {
   const [copied, setCopied] = useState(false);
   const [feedback, setFeedback] = useState(
     () => localStorage.getItem(`feedback:${message.id}`) ?? '',

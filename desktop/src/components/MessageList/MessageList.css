@@ -53,58 +53,6 @@
 .user-text {
   white-space: pre-wrap;
 }
-.live-bubble {
-  min-width: 260px;
-}
-.bubble.has-process {
-  width: min(760px, calc(100% - 58px));
-}
-.working {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #7f8a97;
-  font-size: 13px;
-}
-.thinking,
-.tool-steps {
-  margin: 0 0 15px;
-  font-size: 12px;
-  color: #7c8794;
-}
-.thinking summary,
-.tool-steps summary {
-  cursor: pointer;
-  padding: 4px 0;
-}
-.thinking p {
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-  font-size: 12px;
-  line-height: 1.8;
-  margin: 10px 0;
-}
-.tool-steps > div {
-  display: flex;
-  align-items: flex-start;
-  gap: 7px;
-  padding: 6px 0;
-  font-size: 11px;
-}
-.tool-steps > div > span {
-  display: flex;
-  padding-top: 3px;
-  color: #5e9ad1;
-}
-.tool-steps strong {
-  font-weight: 500;
-  white-space: nowrap;
-}
-.tool-steps small {
-  overflow-wrap: anywhere;
-  color: #969da7;
-}
 .older-button {
   background: transparent;
   color: #8796a8;
@@ -134,52 +82,6 @@
   color: #8490a0;
   background: #f9fbfe;
 }
-.review-card {
-  margin-left: 58px;
-  border: 1px solid #f0d2ab;
-  background: #fffaf3;
-  border-radius: 12px;
-  padding: 22px;
-}
-.review-card h2 {
-  font-size: 16px;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  color: #9b6d31;
-}
-.review-card > p {
-  font-size: 12px;
-  line-height: 1.9;
-  margin: 12px 0;
-  color: #8c7b63;
-}
-.review-detail {
-  font-size: 12px;
-  margin: 14px 0;
-  padding: 12px;
-  background: #fff4e4;
-  border-radius: 7px;
-}
-.review-detail p {
-  margin-top: 5px;
-  line-height: 1.7;
-}
-.review-card .field {
-  display: flex;
-  flex-direction: column;
-  gap: 9px;
-  margin-bottom: 24px;
-  font-size: 13px;
-}
-.review-card .field > span {
-  font-weight: 500;
-  color: #505a67;
-}
-.review-card .field textarea {
-  resize: vertical;
-  min-height: 90px;
-}
 @media (max-width: 700px) {
   .conversation {
     padding: 22px 12px;
@@ -190,9 +92,6 @@
   }
   .message {
     gap: 9px;
-  }
-  .review-card {
-    margin-left: 0;
   }
   .message.user {
     padding-left: 30px;

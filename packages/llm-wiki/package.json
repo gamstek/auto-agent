@@ -1,0 +1,16 @@
+{
+  "name": "@auto-agent/llm-wiki",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./contracts": "./src/contracts.ts"
+  },
+  "dependencies": {
+    "zod": "catalog:"
+  }
+}

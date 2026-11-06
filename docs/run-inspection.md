@@ -4,7 +4,7 @@
 
 ## 开发环境后端同步
 
-Vite 热更新只更新界面，不会把新的 Agent 源码装入已经运行的 sidecar。`pnpm desktop:dev` 的启动前置命令才会编译配套后端；长时间运行开发进程时，后端源码修改后需要在任务结束后正常退出当前桌面和开发命令，再启动 `pnpm desktop:dev`。仅刷新 WebView、重新连接或让 Rust 自动重编译，都不等于重新编译 Agent sidecar。
+Vite 热更新只更新界面，不会把新的 Agent 源码装入已经运行的 sidecar。`pnpm dev:desktop` 的启动前置命令才会编译配套后端；长时间运行开发进程时，后端源码修改后需要在任务结束后正常退出当前桌面和开发命令，再启动 `pnpm dev:desktop`。仅刷新 WebView、重新连接或让 Rust 自动重编译，都不等于重新编译 Agent sidecar。
 
 `GET /global/health` 现在返回 `capabilities.runInspection=1` 和 `capabilities.persistedReasoning=1`。桌面会检查这些能力；同一版本号的旧二进制也会被识别，显示更新提示，而不是把缺失路由解释为「暂无运行记录」。二进制验收测试会直接启动编译产物，验证运行图路由、最终请求及重启后的 reasoning，不能只用前端模拟测试代替这一步。
 

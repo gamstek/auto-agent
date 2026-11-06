@@ -1,4 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+import { DESKTOP_PROTOCOL_VERSION, type BackendHealth } from '@auto-agent/desktop-protocol';
+export type { BackendHealth, BackendCapabilities } from '@auto-agent/desktop-protocol';
 export const desktop = isTauri();
 export function native<T>(command: string, args?: Record<string, unknown>): Promise<T> {
   if (!desktop)
@@ -11,85 +13,62 @@ export function api<T>(path: string, method = 'GET', body?: unknown) {
   return native<T>('backend_request', { method, path, body: body ?? null });
 }
 export const errorText = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
-export interface BackendHealth {
-  healthy: boolean;
-  version: string;
-  capabilities?: {
-    runInspection?: number;
-    persistedReasoning?: number;
-    conversationProcess?: number;
-  };
+  error instanceof Error
+    ? error.message
+    : error && typeof error === 'object' && 'message' in error && typeof error.message === 'string'
+      ? error.message
+      : String(error);
+export function sendErrorText(error: unknown) {
+  const message = errorText(error);
+  if (error && typeof error === 'object' && 'admission' in error && error.admission === 'rejected')
+    return message;
+  return `${message.replace(/[。.!！]+$/u, '')}。请先刷新会话状态确认是否已受理。`;
 }
 export function assertDesktopProtocol(health: BackendHealth): void {
-  if (!health.healthy || health.capabilities?.runInspection !== 1 || health.capabilities?.persistedReasoning !== 1 || health.capabilities?.conversationProcess !== 1)
-    throw new Error('前后端接口能力不一致。请在任务结束后退出开发命令，再运行 pnpm desktop:dev，重新构建并启动配套后端。');
+  if (!health.healthy || health.protocolVersion !== DESKTOP_PROTOCOL_VERSION)
+    throw new Error(
+      '前后端接口协议不一致。请在任务结束后重新运行 pnpm dev:desktop，启动配套后端。',
+    );
 }
 export interface Session {
   id: string;
   title: string;
   updatedAt: number;
 }
-export interface Message {
-  id: string;
-  sessionId: string;
-  role: 'user' | 'assistant';
-  content: string;
-  reasoning?: string;
-  runId?: string;
-  createdAt: number;
-}
 export interface AgentEvent {
   type: string;
   sessionId: string;
-  messageId: string;
   properties: Record<string, any>;
 }
 export interface ExtensionEvent {
   type: 'extension.changed';
   sessionId?: never;
-  messageId?: never;
   properties: { extension: string; resourceId: string; revision: number };
 }
 export type ServiceEvent = AgentEvent | ExtensionEvent;
 export function isAgentEvent(event: ServiceEvent): event is AgentEvent {
-  return typeof event.sessionId === 'string' && typeof event.messageId === 'string';
-}
-export interface SessionState {
-  running: boolean;
-  run: { id: string; status: string } | null;
-  pending: {
-    id: string;
-    executions: { id: string; status: string; diagnostic: Record<string, any> | null }[];
-    operations?: { id: string; status: string; diagnostic: Record<string, any> | null }[];
-  } | null;
-  logs: { agent: string; skills: string };
+  return typeof event.sessionId === 'string';
 }
 export interface Settings {
+  dataDir: string;
   model: string;
   baseURL: string;
-  manufacturerUrl: string;
-  climberEnabled: boolean;
-  manufacturerTimeoutMs: number;
-  templateDirectory: string;
-  builtinSkills: boolean;
-  builtinWiki: boolean;
-  skillRoots: string[];
-  wikiRoots: string[];
-  wikiIndexRoots: string[];
-  maxSteps: number;
+  climber: { enabled: boolean; serviceURL: string; timeoutMs: number };
+  llmWiki: {
+    sources: {
+      id: string;
+      type: 'file' | 'directory';
+      path: string;
+    }[];
+  };
   maxInputTokens: number;
   maxOutputTokens: number;
-  modelTimeoutMs: number;
-  scriptTimeoutMs: number;
-  webAllowPrivateAddresses: boolean;
   systemPrompt: string;
 }
 export interface SettingsInfo {
   configPath: string;
   configRevision: string;
   apiKeySource?: 'environment' | 'keyring';
-  deviceConnectionSource?: 'mcp' | 'script';
   pendingApply?: boolean;
   settings: Settings;
   hasApiKey: boolean;
