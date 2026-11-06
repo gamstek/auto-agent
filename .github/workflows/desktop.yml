@@ -57,7 +57,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm run typecheck
       - run: pnpm test
-      - run: pnpm --filter auto-agent-desktop run prepare:backend
+      - run: pnpm --filter auto-agent-desktop run prepare:runtime
       - run: pnpm --filter auto-agent-desktop run build
       - run: pnpm exec playwright install chromium
         working-directory: desktop
@@ -66,6 +66,7 @@ jobs:
           PLAYWRIGHT_CHANNEL: chromium
       - run: cargo test --manifest-path desktop/src-tauri/Cargo.toml
       - run: pnpm run build:desktop
+      - run: pnpm test:installer
       - uses: actions/upload-artifact@v4
         with:
           name: auto-agent-desktop-windows-x64

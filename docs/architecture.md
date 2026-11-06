@@ -30,7 +30,7 @@ Corax 管理会话 ID、标题、消息和持久化；应用不另建 Agent 循�
 | lib/climber                         | 固定 stdio MCP 客户端与临时仪器投影                 |
 | packages/climber-mcp                | SAM 完整实现/配置、厂家协议、设备预留与未知写阻断   |
 | packages/llm-wiki                   | 文本快照、两阶段知识编译、持久 Markdown、发布与检索 |
-| desktop/src-tauri/src/backend.rs    | CLI、进程树、认证和 NDJSON 游标                     |
+| desktop/src-tauri/src/corax.rs      | CLI、进程树、认证和 NDJSON 游标                     |
 | desktop/src/lib/corax-projection.ts | 官方 reducer/toolCallState 的 UI 投影               |
 
 旧通用 wiki-core/wiki-sam 位于 docs/history/wiki-indexer，仅保留历史实现，不参与 workspace 或应用发布。

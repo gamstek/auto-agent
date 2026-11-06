@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { mkdtemp, mkdir, cp, rm, symlink, realpath, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, cp, rm, symlink, realpath, writeFile, lstat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -8,15 +8,14 @@ import { Client, conversationReducer } from '@coraxjs/core/client';
 for (const mode of [
   'development',
   'start',
-  ...(process.env.AUTO_AGENT_TEST_BACKEND ? ['packaged'] : []),
+  ...(process.env.AUTO_AGENT_TEST_RUNTIME ? ['packaged'] : []),
 ])
   test(`native Corax ${mode} exposes sessions, Wiki tools and host activity without a bridge`, async () => {
     const temporary = await mkdtemp(join(tmpdir(), 'auto-agent-native-corax-'));
     const root = resolve(import.meta.dirname, '../..');
-    const project =
-      mode === 'packaged'
-        ? resolve(process.env.AUTO_AGENT_TEST_BACKEND!)
-        : join(temporary, 'project');
+    // Relocate the payload outside the workspace so missing production dependencies
+    // cannot accidentally resolve from the developer's node_modules.
+    const project = join(temporary, 'project');
     let usedWiki = false;
     const writes: unknown[] = [];
     let task: { batchId: string; state: string; experiments?: unknown[] } | null = null;
@@ -147,7 +146,16 @@ for (const mode of [
         climber: { enabled: true, serviceURL: `${vendor.url.origin}/api/v1`, timeoutMs: 1000 },
       }),
     );
-    if (mode !== 'packaged') {
+    if (mode === 'packaged') {
+      await cp(resolve(process.env.AUTO_AGENT_TEST_RUNTIME!), project, {
+        recursive: true,
+        filter: async (source) => {
+          if ((await lstat(source)).isSymbolicLink())
+            throw new Error(`Packaged runtime must not contain links: ${source}`);
+          return true;
+        },
+      });
+    } else {
       await mkdir(project);
       for (const name of [
         'agent.ts',

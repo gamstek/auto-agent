@@ -25,7 +25,7 @@ lib/
 - config/schema 只依赖 Zod 和纯文本来源契约，不依赖模型、桌面或资料连接。
 - `config/index` 负责文件读写。需要布局标识的安装脚本只导入 `config/paths`，不会初始化整个 schema。
 - `config/runtime` 只管理数据目录占用，`config/index` 提供单份进程内配置快照；二者不依赖桌面 UI、协议或具体业务工具，也不重建 Corax 的运行循环。不另设 lib/runtime 或保留旧路径转发。
-- `desktop/src-tauri/src/backend.rs` 直接启停标准 Corax CLI、管理认证和事件传输；`desktop/src/lib/corax-projection.ts` 使用官方 reducer，不读取配置、不创建 Wiki、不生成本地会话 ID。
+- `desktop/src-tauri/src/corax.rs` 直接启停标准 Corax CLI、管理认证和事件传输；`desktop/src/lib/corax-projection.ts` 使用官方 reducer，不读取配置、不创建 Wiki、不生成本地会话 ID。
 - `channels/desktop.ts` 在 Corax 进程内使用官方 reducer 和会话句柄提供退出保护所需的活动状态；聊天命令与事件仍使用原生 Corax 路由。
 - lib/wiki 为统一 Wiki Tool 装配 knowledge/reference 集合；知识编译与只读检索保留各自数据边界。reference 适配器接收应用绑定的数据源，不在工具 schema 中暴露数据库路径、SQL 或领域专用字段；人工材料规则由 Skill references 阅读。
 - lib/climber 只启动随应用发布的固定 MCP CLI；不接受模型指定的解释器、脚本、环境或 shell 命令。SAM schema、完整产品配置、单位和文件写入由 MCP 包拥有。Corax 动态工具直接复用包导出的定义；Skill 只维护操作工作流和解释边界。
@@ -46,7 +46,7 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 ## 构建、安装与验证脚本
 
-- `desktop/scripts/prepare-backend.ts`：构建与部署资源，不执行用户目录清理。
+- `desktop/scripts/prepare-runtime.ts`：构建与部署 `desktop/src-tauri/runtime` 资源，不执行用户目录清理。
 - `desktop/scripts/release.ts`：校验发布版本和签名环境、构建签名安装包并生成 feed manifest；路径从脚本位置确定。
 - `scripts/shared/`：入口共用的 Node 子进程和 pnpm 调用辅助，不属于 Corax authored-module 运行层。
 - `desktop/src-tauri/installer/`：NSIS hook 和专用 reset-data 实现；只有安装器执行重置。

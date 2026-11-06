@@ -2,8 +2,8 @@
 mod updates;
 mod support;
 mod configuration;
-mod backend;
-use backend::{Backend, start, stop, has_active_work};
+mod corax;
+use corax::{CoraxRuntime, start, stop, has_active_work};
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -53,7 +53,7 @@ impl Settings {
         Ok(())
     }
 }
-struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<Backend>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
+struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<CoraxRuntime>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
 fn credential(root: &Path) -> Result<keyring::Entry, String> { keyring::Entry::new("com.gamstek.autoagent", &format!("model-api-key:{}", root.display())).map_err(|_| "无法访问系统凭据库".into()) }
 fn read_key(root: &Path) -> Result<Option<String>, String> {
     match credential(root)?.get_password() { Ok(key) => Ok(Some(key)), Err(keyring::Error::NoEntry) => Ok(None), Err(_) => Err("无法读取系统凭据库，请检查 Windows 凭据服务".into()) }
@@ -229,13 +229,13 @@ fn main() {
             "launcher-exit" => request_exit(app.clone()),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![updates::update_check, updates::update_install, support::export_diagnostics, backend_start, backend::backend_request, backend::backend_watch, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, exit_app])
+        .invoke_handler(tauri::generate_handler![updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, exit_app])
         .run(tauri::generate_context!()).expect("Unable to start desktop application");
 }
 
 #[cfg(test)] mod tests {
     use super::*;
-    use backend::allowed_request;
+    use corax::allowed_request;
     #[test] fn request_scope_is_fixed() {
         assert!(allowed_request("GET", "/runtime"));
         assert!(allowed_request("GET", "/devices"));

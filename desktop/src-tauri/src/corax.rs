@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex as SyncMutex};
 
 const PROTOCOL_VERSION: u64 = 4;
 
-pub struct Backend {
+pub struct CoraxRuntime {
     child: Child,
     connection: Arc<Connection>,
     watches: HashMap<String, tauri::async_runtime::JoinHandle<()>>,
@@ -22,7 +22,7 @@ pub struct Connection {
     dispatch: Mutex<()>,
     in_flight: std::sync::atomic::AtomicUsize,
 }
-impl std::ops::Deref for Backend {
+impl std::ops::Deref for CoraxRuntime {
     type Target = Connection;
     fn deref(&self) -> &Connection { &self.connection }
 }
@@ -137,7 +137,26 @@ fn cli_path(project: &Path) -> Result<PathBuf, String> {
     Ok(package.join(entry))
 }
 
-pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Backend>) -> Result<(), String> {
+fn corax_command(runtime: &Path, project: &Path, config: &Path, data: &Path, token: &str, key: Option<&str>) -> Result<Command, String> {
+    // Tauri/canonicalize may return \\?\C:\... paths. Node 24's main-module
+    // resolver fails on that prefix (EISDIR lstat 'C:'). Simplify compatible paths
+    // at the process boundary, before joining the public package export.
+    let project = dunce::simplified(project);
+    let mut command = Command::new(dunce::simplified(runtime));
+    command.arg(cli_path(project)?).current_dir(project)
+        .env_clear().env("AUTO_AGENT_CONFIG", dunce::simplified(config)).env("AUTO_AGENT_PROJECT_ROOT", project)
+        .env("CORAX_PROJECT_ROOT", project).env("CORAX_DATA_DIR", dunce::simplified(data)).env("AUTO_AGENT_TOKEN", token)
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
+    for name in ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] {
+        if let Some(value) = std::env::var_os(name) { command.env(name, value); }
+    }
+    if let Some(key) = key { command.env("AUTO_AGENT_API_KEY", key); }
+    #[cfg(windows)] command.creation_flags(0x08000000);
+    #[cfg(unix)] command.process_group(0);
+    Ok(command)
+}
+
+pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
     if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
     if let Some(backend) = slot {
         if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none() { return Ok(()); }
@@ -149,28 +168,13 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Ba
     let key = match std::env::var("AUTO_AGENT_API_KEY").ok().filter(|value| !value.trim().is_empty()) { Some(key) => Some(key), None => read_key(&state.root)? };
     let token = uuid::Uuid::new_v4().to_string();
     let project = if cfg!(debug_assertions) { Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf() }
-        else { app.path().resource_dir().map_err(|_| "无法定位应用资源")?.join("backend") };
+        else { app.path().resource_dir().map_err(|_| "无法定位应用资源")?.join("runtime") };
     let runtime = if cfg!(debug_assertions) { PathBuf::from("node") } else { project.join(if cfg!(windows) { "node.exe" } else { "node" }) };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|_| "无法分配本机端口")?;
     let url = format!("http://127.0.0.1:{}", listener.local_addr().map_err(|_| "无法读取本机端口")?.port());
     let port = listener.local_addr().unwrap().port().to_string();
     drop(listener);
-    let cli = cli_path(&project)?;
-    let create_command = || {
-        let mut command = Command::new(&runtime);
-        command.arg(&cli).current_dir(&project)
-            .env_clear().env("AUTO_AGENT_CONFIG", &state.config_path).env("AUTO_AGENT_PROJECT_ROOT", &project)
-            .env("CORAX_PROJECT_ROOT", &project).env("CORAX_DATA_DIR", &data).env("AUTO_AGENT_TOKEN", &token)
-            .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
-        for name in ["PATH", "SystemRoot", "TEMP", "TMP", "TMPDIR", "USERPROFILE", "HOME", "APPDATA", "LOCALAPPDATA", "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY"] {
-            if let Some(value) = std::env::var_os(name) { command.env(name, value); }
-        }
-        if let Some(ref key) = key { command.env("AUTO_AGENT_API_KEY", key); }
-        #[cfg(windows)] command.creation_flags(0x08000000);
-        #[cfg(unix)] command.process_group(0);
-        command
-    };
-    let mut command = create_command();
+    let mut command = corax_command(&runtime, &project, &state.config_path, &data, &token, key.as_deref())?;
     command.arg(if cfg!(debug_assertions) { "dev" } else { "start" });
     if cfg!(debug_assertions) { command.arg("--no-ui"); }
     command.args(["--host", "127.0.0.1", "--port", &port]);
@@ -193,7 +197,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Ba
     }
     let secrets: Vec<String> = std::iter::once(token.clone()).chain(key).collect();
     let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
-    let mut backend = Backend { child, connection, watches: HashMap::new(), tree, monitor: None, _ownership: ownership };
+    let mut backend = CoraxRuntime { child, connection, watches: HashMap::new(), tree, monitor: None, _ownership: ownership };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
         if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_some() {
@@ -220,7 +224,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Ba
     Ok(())
 }
 
-pub async fn stop(state: &Desktop, slot: &mut Option<Backend>) -> Result<(), String> {
+pub async fn stop(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
     if let Some(backend) = slot.as_mut() {
         if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none() {
             if has_active_work(state, backend).await? { return Err("任务仍在执行，请完成或取消后再退出".into()); }
@@ -231,7 +235,7 @@ pub async fn stop(state: &Desktop, slot: &mut Option<Backend>) -> Result<(), Str
     *slot = None;
     Ok(())
 }
-impl Drop for Backend { fn drop(&mut self) { for (_, task) in self.watches.drain() { task.abort(); } if let Some(task) = self.monitor.take() { task.abort(); } } }
+impl Drop for CoraxRuntime { fn drop(&mut self) { for (_, task) in self.watches.drain() { task.abort(); } if let Some(task) = self.monitor.take() { task.abort(); } } }
 
 fn redact_text(text: &str, secrets: &[String]) -> String {
     let mut text = text.to_string();
@@ -309,7 +313,7 @@ async fn activities(state: &Desktop, backend: &Connection, ids: &[String]) -> Re
     }
     Ok(states.clone())
 }
-pub async fn has_active_work(state: &Desktop, backend: &Backend) -> Result<bool, String> {
+pub async fn has_active_work(state: &Desktop, backend: &CoraxRuntime) -> Result<bool, String> {
     connection_has_active_work(state, backend).await
 }
 async fn connection_has_active_work(state: &Desktop, backend: &Connection) -> Result<bool, String> {
@@ -516,6 +520,59 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
 #[cfg(test)] mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[test] fn node_launcher_accepts_canonical_windows_resource_paths() { tauri::async_runtime::block_on(async {
+        let root = std::env::temp_dir().join(format!("auto-agent Node 量仔-{}", uuid::Uuid::new_v4()));
+        let package = root.join("node_modules/@coraxjs/core");
+        std::fs::create_dir_all(package.join("bin")).unwrap();
+        std::fs::write(package.join("package.json"), r#"{"exports":{"./bin":"./bin/corax.js"}}"#).unwrap();
+        std::fs::write(package.join("bin/corax.js"), "console.log(JSON.stringify({cwd:process.cwd(),project:process.env.CORAX_PROJECT_ROOT,config:process.env.AUTO_AGENT_CONFIG,data:process.env.CORAX_DATA_DIR}))").unwrap();
+        std::fs::write(root.join("config.json"), "{}").unwrap();
+        std::fs::create_dir(root.join("corax")).unwrap();
+        let project = std::fs::canonicalize(&root).unwrap();
+        let config = std::fs::canonicalize(root.join("config.json")).unwrap();
+        let data = std::fs::canonicalize(root.join("corax")).unwrap();
+        let runtime = std::env::var_os("AUTO_AGENT_TEST_RUNTIME").map(|path| {
+            std::fs::canonicalize(PathBuf::from(path).join(if cfg!(windows) { "node.exe" } else { "node" })).unwrap()
+        }).unwrap_or_else(|| PathBuf::from("node"));
+        let output = corax_command(&runtime, &project, &config, &data, "fixture", None).unwrap().output().await.unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let paths: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(Path::new(paths["cwd"].as_str().unwrap()), dunce::simplified(&project));
+        assert_eq!(Path::new(paths["project"].as_str().unwrap()), dunce::simplified(&project));
+        assert_eq!(Path::new(paths["config"].as_str().unwrap()), dunce::simplified(&config));
+        assert_eq!(Path::new(paths["data"].as_str().unwrap()), dunce::simplified(&data));
+        if let Some(packaged) = std::env::var_os("AUTO_AGENT_TEST_RUNTIME") {
+            // In installer verification, also run the extracted real Corax with
+            // this exact launcher, canonical paths and restricted environment.
+            let project = std::fs::canonicalize(packaged).unwrap();
+            std::fs::write(&config, r#"{"model":"local","baseURL":"http://127.0.0.1:1/v1"}"#).unwrap();
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let port = listener.local_addr().unwrap().port().to_string();
+            drop(listener);
+            let mut command = corax_command(&runtime, &project, &config, &data, "fixture", Some("local-key")).unwrap();
+            command.args(["start", "--host", "127.0.0.1", "--port", &port]).stdout(Stdio::null());
+            let mut child = command.spawn().unwrap();
+            let tree = ProcessTree::attach(&child).unwrap();
+            let mut stderr = child.stderr.take().unwrap();
+            let errors = tauri::async_runtime::spawn(async move { let mut bytes = vec![]; let _ = stderr.read_to_end(&mut bytes).await; bytes });
+            let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(1)).build().unwrap();
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+            let mut healthy = false;
+            while tokio::time::Instant::now() < deadline {
+                if child.try_wait().unwrap().is_some() { break; }
+                if client.get(format!("http://127.0.0.1:{port}/corax/v1/health")).basic_auth("auto-agent", Some("fixture")).send().await.is_ok_and(|response| response.status().is_success()) { healthy = true; break; }
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+            tree.stop();
+            child.wait().await.unwrap();
+            let errors = errors.await.unwrap();
+            std::fs::remove_dir_all(&root).unwrap();
+            assert!(healthy, "{}", String::from_utf8_lossy(&errors));
+        } else {
+            std::fs::remove_dir_all(&root).unwrap();
+        }
+    }); }
 
     fn connection(url: String) -> Arc<Connection> {
         Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })

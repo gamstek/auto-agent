@@ -19,8 +19,9 @@
   },
   "scripts": {
     "dev:desktop": "pnpm --filter auto-agent-desktop run dev:desktop",
-    "build:desktop": "pnpm --filter auto-agent-desktop run desktop:build",
+    "build:desktop": "pnpm --filter auto-agent-desktop run build:desktop",
     "test:desktop": "pnpm --filter auto-agent-desktop run test:ui",
+    "test:installer": "node --import tsx desktop/scripts/verify-installer.ts",
     "dev": "node --import tsx scripts/corax.ts dev",
     "build": "node --import tsx scripts/corax.ts build",
     "start": "node --import tsx scripts/corax.ts start",
@@ -32,7 +33,7 @@
     "typecheck:agent": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare:backend": "node --import tsx desktop/scripts/prepare-backend.ts"
+    "prepare:runtime": "node --import tsx desktop/scripts/prepare-runtime.ts"
   },
   "dependencies": {
     "@ai-sdk/openai-compatible": "3.0.67",

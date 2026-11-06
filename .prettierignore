@@ -9,6 +9,7 @@ desktop/dist/
 desktop/src-tauri/target/
 desktop/src-tauri/gen/
 desktop/src-tauri/backend/
+desktop/src-tauri/runtime/
 .output/
 desktop/test-results/
 desktop/playwright-report/

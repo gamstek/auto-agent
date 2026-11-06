@@ -19,6 +19,7 @@ tauri-plugin-updater = "2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+dunce = "1"
 sha2 = "0.10"
 tokio = { version = "1", features = ["process", "io-util", "time", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }

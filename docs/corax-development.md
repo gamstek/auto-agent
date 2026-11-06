@@ -36,7 +36,7 @@ lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI �
 
 ## 构建与验证
 
-pnpm build 在 Node 下生成 .output；prepare:backend 部署依赖、资料、Node 和安装专用 reset-data，不生成 bridge.mjs 或独立后端 EXE。产物使用官方 node-server preset，由随包 Node 执行。
+pnpm build 在 Node 下生成 .output；prepare:runtime 将依赖、资料、Node 和安装专用 reset-data 部署到 desktop/src-tauri/runtime，不生成 bridge.mjs 或独立后端 EXE。pnpm 使用共享锁文件和 hoisted 普通目录布局，发布校验拒绝目录链接。产物使用官方 node-server preset，由随包 Node 执行。
 
 tests/corax 使用公开 SDK 与本地假模型；desktop/e2e 使用原生 IPC 事件夹具。旧桥接用例保留在 references。原生窗口联调位于 desktop/tests/native，不属于构建步骤。按任务选择验证，不以 typecheck 代替真实启动。
 

@@ -132,7 +132,9 @@ dataDir/
 
 Rust 直接使用 Node 启动标准 `corax dev/start` 并连接其认证 HTTP/NDJSON。React 使用官方 reducer。没有额外应用 HTTP 桥接或 `auto-agent-backend.exe`。
 
-`pnpm prepare:backend` 部署 Corax 产物、生产依赖、内置仪器资源、Node/许可证和安装初始化脚本；`pnpm build:desktop` 在 Windows 构建 NSIS 安装包。打包白名单不包含用户配置、凭据或运行数据库。
+`pnpm prepare:runtime` 将 Corax 产物、生产依赖、内置仪器资源、Node/许可证和安装初始化脚本部署到 `desktop/src-tauri/runtime`；`pnpm build:desktop` 在 Windows 构建 NSIS 安装包。依赖使用共享锁文件部署为普通目录，发布树不得包含目录链接。打包白名单不包含用户配置、凭据或运行数据库。
+
+Windows 构建后运行 `pnpm test:installer`（需安装 7-Zip），解包实际 NSIS 产物并在隔离目录验证启动、Wiki、SAM、MCP 和旧应用资源清理；验证不执行安装器，不接触个人安装目录和用户数据。
 
 本 Beta 当前布局标识为 `corax-node-llm-wiki-v1`。Windows 安装器对没有此标识的默认旧 `~/.auto-agent` 执行一次重置，旧配置、会话及该目录中的资料会清除，安装前需保留的内容应备份。同布局后续安装保留数据；开发启动不执行此清理，也不追踪外部 dataDir。
 

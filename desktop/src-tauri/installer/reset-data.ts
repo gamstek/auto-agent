@@ -27,13 +27,24 @@ export async function resetInstalledData(directory: string) {
   return 'initialized';
 }
 
+/** Remove only obsolete application payloads, never configuration or user data. */
+export async function removeLegacyResources(directory: string) {
+  const info = await lstat(directory);
+  if (!info.isDirectory() || info.isSymbolicLink())
+    throw new Error('Installation directory must be a regular directory');
+  for (const name of ['backend', 'auto-agent-backend.exe'])
+    await rm(join(directory, name), { recursive: true, force: true });
+}
+
 if (process.argv[2] === '--install') {
   try {
     if (process.platform !== 'win32') throw new Error('Windows installer only');
+    if (!process.argv[3]) throw new Error('Installation directory is required');
+    await removeLegacyResources(process.argv[3]);
     await resetInstalledData(join(homedir(), '.auto-agent'));
   } catch {
     console.error(
-      'Unable to reset .auto-agent. Close Auto-Agent and its CLI, then run installation again.',
+      'Unable to complete installation. Close Auto-Agent and its CLI, then run installation again.',
     );
     process.exitCode = 1;
   }

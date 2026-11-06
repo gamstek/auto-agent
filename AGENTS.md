@@ -4,7 +4,7 @@
 
 Auto-Agent runs on **Node.js 24+** with the registry dependency **`@coraxjs/core`**, following Corax's supported runtime. CLI, generated server, tools and Climber MCP all use Node; SQLite access uses `node:sqlite`. Bun remains a test runner only. The old `src/` Agent engine and vendor distribution are removed. Authoring lives in root `agent.ts`, `instructions.ts`, `tools/`, `channels/`, `skills/` and `lib/`. Use package exports and public Corax APIs, never adjacent-repository sources or internal SDK imports. See [README.md](README.md), [docs/architecture.md](docs/architecture.md) and [docs/corax-development.md](docs/corax-development.md).
 
-Corax owns session IDs, titles, messages, workflows, persistence and events. Rust in `desktop/src-tauri/src/backend.rs` directly starts the standard Node Corax CLI (`dev --no-ui` in development, `start` in production) and connects to native authenticated HTTP/NDJSON. Development uses Corax's native backend reload and Vite frontend HMR; do not patch private SDK internals or restore the Bun build/start workaround. There is no Node HTTP bridge or old backend EXE. React's `desktop/src/lib/corax-projection.ts` uses official conversationReducer/toolCallState. Desktop IPC is protocol v4. `channels/desktop.ts` uses official in-process APIs only for host activity checks. Do not recreate a conversation database or Agent loop. Keep boundaries documented in [docs/application-layer.md](docs/application-layer.md), outside the code-only authored lib directory.
+Corax owns session IDs, titles, messages, workflows, persistence and events. Rust in `desktop/src-tauri/src/corax.rs` directly starts the standard Node Corax CLI (`dev --no-ui` in development, `start` in production) and connects to native authenticated HTTP/NDJSON. Simplify compatible Windows canonical paths before passing entry points and environment paths to Node. Development uses Corax's native backend reload and Vite frontend HMR; do not patch private SDK internals or restore the Bun build/start workaround. There is no Node HTTP bridge or old backend EXE. React's `desktop/src/lib/corax-projection.ts` uses official conversationReducer/toolCallState. Desktop IPC is protocol v4. `channels/desktop.ts` uses official in-process APIs only for host activity checks. Do not recreate a conversation database or Agent loop. Keep boundaries documented in [docs/application-layer.md](docs/application-layer.md), outside the code-only authored lib directory.
 
 ## Commands and checks
 
@@ -20,7 +20,7 @@ pnpm test
 pnpm test:desktop
 cargo test --manifest-path desktop/src-tauri/Cargo.toml --locked
 pnpm exec prettier --check <changed-files>
-pnpm prepare:backend
+pnpm prepare:runtime
 pnpm build:desktop
 ```
 
@@ -60,7 +60,7 @@ Do not hold the backend lifecycle mutex across ordinary network/history reads. C
 
 Components live under `desktop/src/components/<Name>/<Name>.tsx` with matching local CSS imports. Keep App for composition, `styles.css` for resets/shared scrollbars/accessibility, `theme.css` for tokens. Preserve supplied `docs/ui` design files; runtime images belong in `desktop/src/assets`. Navigation/feedback controls have no press scaling.
 
-`desktop/scripts/prepare-backend.ts` deploys Corax output/production dependencies (including climber-mcp, tsx and complete SAM profiles), bundles the installer-only reset script, and includes matching Node/license in ignored `desktop/src-tauri/backend/`. Use the root package files allowlist; never package user config, .env, credentials or runtime databases. Rust production startup invokes the standard Corax CLI with bundled Node; the fixed Climber MCP stdio child uses the same Node via `process.execPath` with the fixed tsx loader and a restricted environment. channels/instruments.ts exposes authenticated read-only desktop snapshots; Rust allows no device writes or generic MCP calls from the WebView.
+`desktop/scripts/prepare-runtime.ts` deploys Corax output/production dependencies (including climber-mcp, tsx and complete SAM profiles) using pnpm's frozen shared-lockfile hoisted deployment, bundles the installer-only reset script, and includes matching Node/license in ignored `desktop/src-tauri/runtime/`. Published resources must contain ordinary directories, never dependency junctions. Use the root package files allowlist; never package user config, .env, credentials or runtime databases. Rust production startup invokes the standard Corax CLI with bundled Node; the fixed Climber MCP stdio child uses the same Node via `process.execPath` with the fixed tsx loader and a restricted environment. channels/instruments.ts exposes authenticated read-only desktop snapshots; Rust allows no device writes or generic MCP calls from the WebView.
 
 Updates use Rust-only Tauri updater commands, a build-time public key and fixed GitHub stable/Beta feeds. Verify signatures before stopping the backend and recheck active work under the lifecycle lock before installation. Release builds require signing configuration. Updater signatures are separate from Windows code signing. Diagnostic exports include bounded allowlisted metadata only, never raw logs, paths, credentials, prompts or conversation databases.
 

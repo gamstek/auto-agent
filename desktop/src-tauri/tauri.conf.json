@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm run dev",
     "devUrl": "http://127.0.0.1:1420",
-    "beforeBuildCommand": "pnpm run prepare:backend && pnpm run build",
+    "beforeBuildCommand": "pnpm run prepare:runtime && pnpm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -32,7 +32,7 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
-    "resources": { "backend/": "backend/" },
+    "resources": { "runtime/": "runtime/" },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
       "nsis": {

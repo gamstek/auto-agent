@@ -21,7 +21,7 @@ try {
       plugins: { updater: { pubkey: process.env.AUTO_AGENT_UPDATER_PUBLIC_KEY } },
     }),
   );
-  const [command, ...args] = pnpmCommand(['run', 'desktop:build', '--config', override]);
+  const [command, ...args] = pnpmCommand(['run', 'build:desktop', '--config', override]);
   const child = startProcess(command, args, { cwd: desktopRoot, stdio: 'inherit' });
   if (await child.exited) throw new Error('Signed desktop build failed');
   const directory = join(desktopRoot, 'src-tauri/target/release/bundle/nsis');

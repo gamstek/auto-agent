@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, rm, stat, readFile, writeFile, readdir } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { pnpmCommand } from '../../scripts/shared/pnpm';
@@ -6,15 +6,15 @@ import { startProcess } from '../../scripts/shared/process';
 
 const root = resolve(import.meta.dirname, '../..');
 if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64')
-  throw new Error('Prepare the desktop backend natively on Windows or Linux x64');
+  throw new Error('Prepare the desktop runtime natively on Windows or Linux x64');
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 24)
-  throw new Error('Prepare the desktop backend with Node.js 24+');
-const output = join(root, 'desktop/src-tauri/backend');
+  throw new Error('Prepare the desktop runtime with Node.js 24+');
+const output = join(root, 'desktop/src-tauri/runtime');
 
 async function pnpm(args: string[]) {
   const [command, ...parameters] = pnpmCommand(args);
   if (await startProcess(command, parameters, { cwd: root, stdio: 'inherit' }).exited)
-    throw new Error(`Backend preparation failed: pnpm ${args.join(' ')}`);
+    throw new Error(`Runtime preparation failed: pnpm ${args.join(' ')}`);
 }
 
 await pnpm(['--workspace-root', 'run', 'build']);
@@ -22,17 +22,9 @@ await rm(output, { recursive: true, force: true });
 await mkdir(dirname(output), { recursive: true });
 // Deploy the registry CLI and its production dependencies. No private user configuration
 // or credentials are copied: package.json files is the application resource allowlist.
-// NSIS uses MAX_PATH when opening resources. Shorten peer-qualified store names
-// in this deployment while retaining pnpm's shared-lockfile dependency layout.
-await pnpm([
-  '--filter',
-  'auto-agent',
-  'deploy',
-  '--prod',
-  '--legacy',
-  '--config.virtual-store-dir-max-length=24',
-  output,
-]);
+// Use pnpm's frozen shared-lockfile deployment with ordinary package directories.
+// NSIS does not preserve the junctions in an isolated node_modules layout.
+await pnpm(['--filter', 'auto-agent', 'deploy', '--prod', '--config.node-linker=hoisted', output]);
 await build({
   entryPoints: [join(root, 'desktop/src-tauri/installer/reset-data.ts')],
   outfile: join(output, 'install-reset.mjs'),
@@ -60,11 +52,33 @@ for (const path of [
   'node_modules/tsx/package.json',
 ]) {
   if (!(await stat(join(output, path))).isFile())
-    throw new Error(`Backend resource missing: ${path}`);
+    throw new Error(`Runtime resource missing: ${path}`);
 }
 const deployed = JSON.parse(await readFile(join(output, 'package.json'), 'utf8'));
 if (!deployed.dependencies?.['@coraxjs/core'])
-  throw new Error('Packaged backend is missing its registry Corax dependency');
+  throw new Error('Packaged runtime is missing its registry Corax dependency');
 if (!deployed.dependencies?.['@auto-agent/climber-mcp'])
-  throw new Error('Packaged backend is missing its Climber MCP dependency');
-console.log(`Node desktop backend ready: ${output}`);
+  throw new Error('Packaged runtime is missing its Climber MCP dependency');
+let sourceMapBytes = 0;
+async function preparePublishedTree(directory: string, dependencyArtifacts = false) {
+  for (const entry of await readdir(directory, { withFileTypes: true })) {
+    const path = join(directory, entry.name);
+    if (entry.isSymbolicLink()) throw new Error(`Runtime must not contain links: ${path}`);
+    if (entry.isDirectory())
+      await preparePublishedTree(
+        path,
+        dependencyArtifacts || entry.name === 'node_modules' || entry.name === '.output',
+      );
+    else if (dependencyArtifacts && entry.isFile() && entry.name.endsWith('.map')) {
+      sourceMapBytes += (await stat(path)).size;
+      await rm(path);
+    }
+  }
+}
+// Dependency source maps are debugging artifacts, not runtime inputs. Keep package
+// sources, declarations, licenses and native/WASM assets intact.
+await preparePublishedTree(output);
+// Retire the previous generated resource directory after a successful deployment.
+await rm(join(root, 'desktop/src-tauri/backend'), { recursive: true, force: true });
+console.log(`Removed ${(sourceMapBytes / 1048576).toFixed(2)} MiB of dependency source maps`);
+console.log(`Node desktop runtime ready: ${output}`);

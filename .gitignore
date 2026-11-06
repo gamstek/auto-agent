@@ -5,6 +5,7 @@ desktop/dist/
 desktop/node_modules/
 desktop/src-tauri/target/
 desktop/src-tauri/backend/
+desktop/src-tauri/runtime/
 desktop/src-tauri/gen/
 desktop/test-results/
 desktop/playwright-report/

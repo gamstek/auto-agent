@@ -36,13 +36,15 @@ API Key 来自 `AUTO_AGENT_API_KEY` 或系统凭据库；不返回已保存的 K
 ## 后端资源与安装器
 
 ```powershell
-pnpm prepare:backend
-pnpm desktop:build
+pnpm prepare:runtime
+pnpm build:desktop
 ```
 
-prepare-backend 白名单部署 Corax 产物、生产依赖与技能（含 device-automation/assets 下的历史证据），编译安装器专用 reset-data，并附带 Node 与许可证。用户 LLM Wiki、.env 和凭据不会打包。发布模式使用随包 Node 直接启动标准 corax start，MCP 复用同一 Node 及固定 tsx loader。
+prepare-runtime 白名单部署 Corax 产物、生产依赖与技能（含 device-automation/assets 下的历史证据）到 `src-tauri/runtime`，编译安装器专用 reset-data，并附带 Node 与许可证。依赖通过 pnpm 共享锁文件部署为普通目录，避免 NSIS 丢失目录链接。用户 LLM Wiki、.env 和凭据不会打包。发布模式使用随包 Node 直接启动标准 corax start，MCP 复用同一 Node 及固定 tsx loader。
 
-生产部署单独设置 pnpm `virtual-store-dir-max-length=24`，缩短带 peer 依赖标识的虚拟目录名，避免 NSIS 在读取资源时超过 Windows MAX_PATH。该设置保留共享锁文件和应用依赖版本，不改变开发环境的 node_modules 布局。
+在仓库根目录执行 `pnpm test:installer` 可使用 7-Zip 解包实际安装包，在隔离目录验证生产启动及 Wiki/SAM/MCP，并验证同布局覆盖安装清除旧 `backend` 和 `auto-agent-backend.exe`、保留用户数据。该检查不运行安装器，不更改真实安装目录或注册表。
+
+Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件进行冻结部署；仅发布目录使用 `node-linker=hoisted`，开发环境继续使用默认的 isolated 布局。发布时移除依赖 sourcemap，保留源码、声明、许可证和原生/WASM 资源。
 
 “设置 → 仪器连接”配置 Climber 厂家 /api/v1 地址、超时和启用状态；忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
 
@@ -52,7 +54,7 @@ Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v
 
 “关于与诊断”提供检查更新、下载与安装、诊断包导出。更新采用 Rust Tauri updater，固定 GitHub stable/Beta feed；先下载并验证签名，再在生命周期锁内复查任务是否空闲并安装。
 
-发布版本需要 `AUTO_AGENT_UPDATER_PUBLIC_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY`，可选私钥密码。`release:build` 生成签名安装包与 latest.json；CI 发布版本 Release 和渠道 feed。开发构建缺少公钥时明确报告不可更新。当前更新包仅支持 Windows x64。
+发布版本需要 `AUTO_AGENT_UPDATER_PUBLIC_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY`，可选私钥密码。`build:release` 生成签名安装包与 latest.json；CI 发布版本 Release 和渠道 feed。开发构建缺少公钥时明确报告不可更新。当前更新包仅支持 Windows x64。
 
 ## 检查
 

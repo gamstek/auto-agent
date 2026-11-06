@@ -12,9 +12,9 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "tauri": "tauri",
     "dev:desktop": "tauri dev",
-    "desktop:build": "tauri build",
-    "release:build": "node --import tsx scripts/release.ts",
-    "prepare:backend": "node --import tsx scripts/prepare-backend.ts"
+    "build:desktop": "tauri build",
+    "build:release": "node --import tsx scripts/release.ts",
+    "prepare:runtime": "node --import tsx scripts/prepare-runtime.ts"
   },
   "dependencies": {
     "@coraxjs/core": "0.1.0",

@@ -3,7 +3,10 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { resetInstalledData } from '../../desktop/src-tauri/installer/reset-data';
+import {
+  removeLegacyResources,
+  resetInstalledData,
+} from '../../desktop/src-tauri/installer/reset-data';
 import { DATA_LAYOUT } from '../../lib/config/paths';
 
 test('installer resets an incompatible isolated layout once and preserves compatible reinstalls', async () => {
@@ -38,6 +41,39 @@ test('installer never follows a root link or nested directory junction to extern
     await symlink(outside, join(data, 'originals'), 'junction');
     await resetInstalledData(data);
     assert.equal(await readFile(join(outside, 'original.txt'), 'utf8'), 'preserve original');
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('runtime replacement removes legacy payloads without following links or deleting user data', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent-install-resources-'));
+  const installation = join(root, 'application');
+  const outside = join(root, 'outside');
+  try {
+    await mkdir(installation);
+    await mkdir(outside);
+    await writeFile(join(outside, 'bun.exe'), 'external original');
+    await symlink(outside, join(installation, 'backend'), 'junction');
+    await writeFile(join(installation, 'auto-agent-backend.exe'), 'obsolete');
+    await mkdir(join(installation, 'runtime'));
+    await writeFile(join(installation, 'runtime/node.exe'), 'current');
+    await writeFile(join(installation, 'config.json'), 'preserve');
+    await removeLegacyResources(installation);
+    await assert.rejects(readFile(join(installation, 'backend/bun.exe')));
+    await assert.rejects(readFile(join(installation, 'auto-agent-backend.exe')));
+    assert.equal(await readFile(join(outside, 'bun.exe'), 'utf8'), 'external original');
+    assert.equal(await readFile(join(installation, 'runtime/node.exe'), 'utf8'), 'current');
+    assert.equal(await readFile(join(installation, 'config.json'), 'utf8'), 'preserve');
+    await mkdir(join(installation, 'backend'));
+    await writeFile(join(installation, 'backend/bun.exe'), 'obsolete');
+    await removeLegacyResources(installation);
+    await removeLegacyResources(installation);
+    await symlink(outside, join(root, 'linked-installation'), 'junction');
+    await assert.rejects(
+      removeLegacyResources(join(root, 'linked-installation')),
+      /regular directory/,
+    );
   } finally {
     await rm(root, { recursive: true, force: true });
   }
