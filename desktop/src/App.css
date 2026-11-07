@@ -3,7 +3,7 @@
   height: 100dvh;
   display: grid;
   --sidebar-width: 260px;
-  --workspace-panel-gap: 1px;
+  --workspace-panel-gap: 0.5px;
   grid-template-columns: 52px 0 minmax(0, 1fr);
   grid-template-rows: 38px minmax(0, 1fr);
   background: linear-gradient(155deg, var(--shell-bg) 8%, #f4f9ff 100%);
