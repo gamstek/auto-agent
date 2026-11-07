@@ -28,6 +28,7 @@
     "remark-gfm": "^4.0.0"
   },
   "devDependencies": {
+    "auto-agent": "workspace:*",
     "@types/bun": "catalog:",
     "@playwright/test": "^1.64.1",
     "@tauri-apps/cli": "^2.0.0",

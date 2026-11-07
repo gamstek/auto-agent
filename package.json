@@ -1,18 +1,8 @@
 {
-  "name": "auto-agent",
+  "name": "auto-agent-workspace",
   "version": "2.0.0-beta.1",
   "private": true,
   "type": "module",
-  "files": [
-    "agent.ts",
-    "instructions.ts",
-    "sandbox.ts",
-    "channels",
-    "tools",
-    "lib",
-    "skills",
-    ".output"
-  ],
   "packageManager": "pnpm@10.15.1",
   "engines": {
     "node": ">=24",
@@ -36,7 +26,8 @@
     "format:check": "prettier --check .",
     "prepare:runtime": "node --import tsx desktop/scripts/prepare-runtime.ts"
   },
-  "dependencies": {
+  "devDependencies": {
+    "auto-agent": "workspace:*",
     "@ai-sdk/openai-compatible": "3.0.67",
     "@auto-agent/climber-mcp": "workspace:*",
     "@auto-agent/desktop-protocol": "workspace:*",
@@ -46,9 +37,7 @@
     "ai": "7.0.137",
     "shelljs": "^0.10.0",
     "tsx": "^4.23.15",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
+    "zod": "catalog:",
     "@types/bun": "catalog:",
     "@types/node": "^24.19.2",
     "@types/shelljs": "^0.10.0",

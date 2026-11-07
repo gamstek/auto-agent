@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { api, errorText, type Session } from '../bridge';
+import { chatTrace } from '../lib/chat-debug';
 
 const PAGE_SIZE = 50;
 
@@ -15,7 +16,11 @@ export function useSessions() {
   const refreshPromise = useRef<Promise<Session[]> | null>(null);
 
   const refreshSessions = useCallback((): Promise<Session[]> => {
-    if (refreshPromise.current) return refreshPromise.current;
+    if (refreshPromise.current) {
+      chatTrace('session-list').mark('joined');
+      return refreshPromise.current;
+    }
+    const trace = chatTrace('session-list');
     const request = ++epoch.current;
     const count = Math.max(PAGE_SIZE, cursor.current);
     fetching.current = true;
@@ -28,6 +33,7 @@ export function useSessions() {
         const rows: Session[] = [];
         let batch: Session[];
         do {
+          trace.mark('page', { cursor: rows.length });
           batch = await api<Session[]>(`/session?limit=${PAGE_SIZE}&offset=${rows.length}`);
           rows.push(...batch);
         } while (batch.length === PAGE_SIZE && rows.length < count);
@@ -39,6 +45,7 @@ export function useSessions() {
         }
         return rows;
       } catch (cause) {
+        trace.mark('error');
         if (request === epoch.current) setError(errorText(cause));
         throw cause;
       } finally {
@@ -47,6 +54,7 @@ export function useSessions() {
           setLoading(false);
         }
         refreshPromise.current = null;
+        trace.mark('end');
       }
     })();
     refreshPromise.current = promise;

@@ -3,8 +3,8 @@ import { textSourceSchema } from '@auto-agent/llm-wiki/contracts';
 
 export const climberSchema = z
   .object({
-    enabled: z.boolean().default(false),
-    serviceURL: z.string().max(4096).default(''),
+    enabled: z.boolean().default(true),
+    serviceURL: z.string().max(4096).default('http://127.0.0.1:18080/api/v1'),
     timeoutMs: z.number().int().min(100).max(60000).default(5000),
   })
   .strict()
@@ -51,7 +51,7 @@ export const configSchema = z
     maxInputTokens: z.number().int().positive().default(128000),
     maxOutputTokens: z.number().int().positive().default(16000),
     systemPrompt: z.string().max(16000).default(''),
-    climber: climberSchema.default({ enabled: false, serviceURL: '', timeoutMs: 5000 }),
+    climber: climberSchema.prefault({}),
     llmWiki: z
       .object({
         sources: z.array(textSourceSchema).max(100).default([]),

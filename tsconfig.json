@@ -4,14 +4,5 @@
     "types": ["bun"],
     "lib": ["ES2022", "DOM"]
   },
-  "include": [
-    "agent.ts",
-    "instructions.ts",
-    "lib/**/*.ts",
-    "tools/**/*.ts",
-    "channels/**/*.ts",
-    "tests/corax/**/*.ts",
-    "tests/node/**/*.ts",
-    "scripts/**/*.ts"
-  ]
+  "include": ["corax/**/*.ts", "tests/corax/**/*.ts", "tests/node/**/*.ts", "scripts/**/*.ts"]
 }

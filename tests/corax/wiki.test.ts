@@ -1,9 +1,10 @@
 import { expect, test } from 'bun:test';
-import { referenceSource } from '../../lib/wiki';
-import { queryReference, referenceInput } from '../../lib/wiki/reference';
+import { resolve } from 'node:path';
+import { referenceSource } from 'auto-agent/wiki';
+import { queryReference, referenceInput } from 'auto-agent/wiki/reference';
 
 test('generic Wiki reference collection preserves immutable evidence and supports metadata filters', () => {
-  const source = referenceSource();
+  const source = referenceSource(resolve(import.meta.dirname, '../../corax'));
   const catalog = queryReference(referenceInput.parse({ action: 'catalog' }), source) as any;
   expect(catalog.documentCount).toBe(178);
   expect(catalog.readOnly).toBe(true);

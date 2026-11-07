@@ -8,9 +8,9 @@
 
 `pnpm dev:desktop` 启动 Vite 和 Tauri。Rust 根据公开 `./bin` 导出定位 CLI，直接执行 `node <corax-bin> dev --no-ui`；发布版使用随包 Node 和 corax start。子进程归 Rust 进程树管理。没有中间应用 HTTP 服务。
 
-原生 dev 的预加载和 Nitro worker 使用 Node；应用已撤回 Bun build/start 开发绕行，不为兼容其他运行时修改 SDK 内部实现。目录发现 warning 表示平铺 Agent 根目录中的非 Agent 子目录被忽略，不因切换运行时消失。
+原生 dev 的预加载和 Nitro worker 使用 Node。应用内容集中在独立 workspace 包 `corax/`，本页的 agent、sandbox、lib、tools、channels、skills 路径均相对该目录。CLI 和 Rust 都以 `corax/` 为项目根目录，避免 Corax 的递归开发监听扫描相邻的 `desktop/src-tauri/target`。该包保留 `auto-agent` 名称，仓库根包改名 `auto-agent-workspace`；源码移动不改变会话身份。
 
-开发默认项目内 `.auto-agent/config.json`，生产默认用户目录中的同名配置。缺失时只初始化当前 schema，不转换旧字段或删除旧数据。
+开发默认仓库根目录 `.auto-agent/config.json`，生产默认用户目录中的同名配置。根目录可选 `.env` 通过 Node `--env-file-if-exists` 载入，环境变量优先；不复制到发布资源。缺失时只初始化当前 schema，不转换旧字段或删除旧数据。
 
 ## 原生 IPC v4
 
@@ -18,9 +18,11 @@ Rust 以 HTTP Basic 直接连接 `/corax/v1`，凭据不进入 WebView。会话�
 
 backend_watch 经 corax-events 发送事件，watchId 隔离旧订阅，断线只续读。React 使用官方 conversationReducer/toolCallState 生成消息、工具与 turnDetails 投影。
 
-当前会话 refresh 使用 generation/startIndex 读取未见后缀；后端代际变化时返回完整快照。切换会话始终读取 Corax 数据，不使用跨会话缓存。Rust 在短生命周期锁中取得连接并保留写请求，HTTP 等待在锁外完成，避免厂家状态查询或会话就绪等待阻塞其他会话读取。
+当前聊天视图使用临时 viewId：backend_chat_open/close 的短命令在前端串行提交，历史读取与 backend_watch 绑定该视图。切换会话、断线或组件卸载会终止旧视图的在途 HTTP 读取和事件订阅；迟到的 close/watch 不影响新的选择。该生命周期仅持有读取传输，不取消 Corax 任务、不清除受理记录；跨会话展示投影由独立的前端有界缓存持有。日志用 cancelled 标记正常切换导致的读取取消。
 
-HTTP409/session_not_ready 是 Corax 明确未受理，普通 send 按官方客户端策略最多等待20秒、250毫秒起退避；其他错误和效果未知不自动重发。开发态仅对超过250毫秒的请求/投影输出不含消息、路径、凭据或会话标识的分段耗时元数据。
+当前会话 refresh 使用 generation/startIndex 读取未见后缀；后端代际变化时返回完整快照。切回已打开会话时复用进程内的官方投影，立即显示缓存历史，再同步未读后缀；非当前项按 LRU 限制为 8 个会话与 24 MiB 估算内存。缓存展示不代表本次视图已就绪或仍在执行，同步成功后才开放写入；失效与清空边界见 [应用接入层](application-layer.md)。Rust 在短生命周期锁中取得连接并保留写请求，HTTP 等待在锁外完成，避免厂家状态查询或会话就绪等待阻塞其他会话读取。
+
+HTTP409/session_not_ready 是 Corax 明确未受理，普通 send 按官方客户端策略最多等待20秒、250毫秒起退避；其他错误和效果未知不自动重发。开发态分段耗时保存到 dataDir/corax/logs/desktop-debug.log，不含消息、路径、凭据或会话标识，最多保留两个 2 MiB 文件。
 
 channels/desktop.ts 提供活动状态和只读动态工具目录：在 Corax 进程内读取事件、使用官方 reducer 并识别失效会话，供退出、设置应用和更新检查使用；目录复用真实工具注册定义。聊天不经过它代理。
 
@@ -38,7 +40,7 @@ sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 
 
 ## 构建与验证
 
-pnpm build 在 Node 下生成 .output；prepare:runtime 将依赖、资料、Node 和安装专用 reset-data 部署到 desktop/src-tauri/runtime，不生成 bridge.mjs 或独立后端 EXE。pnpm 使用共享锁文件和 hoisted 普通目录布局，发布校验拒绝目录链接。产物使用官方 node-server preset，由随包 Node 执行。
+pnpm build 在 Node 下生成 corax/.output；prepare:runtime 按 corax/package.json 的白名单部署 auto-agent 包、依赖、资料、Node 和安装专用 reset-data 到 desktop/src-tauri/runtime。发布目录保持平铺的应用布局，不嵌套第二层 corax；pnpm 使用共享锁文件和 hoisted 普通目录布局，发布校验拒绝目录链接。产物使用官方 node-server preset，由随包 Node 执行。
 
 tests/corax 使用公开 SDK 与本地假模型；desktop/e2e 使用原生 IPC 事件夹具。旧桥接用例保留在 references。原生窗口联调位于 desktop/tests/native，不属于构建步骤。按任务选择验证，不以 typecheck 代替真实启动。
 

@@ -21,7 +21,7 @@ await pnpm(['--workspace-root', 'run', 'build']);
 await rm(output, { recursive: true, force: true });
 await mkdir(dirname(output), { recursive: true });
 // Deploy the registry CLI and its production dependencies. No private user configuration
-// or credentials are copied: package.json files is the application resource allowlist.
+// or credentials are copied: corax/package.json files is the application allowlist.
 // Use pnpm's frozen shared-lockfile deployment with ordinary package directories.
 // NSIS does not preserve the junctions in an isolated node_modules layout.
 await pnpm(['--filter', 'auto-agent', 'deploy', '--prod', '--config.node-linker=hoisted', output]);
@@ -57,6 +57,8 @@ for (const path of [
     throw new Error(`Runtime resource missing: ${path}`);
 }
 const deployed = JSON.parse(await readFile(join(output, 'package.json'), 'utf8'));
+if (deployed.name !== 'auto-agent')
+  throw new Error('Packaged runtime must preserve the auto-agent session identity');
 if (!deployed.dependencies?.['@coraxjs/core'])
   throw new Error('Packaged runtime is missing its registry Corax dependency');
 if (!deployed.dependencies?.['@auto-agent/climber-mcp'])

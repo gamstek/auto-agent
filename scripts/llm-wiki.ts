@@ -1,13 +1,13 @@
 import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
-import { loadConfig, ensureConfig, defaultConfigPath } from '../lib/config';
-import { openLlmWiki } from '../lib/wiki';
-import { ingestLlmWiki } from '../lib/wiki/ingest';
+import { loadConfig, ensureConfig, defaultConfigPath } from 'auto-agent/config';
+import { openLlmWiki } from 'auto-agent/wiki';
+import { ingestLlmWiki } from 'auto-agent/wiki/ingest';
 import type { PageReference, SourceReference } from '@auto-agent/llm-wiki';
 
 const args = process.argv.slice(2);
-process.env.AUTO_AGENT_PROJECT_ROOT ??= resolve(import.meta.dirname, '..');
+process.env.AUTO_AGENT_PROJECT_ROOT ??= resolve(import.meta.dirname, '../corax');
 const path = process.env.AUTO_AGENT_CONFIG ?? defaultConfigPath();
 if (!process.env.AUTO_AGENT_CONFIG) ensureConfig(path);
 const config = loadConfig(path);

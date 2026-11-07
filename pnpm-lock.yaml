@@ -23,7 +23,7 @@ catalogs:
 importers:
 
   .:
-    dependencies:
+    devDependencies:
       '@ai-sdk/openai-compatible':
         specifier: 3.0.67
         version: 3.0.67(zod@4.6.5)
@@ -36,6 +36,60 @@ importers:
       '@auto-agent/llm-wiki':
         specifier: workspace:*
         version: link:packages/llm-wiki
+      '@coraxjs/core':
+        specifier: 0.1.0
+        version: 0.1.0(ai@7.0.137(zod@4.6.5))
+      '@modelcontextprotocol/sdk':
+        specifier: 'catalog:'
+        version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
+      '@types/bun':
+        specifier: 'catalog:'
+        version: 1.4.2
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      '@types/shelljs':
+        specifier: ^0.10.0
+        version: 0.10.0
+      ai:
+        specifier: 7.0.137
+        version: 7.0.137(zod@4.6.5)
+      auto-agent:
+        specifier: workspace:*
+        version: link:corax
+      esbuild:
+        specifier: ^0.28.2
+        version: 0.28.2
+      prettier:
+        specifier: 3.9.9
+        version: 3.9.9
+      shelljs:
+        specifier: ^0.10.0
+        version: 0.10.0
+      tsx:
+        specifier: ^4.23.15
+        version: 4.23.15
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      zod:
+        specifier: 'catalog:'
+        version: 4.6.5
+
+  corax:
+    dependencies:
+      '@ai-sdk/openai-compatible':
+        specifier: 3.0.67
+        version: 3.0.67(zod@4.6.5)
+      '@auto-agent/climber-mcp':
+        specifier: workspace:*
+        version: link:../packages/climber-mcp
+      '@auto-agent/desktop-protocol':
+        specifier: workspace:*
+        version: link:../packages/desktop-protocol
+      '@auto-agent/llm-wiki':
+        specifier: workspace:*
+        version: link:../packages/llm-wiki
       '@coraxjs/core':
         specifier: 0.1.0
         version: 0.1.0(ai@7.0.137(zod@4.6.5))
@@ -55,21 +109,12 @@ importers:
         specifier: 'catalog:'
         version: 4.6.5
     devDependencies:
-      '@types/bun':
-        specifier: 'catalog:'
-        version: 1.4.2
       '@types/node':
         specifier: ^24.19.2
         version: 24.19.2
       '@types/shelljs':
         specifier: ^0.10.0
         version: 0.10.0
-      esbuild:
-        specifier: ^0.28.2
-        version: 0.28.2
-      prettier:
-        specifier: 3.9.9
-        version: 3.9.9
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -122,6 +167,9 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.7.0
         version: 4.7.0(vite@6.4.5(@types/node@26.6.6)(tsx@4.23.15)(yaml@2.9.1))
+      auto-agent:
+        specifier: workspace:*
+        version: link:../corax
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

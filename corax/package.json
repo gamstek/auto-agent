@@ -1,0 +1,46 @@
+{
+  "name": "auto-agent",
+  "version": "2.0.0-beta.1",
+  "private": true,
+  "type": "module",
+  "files": [
+    "agent.ts",
+    "instructions.ts",
+    "sandbox.ts",
+    "channels",
+    "tools",
+    "lib",
+    "skills",
+    ".output"
+  ],
+  "exports": {
+    "./config": "./lib/config/index.ts",
+    "./config/paths": "./lib/config/paths.ts",
+    "./wiki": "./lib/wiki/index.ts",
+    "./wiki/ingest": "./lib/wiki/ingest.ts",
+    "./wiki/reference": "./lib/wiki/reference.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@ai-sdk/openai-compatible": "3.0.67",
+    "@auto-agent/climber-mcp": "workspace:*",
+    "@auto-agent/desktop-protocol": "workspace:*",
+    "@auto-agent/llm-wiki": "workspace:*",
+    "@coraxjs/core": "0.1.0",
+    "@modelcontextprotocol/sdk": "catalog:",
+    "ai": "7.0.137",
+    "shelljs": "^0.10.0",
+    "tsx": "^4.23.15",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/shelljs": "^0.10.0",
+    "typescript": "catalog:"
+  }
+}

@@ -66,6 +66,7 @@ export interface Settings {
   systemPrompt: string;
 }
 export interface SettingsInfo {
+  defaults: { climber: Settings['climber'] };
   configPath: string;
   configRevision: string;
   apiKeySource?: 'environment' | 'keyring';

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
 import { APICallError, generateText, streamText, wrapLanguageModel } from 'ai';
-import { modelErrorMiddleware } from '../../lib/model';
+import { modelErrorMiddleware } from '../../corax/lib/model';
 
 for (const status of [401, 403, 400]) {
   test(`model error reporting follows HTTP ${status}, not a provider name or a missing key`, async () => {

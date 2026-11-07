@@ -473,8 +473,10 @@ export function Settings({
       <p className="settings-section-note">
         {kind === 'skills'
           ? '技能由 Corax 原生发现，定义操作方法并按需读取资源。'
-          : '工具是当前运行时提供的执行能力；动态工具按实际生效的配置展示。'}
-        内置{kind === 'skills' ? '技能' : '工具'}随应用或 Corax 发布，不能禁用。
+          : '这里只展示 Auto-Agent 注册的工具；动态工具按实际生效的配置展示。'}
+        {kind === 'skills'
+          ? '内置技能随应用或 Corax 发布，不能禁用。'
+          : 'Auto-Agent 内置工具不能禁用。'}
       </p>
     </div>
   );
@@ -575,9 +577,16 @@ export function Settings({
                         <Switch
                           id="climberEnabled"
                           checked={draft.climber.enabled}
-                          disabled={!draft.climber.serviceURL && !draft.climber.enabled}
                           onChange={(event) =>
-                            update('climber', { ...draft.climber, enabled: event.target.checked })
+                            update('climber', {
+                              ...draft.climber,
+                              enabled: event.target.checked,
+                              serviceURL: event.target.checked
+                                ? draft.climber.serviceURL ||
+                                  info?.defaults.climber.serviceURL ||
+                                  ''
+                                : draft.climber.serviceURL,
+                            })
                           }
                         />
                       }
@@ -585,13 +594,13 @@ export function Settings({
                     <Row
                       id="climberServiceURL"
                       label="厂家接口地址"
-                      description="厂家主机的 HTTP(S) /api/v1 地址；先填写地址，再启用连接。"
+                      description="默认使用本机厂家接口，可修改为实际厂家主机地址。留空时启用连接会填入默认地址。"
                       control={
                         <Input
                           id="climberServiceURL"
                           value={draft.climber.serviceURL}
                           spellCheck={false}
-                          placeholder="http://厂家主机:端口/api/v1"
+                          placeholder={info?.defaults.climber.serviceURL}
                           onChange={(event) =>
                             update('climber', { ...draft.climber, serviceURL: event.target.value })
                           }

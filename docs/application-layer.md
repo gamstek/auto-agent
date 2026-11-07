@@ -1,6 +1,6 @@
 # 应用接入层
 
-lib 实现配置、Corax 宿主约定、Agent 通用 Wiki 装配及 Climber MCP 调用适配。Agent 循环属于 Corax，知识编译与页面发布属于 packages/llm-wiki；SAM 和设备规则属于 packages/climber-mcp，领域工作流属于 Skill，桌面传输归 Rust，UI 投影归 React。
+corax/lib 实现配置、Corax 宿主约定、Agent 通用 Wiki 装配及 Climber MCP 调用适配。本文未带前缀的 authored 路径相对独立应用包 corax/；仓库脚本通过 auto-agent 的 package exports 导入配置和 Wiki。Agent 循环属于 Corax，知识编译与页面发布属于 packages/llm-wiki；SAM 和设备规则属于 packages/climber-mcp，领域工作流属于 Skill，桌面传输归 Rust，UI 投影归 React。
 
 Corax 将 `lib/` 作为 authored-module 目录编译，其中只放受支持的代码模块；架构说明保存在 docs，不把 README 混入编译目录。
 
@@ -42,7 +42,11 @@ LLM Wiki 写入用独立写入锁和版本发布指针，查询读取既有版�
 
 MCP 客户端传递 Corax 取消信号，每次调用后关闭自己拥有的 stdio 连接/子进程；不自动重连重放。未发送的写入为 rejected/not-started，发送后回执不明为 unknown。MCP 设备操作和预留存放于 dataDir/climber，重启仍阻断未知写；SAM 未知写入按实际路径/哈希核验。停止 MCP 或取消回复都不证明设备停止。
 
-Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求，不跨普通 HTTP/历史读取等待。只读请求并行执行；写请求独立串行，在途计数和受理记录共同保护退出/重启。会话历史仍来自 Corax 原生流，当前会话按 generation/startIndex 增量同步，不增加活动缓存、跨会话历史缓存或本地对话数据库。
+Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求，不跨普通 HTTP/历史读取等待。只读请求并行执行；写请求独立串行，在途计数和受理记录共同保护退出/重启。会话历史仍来自 Corax 原生流，当前会话按 generation/startIndex 增量同步，不增加推测性活动缓存或本地对话数据库。
+
+`desktop/src/lib/chat-history-cache.ts` 实现有界、进程内的跨会话历史展示缓存，保留官方 Corax 投影及其 generation/游标，不持久化。非当前会话最多保留 8 项，按 UTF-16 字符串、对象和属性开销保守估算的内存预算为 24 MiB，按 LRU 淘汰；超预算的单个会话仍可正常打开，但离开后不缓存。当前会话独立持有投影，不计入非当前缓存预算。切回命中项时在首帧展示，再按 generation/startIndex 读取未读后缀并建立新的读取租约/订阅。展示内容与本次视图已确认的忙闲、就绪和写入受理状态分离：同步成功前不启用发送、取消或输入响应，也不从缓存推测当前活动。代际改变时清空缓存，游标不兼容时丢弃该前缀并从零重读。启动、重新连接及设置保存边界保守清空展示缓存，以覆盖配置/数据身份改变和延后应用设置；普通断连期间仍可查看当前历史。淘汰只释放展示引用，不取消 Corax 任务，也不重放写入。
+
+聊天视图的临时读取租约由 Rust 持有，WebView 仅提交有序的 open/close 短命令。视图切换会取消其在途历史 HTTP 请求、释放旧事件订阅；请求等待保持在生命周期锁外。旧视图标识无法订阅或关闭新视图。该读取租约与任务生命周期、待确认写入及在途写请求计数相互独立。
 
 普通消息发送遵循官方 SDK 的会话就绪协议：仅对 HTTP409 且 code=session_not_ready 的明确未受理响应有界等待；网络错误、响应解析失败和服务端效果未知不重发。明确拒绝与未知受理使用不同错误元数据，界面保留未发送草稿。
 

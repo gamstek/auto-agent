@@ -15,7 +15,7 @@ pub struct ClimberSettings {
     timeout_ms: u64,
 }
 impl Default for ClimberSettings {
-    fn default() -> Self { Self { enabled: false, service_url: String::new(), timeout_ms: 5000 } }
+    fn default() -> Self { Self { enabled: true, service_url: "http://127.0.0.1:18080/api/v1".into(), timeout_ms: 5000 } }
 }
 impl ClimberSettings {
     pub fn validate(&self) -> Result<(), String> {
@@ -151,7 +151,7 @@ pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, Stri
         let document = read(&f.path).unwrap();
         assert_eq!(document.raw["dataDir"], ".");
         assert_eq!(document.raw["llmWiki"], json!({"sources":[]}));
-        assert_eq!(document.raw["climber"], json!({"enabled":false,"serviceURL":"","timeoutMs":5000}));
+        assert_eq!(document.raw["climber"], json!({"enabled":true,"serviceURL":"http://127.0.0.1:18080/api/v1","timeoutMs":5000}));
         assert_eq!(std::fs::read_to_string(f.root.join(".data-layout")).unwrap(), DATA_LAYOUT);
         ensure(&f.path).unwrap();
         assert_eq!(read(&f.path).unwrap().revision, document.revision);
@@ -162,12 +162,14 @@ pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, Stri
             write_json(&f.path, &raw).unwrap(); assert!(read(&f.path).is_err());
         }
     }
-    #[test] fn climber_requires_explicit_valid_manufacturer_configuration() {
+    #[test] fn climber_defaults_to_the_local_manufacturer_url_and_validates_overrides() {
         let f = Fixture::new();
-        for climber in [json!({"enabled":true}), json!({"serviceURL":"http://localhost/health"}), json!({"serviceURL":"http://user:secret@localhost/api/v1"}), json!({"timeoutMs":99}), json!({"command":"arbitrary"})] {
+        for climber in [json!({"enabled":true,"serviceURL":""}), json!({"serviceURL":"http://localhost/health"}), json!({"serviceURL":"http://user:secret@localhost/api/v1"}), json!({"timeoutMs":99}), json!({"command":"arbitrary"})] {
             write_json(&f.path, &json!({"climber":climber})).unwrap(); assert!(read(&f.path).is_err());
         }
-        let raw = json!({"climber":{"enabled":true,"serviceURL":"http://localhost:18080/api/v1","timeoutMs":1000}});
+        write_json(&f.path, &json!({"climber":{"enabled":true}})).unwrap();
+        assert!(read(&f.path).is_ok());
+        let raw = json!({"climber":{"enabled":false,"serviceURL":"http://manufacturer.example:18080/api/v1","timeoutMs":1000}});
         write_json(&f.path, &raw).unwrap(); assert!(read(&f.path).is_ok());
         let mut edited = settings(&f.path, &raw).unwrap(); edited.model = "another-model".into();
         assert_eq!(merged(&f.path, &raw, &edited).unwrap()["climber"], raw["climber"]);
@@ -221,7 +223,7 @@ pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, Stri
         let output = std::process::Command::new("node")
             .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap())
             .env_remove("AUTO_AGENT_API_KEY").env_remove("AUTO_AGENT_TOKEN").env("CONFIG_TEST_PATH", &f.path)
-            .args(["--import", "tsx", "--input-type=module", "-e", "const {loadConfig}=await import('./lib/config/index.ts'); console.log(JSON.stringify(loadConfig(process.env.CONFIG_TEST_PATH)));"])
+            .args(["--import", "tsx", "--input-type=module", "-e", "const {loadConfig}=await import('auto-agent/config'); console.log(JSON.stringify(loadConfig(process.env.CONFIG_TEST_PATH)));"])
             .output().expect("Repository tests require Node.js 24+");
         assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
         let value: Value = serde_json::from_slice(&output.stdout).unwrap();

@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdtemp, rename, rm, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
-const root = resolve(import.meta.dirname, '..');
+const root = resolve(import.meta.dirname, '../corax');
 const output = join(root, 'skills/device-automation/assets/library.sqlite');
 const digest = (value: Uint8Array) => createHash('sha256').update(value).digest('hex');
 function evidence(path: string) {

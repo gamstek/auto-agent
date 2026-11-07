@@ -8,7 +8,7 @@ const PROTOCOL_VERSION: u64 = 4;
 pub struct CoraxRuntime {
     child: Child,
     connection: Arc<Connection>,
-    watches: HashMap<String, tauri::async_runtime::JoinHandle<()>>,
+    chat: ChatViews,
     tree: ProcessTree,
     monitor: Option<tauri::async_runtime::JoinHandle<()>>,
     _ownership: Ownership,
@@ -36,6 +36,50 @@ impl DispatchGuard {
 impl Drop for DispatchGuard {
     fn drop(&mut self) { self.0.in_flight.fetch_sub(1, Ordering::SeqCst); }
 }
+
+// A foreground read lease owns transport only, never the durable session or writes.
+struct ChatView {
+    id: String,
+    session_id: String,
+    closed: tokio::sync::watch::Sender<bool>,
+}
+impl ChatView {
+    async fn read<T>(&self, future: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+        let mut closed = self.closed.subscribe();
+        if *closed.borrow() { return Err("会话视图已切换".into()); }
+        let cancelled = async { let _ = closed.wait_for(|value| *value).await; };
+        futures_util::pin_mut!(cancelled, future);
+        match futures_util::future::select(cancelled, future).await {
+            futures_util::future::Either::Left(_) => Err("会话视图已切换".into()),
+            futures_util::future::Either::Right((result, _)) => result,
+        }
+    }
+}
+#[derive(Default)]
+struct ChatViews {
+    current: Option<Arc<ChatView>>,
+    watch: Option<tauri::async_runtime::JoinHandle<()>>,
+}
+impl ChatViews {
+    fn open(&mut self, session_id: String, id: String) {
+        if self.current.as_ref().is_some_and(|view| view.id == id && view.session_id == session_id) { return; }
+        self.clear();
+        let (closed, _) = tokio::sync::watch::channel(false);
+        self.current = Some(Arc::new(ChatView { id, session_id, closed }));
+    }
+    fn selected(&self, id: &str, session_id: &str) -> Result<Arc<ChatView>, String> {
+        self.current.as_ref().filter(|view| view.id == id && view.session_id == session_id)
+            .cloned().ok_or_else(|| "会话视图已切换".into())
+    }
+    fn close(&mut self, id: &str) {
+        if self.current.as_ref().is_some_and(|view| view.id == id) { self.clear(); }
+    }
+    fn clear(&mut self) {
+        if let Some(view) = self.current.take() { view.closed.send_replace(true); }
+        if let Some(task) = self.watch.take() { task.abort(); }
+    }
+}
+impl Drop for ChatViews { fn drop(&mut self) { self.clear(); } }
 
 struct Ownership { path: PathBuf, contents: String }
 impl Ownership {
@@ -143,6 +187,9 @@ fn corax_command(runtime: &Path, project: &Path, config: &Path, data: &Path, tok
     // at the process boundary, before joining the public package export.
     let project = dunce::simplified(project);
     let mut command = Command::new(dunce::simplified(runtime));
+    #[cfg(debug_assertions)] if let Some(root) = project.parent() {
+        command.arg("--env-file-if-exists").arg(root.join(".env"));
+    }
     command.arg(cli_path(project)?).current_dir(project)
         .env("AUTO_AGENT_CONFIG", dunce::simplified(config)).env("AUTO_AGENT_PROJECT_ROOT", project)
         .env("CORAX_PROJECT_ROOT", project).env("CORAX_DATA_DIR", dunce::simplified(data)).env("AUTO_AGENT_TOKEN", token)
@@ -165,7 +212,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     let ownership = Ownership::acquire(&data)?;
     let key = match std::env::var("AUTO_AGENT_API_KEY").ok().filter(|value| !value.trim().is_empty()) { Some(key) => Some(key), None => read_key(&state.root)? };
     let token = uuid::Uuid::new_v4().to_string();
-    let project = if cfg!(debug_assertions) { Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().to_path_buf() }
+    let project = if cfg!(debug_assertions) { Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("corax") }
         else { app.path().resource_dir().map_err(|_| "无法定位应用资源")?.join("runtime") };
     let runtime = if cfg!(debug_assertions) { PathBuf::from("node") } else { project.join(if cfg!(windows) { "node.exe" } else { "node" }) };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|_| "无法分配本机端口")?;
@@ -195,7 +242,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     }
     let secrets: Vec<String> = std::iter::once(token.clone()).chain(key).collect();
     let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
-    let mut backend = CoraxRuntime { child, connection, watches: HashMap::new(), tree, monitor: None, _ownership: ownership };
+    let mut backend = CoraxRuntime { child, connection, chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
         if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_some() {
@@ -233,7 +280,7 @@ pub async fn stop(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<()
     *slot = None;
     Ok(())
 }
-impl Drop for CoraxRuntime { fn drop(&mut self) { for (_, task) in self.watches.drain() { task.abort(); } if let Some(task) = self.monitor.take() { task.abort(); } } }
+impl Drop for CoraxRuntime { fn drop(&mut self) { self.chat.clear(); if let Some(task) = self.monitor.take() { task.abort(); } } }
 
 fn redact_text(text: &str, secrets: &[String]) -> String {
     let mut text = text.to_string();
@@ -254,28 +301,37 @@ async fn request(state: &Desktop, backend: &Connection, method: &str, path: &str
     Ok(value)
 }
 async fn request_status(state: &Desktop, backend: &Connection, method: &str, path: &str, body: Option<Value>) -> Result<(reqwest::StatusCode, Value), String> {
+    let timing = chat_debug::Span::new(timing_operation(method, path));
     #[cfg(debug_assertions)] let started = std::time::Instant::now();
     let mut request = state.client.request(if method == "GET" { reqwest::Method::GET } else { reqwest::Method::POST }, format!("{}{path}", backend.url)).basic_auth("auto-agent", Some(&backend.token));
     if path == "/desktop/devices/climber/refresh" { request = request.timeout(Duration::from_secs(70)); }
     if let Some(body) = body { request = request.json(&body); }
     let response = request.send().await.map_err(|_| "与 Corax 连接中断，请读取状态确认结果，不要重复提交")?;
     let status = response.status();
+    timing.mark("headers", json!({"status":status.as_u16()}));
     let mut value: Value = response.json().await.map_err(|_| "Corax 返回了无法解析的响应")?;
+    timing.mark("body", json!({"status":status.as_u16()}));
     #[cfg(debug_assertions)] if started.elapsed() > Duration::from_millis(250) { eprintln!("[desktop-http] method={method} elapsed_ms={} status={}", started.elapsed().as_millis(), status.as_u16()); }
     redact(&mut value, &backend.secrets);
     Ok((status, value))
 }
 
 async fn snapshot(state: &Desktop, backend: &Connection, id: &str, start_index: usize) -> Result<Vec<Value>, String> {
+    let timing = chat_debug::Span::new("history-http");
+    timing.mark("cursor", json!({"cursor":start_index}));
     for attempt in 0..25 {
         #[cfg(debug_assertions)] let started = std::time::Instant::now();
         let response = state.client.get(format!("{}/corax/v1/session/{id}/stream?startIndex={start_index}&follow=false", backend.url)).basic_auth("auto-agent", Some(&backend.token))
-            .send().await.map_err(|_| "无法读取 Corax 会话状态")?;
+             .send().await.map_err(|_| "无法读取 Corax 会话状态")?;
+        timing.mark("headers", json!({"attempt":attempt,"status":response.status().as_u16()}));
         if response.status().is_success() {
             #[cfg(debug_assertions)] let headers_ms = started.elapsed().as_millis();
             let text = response.text().await.map_err(|_| "Corax 会话记录读取中断")?;
+            timing.mark("body", json!({"bytes":text.len()}));
             #[cfg(debug_assertions)] if started.elapsed() > Duration::from_millis(250) { eprintln!("[desktop-history] headers_ms={headers_ms} total_ms={} bytes={}", started.elapsed().as_millis(), text.len()); }
-            return text.lines().filter(|line| !line.trim().is_empty()).map(|line| serde_json::from_str(line).map_err(|_| "Corax 事件格式无效".into())).collect();
+            let result: Result<Vec<Value>, String> = text.lines().filter(|line| !line.trim().is_empty()).map(|line| serde_json::from_str(line).map_err(|_| "Corax 事件格式无效".into())).collect();
+            timing.mark("parsed", json!({"success":result.is_ok(),"count":result.as_ref().map(Vec::len).unwrap_or(0)}));
+            return result;
         }
         if ![404, 409, 425, 503].contains(&response.status().as_u16()) || attempt == 24 { break; }
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -359,12 +415,14 @@ fn session_not_ready(status: reqwest::StatusCode, value: &Value) -> bool {
     status == reqwest::StatusCode::CONFLICT && value["code"] == "session_not_ready"
 }
 async fn send_request(state: &Desktop, backend: &Connection, path: &str, payload: Value, wait_ready: bool) -> Result<(reqwest::StatusCode, Value), String> {
+    let timing = chat_debug::Span::new("admission");
     #[cfg(debug_assertions)] let started = std::time::Instant::now();
     #[cfg(debug_assertions)] let mut not_ready = 0;
     let deadline = tokio::time::Instant::now() + Duration::from_secs(20);
     let mut delay = Duration::from_millis(250);
     loop {
         let result = request_status(state, backend, "POST", path, Some(payload.clone())).await?;
+        timing.mark("response", json!({"status":result.0.as_u16(),"notReady":session_not_ready(result.0, &result.1)}));
         if !wait_ready || !session_not_ready(result.0, &result.1) || tokio::time::Instant::now() >= deadline {
             #[cfg(debug_assertions)] if not_ready > 0 { eprintln!("[desktop-admission] not_ready_responses={not_ready} wait_ms={} status={}", started.elapsed().as_millis(), result.0.as_u16()); }
             return Ok(result);
@@ -372,6 +430,22 @@ async fn send_request(state: &Desktop, backend: &Connection, path: &str, payload
         #[cfg(debug_assertions)] { not_ready += 1; }
         tokio::time::sleep(delay.min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
         delay = (delay * 2).min(Duration::from_secs(2));
+    }
+}
+
+// Fixed labels only: never write a URL, session ID or query string to the timing log.
+fn timing_operation(method: &str, path: &str) -> &'static str {
+    let route = path.split('?').next().unwrap_or("");
+    match route {
+        "/session" | "/corax/v1/session" => if method == "GET" { "session-list" } else { "session-create" },
+        "/desktop/activity" => "activity-http",
+        "/global/health" | "/corax/v1/health" => "health",
+        "/runtime" => "runtime",
+        "/capabilities" | "/corax/v1/info" | "/desktop/tools" => "capabilities",
+        _ if route.starts_with("/session/") && route.ends_with("/events") => "history-rpc",
+        _ if route.starts_with("/session/") && route.ends_with("/prompt_async") => "send-rpc",
+        _ if route.starts_with("/corax/v1/session/") && route.split('/').count() == 5 => "send-http",
+        _ => "other",
     }
 }
 
@@ -388,12 +462,14 @@ fn capability_catalog(info: &Value, configured: &Value) -> Result<Value, String>
     let dynamic_skills = info["skills"]["dynamic"].as_array().ok_or("Corax 动态技能目录无效")?.iter().map(|entry| capability_entry(entry, true)).collect::<Result<Vec<_>, _>>()?;
     let mut tools = std::collections::BTreeMap::new();
     for entry in info["tools"]["static"].as_array().ok_or("Corax 工具目录无效")? {
+        if entry["owner"]["kind"] == "framework" { continue; }
         let projected = capability_entry(entry, false)?;
         tools.insert(projected["name"].as_str().unwrap().to_string(), projected);
     }
     let providers = configured["providers"].as_array().ok_or("动态工具目录无效")?;
     let mut dynamic = vec![];
     for resolver in info["tools"]["dynamic"].as_array().ok_or("Corax 动态工具目录无效")? {
+        if resolver["owner"]["kind"] == "framework" { continue; }
         let provider = providers.iter().find(|provider| provider["slug"] == resolver["slug"] && resolver["owner"]["kind"] == "application");
         if let Some(provider) = provider {
             for entry in provider["tools"].as_array().ok_or("动态工具列表无效")? {
@@ -407,18 +483,22 @@ fn capability_catalog(info: &Value, configured: &Value) -> Result<Value, String>
 }
 
 #[tauri::command]
-pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, method: String, path: String, body: Option<Value>) -> Result<Value, Value> {
+pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, method: String, path: String, body: Option<Value>, view_id: Option<String>) -> Result<Value, Value> {
     if !allowed_request(&method, &path) { return Err("不支持的桌面接口请求".into()); }
+    if view_id.is_some() && (method != "GET" || !path.split('?').next().unwrap_or("").ends_with("/events")) { return Err("视图标识仅用于会话读取".into()); }
+    let timing = chat_debug::Span::new(timing_operation(&method, &path));
     let read_only = method == "GET" || path == "/devices/climber/refresh";
     #[cfg(debug_assertions)] let lock_started = std::time::Instant::now();
-    let (backend, _dispatch_guard) = {
+    let (backend, _dispatch_guard, view) = {
         let slot = state.backend.lock().await;
         let backend = slot.as_ref().ok_or("Corax 尚未启动")?;
         if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
         let connection = Arc::clone(&backend.connection);
+        let view = view_id.as_ref().map(|view_id| backend.chat.selected(view_id, path.split('/').nth(2).unwrap_or(""))).transpose()?;
         let guard = (!read_only).then(|| DispatchGuard::reserve(&connection));
-        (connection, guard)
+        (connection, guard, view)
     };
+    timing.mark("lifecycle-lock", json!({}));
     #[cfg(debug_assertions)] if lock_started.elapsed() > Duration::from_millis(250) { eprintln!("[desktop-rpc] lifecycle_lock_wait_ms={} read_only={read_only}", lock_started.elapsed().as_millis()); }
     if body.as_ref().is_some_and(|body| body.to_string().len() > 65536) { return Err("请求内容过长".into()); }
     if path == "/global/health" {
@@ -435,6 +515,7 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
         return request(&state, &backend, &method, &format!("/desktop{path}"), if method == "POST" { Some(json!({})) } else { None }).await.map_err(Value::from);
     }
     let _serialized = if read_only { None } else { Some(backend.dispatch.lock().await) };
+    timing.mark("dispatch-lock", json!({"readOnly":read_only}));
     if path.split('?').next() == Some("/session") {
         let value = request(&state, &backend, &method, &format!("/corax/v1{path}"), if method == "POST" { Some(json!({})) } else { None }).await?;
         if method == "GET" { return Ok(value["sessions"].clone()); }
@@ -447,16 +528,25 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     if action == "events" {
         let (cursor, generation) = event_cursor(&path)?;
         let start_index = if generation.as_deref() == Some(backend.generation.as_str()) { cursor } else { 0 };
-        let mut events = snapshot(&state, &backend, id, start_index).await?;
+        let reading = snapshot(&state, &backend, id, start_index);
+        let mut events = if let Some(view) = view {
+            let result = view.read(reading).await;
+            if *view.closed.borrow() { timing.mark("cancelled", json!({})); }
+            result?
+        } else { reading.await? };
+        timing.mark("history", json!({"count":events.len(),"cursor":start_index}));
         let revision = start_index + events.len();
         let admitted = admitted(&backend, id, &events, start_index);
         for event in &mut events { redact(event, &backend.secrets); }
+        timing.mark("redacted", json!({"count":events.len()}));
         return Ok(json!({"sessionId":id,"generation":backend.generation,"startIndex":start_index,"revision":revision,"admitted":admitted,"events":events}));
     }
     let mut payload = body.unwrap_or(json!({}));
     let endpoint = match action {
         "prompt_async" | "respond" => {
+            timing.mark("preflight-begin", json!({}));
             let status = activities(&state, &backend, &[id.to_string()]).await?.pop().ok_or("Corax 会话状态无效")?;
+            timing.mark("preflight-end", json!({}));
             if status["closed"] == true { return Err("会话已失效，请新建会话".into()); }
             if action == "prompt_async" && (status["turnActive"] == true || backend.pending.lock().unwrap().contains_key(id)) { return Err("会话仍在执行".into()); }
             if action == "prompt_async" {
@@ -483,28 +573,54 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
         },
         Err(error) => Err(Value::from(error)),
     };
+    timing.mark("response", json!({"success":result.is_ok()}));
     let _ = app.emit("agent-event", json!({"sessionId":id,"type":"session.updated","properties":{}}));
     result
 }
 
 #[tauri::command]
-pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, session_id: String, start_index: usize, watch_id: String) -> Result<(), String> {
-    if !valid_session_id(&session_id) || watch_id.len() > 128 { return Err("会话订阅标识无效".into()); }
+pub async fn backend_chat_open(state: State<'_, Desktop>, session_id: String, view_id: String) -> Result<(), String> {
+    if !valid_session_id(&session_id) || uuid::Uuid::parse_str(&view_id).is_err() { return Err("会话视图标识无效".into()); }
+    let _timing = chat_debug::Span::new("view-open");
     let mut slot = state.backend.lock().await;
     let backend = slot.as_mut().ok_or("Corax 尚未启动")?;
-    if let Some(previous) = backend.watches.remove(&session_id) { previous.abort(); }
+    backend.chat.open(session_id, view_id);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn backend_chat_close(state: State<'_, Desktop>, view_id: String) -> Result<(), String> {
+    if uuid::Uuid::parse_str(&view_id).is_err() { return Err("会话视图标识无效".into()); }
+    let _timing = chat_debug::Span::new("view-close");
+    let mut slot = state.backend.lock().await;
+    if let Some(backend) = slot.as_mut() { backend.chat.close(&view_id); }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, session_id: String, start_index: usize, watch_id: String, view_id: Option<String>) -> Result<(), String> {
+    if !valid_session_id(&session_id) || watch_id.len() > 128 { return Err("会话订阅标识无效".into()); }
+    let timing = chat_debug::Span::new("watch-rpc");
+    let mut slot = state.backend.lock().await;
+    timing.mark("lifecycle-lock", json!({}));
+    let backend = slot.as_mut().ok_or("Corax 尚未启动")?;
+    if let Some(view_id) = view_id { backend.chat.selected(&view_id, &session_id)?; }
+    if let Some(previous) = backend.chat.watch.take() { previous.abort(); }
     let connection = Arc::clone(&backend.connection);
     let (url, token, secrets, generation) = (backend.url.clone(), backend.token.clone(), backend.secrets.clone(), backend.generation.clone());
     let id = session_id.clone();
     let task = tauri::async_runtime::spawn(async move {
+        let timing = chat_debug::Span::new("watch-stream");
         let client = match reqwest::Client::builder().no_proxy().connect_timeout(Duration::from_secs(5)).build() { Ok(client) => client, Err(_) => return };
         let mut cursor = start_index;
+        let mut received = false;
         loop {
             let response = client.get(format!("{url}/corax/v1/session/{id}/stream?startIndex={cursor}&streamControlVersion=1")).basic_auth("auto-agent", Some(&token)).send().await;
             let mut terminal = false;
             let mut renewed = false;
             let mut format_error = false;
             if let Ok(response) = response {
+                if !received { timing.mark("headers", json!({"status":response.status().as_u16()})); }
                 if response.status().is_success() {
                     let mut stream = response.bytes_stream();
                     let mut pending = Vec::<u8>::new();
@@ -524,6 +640,10 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
                             events.push(event); cursor += 1;
                         }
                         if !events.is_empty() {
+                            if !received {
+                                received = true;
+                                timing.mark("first-event", json!({"count":events.len(),"cursor":start}));
+                            }
                             admitted(&connection, &id, &events, start);
                             let changed = events.iter().any(|event| ["turn.completed", "turn.failed", "turn.cancelled", "session.waiting", "session.completed"].contains(&event["type"].as_str().unwrap_or("")));
                             let _ = app.emit("corax-events", json!({"sessionId":id,"generation":generation,"watchId":watch_id,"startIndex":start,"events":events}));
@@ -546,7 +666,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
-    backend.watches.insert(session_id, task);
+    backend.chat.watch = Some(task);
     Ok(())
 }
 
@@ -580,7 +700,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
             // In installer verification, also run the extracted real Corax with
             // this exact launcher, canonical paths and inherited host environment.
             let project = std::fs::canonicalize(packaged).unwrap();
-            std::fs::write(&config, r#"{"model":"local","baseURL":"http://127.0.0.1:1/v1"}"#).unwrap();
+            std::fs::write(&config, r#"{"model":"local","baseURL":"http://127.0.0.1:1/v1","climber":{"enabled":false}}"#).unwrap();
             let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             let port = listener.local_addr().unwrap().port().to_string();
             drop(listener);
@@ -627,20 +747,21 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let info = json!({
             "skills":{"static":[{"name":"discovered-skill","description":"Actual skill","owner":{"kind":"application"},"markdown":"SECRET_BODY","binding":{"sourcePath":"SECRET_PATH"}}],"dynamic":[]},
             "tools":{"static":[{"name":"bash","description":"Native tool","owner":{"kind":"framework"}},{"name":"wiki","description":"Application tool","owner":{"kind":"application"}}],
-                "dynamic":[{"slug":"climber","owner":{"kind":"application"}},{"slug":"external","owner":{"kind":"extension"}}]},
+                "dynamic":[{"slug":"climber","owner":{"kind":"application"}},{"slug":"external","owner":{"kind":"extension"}},{"slug":"native-provider","owner":{"kind":"framework"}}]},
             "instructions":"SECRET_PROMPT"
         });
         let configured = json!({"providers":[{"slug":"climber","tools":[{"name":"sam_file","description":"Offline SAM"}]}]});
         let value = capability_catalog(&info, &configured).unwrap();
         assert_eq!(value["skills"][0]["name"], "discovered-skill");
         assert_eq!(value["skills"][0]["builtIn"], true);
-        assert_eq!(value["tools"].as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), vec!["bash", "sam_file", "wiki"]);
+        assert_eq!(value["tools"].as_array().unwrap().iter().map(|tool| tool["name"].as_str().unwrap()).collect::<Vec<_>>(), vec!["sam_file", "wiki"]);
         assert_eq!(value["dynamicProviders"][0]["builtIn"], false);
+        assert_eq!(value["dynamicProviders"].as_array().unwrap().len(), 1);
         assert!(!value.to_string().contains("SECRET"));
         assert!(capability_catalog(&json!({}), &configured).is_err());
         let mut without_provider = info.clone();
         without_provider["tools"]["dynamic"] = json!([]);
-        assert_eq!(capability_catalog(&without_provider, &configured).unwrap()["tools"].as_array().unwrap().len(), 2);
+        assert_eq!(capability_catalog(&without_provider, &configured).unwrap()["tools"].as_array().unwrap().len(), 1);
         assert!(allowed_request("GET", "/capabilities"));
         assert!(!allowed_request("POST", "/capabilities"));
     }
@@ -687,4 +808,79 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         drop(guard);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 0);
     }
+    #[test] fn stale_view_cleanup_cannot_close_the_new_selection() { tauri::async_runtime::block_on(async {
+        let mut views = ChatViews::default();
+        views.open("first".into(), "old".into());
+        let old = views.selected("old", "first").unwrap();
+        views.open("second".into(), "new".into());
+        let selected = views.selected("new", "second").unwrap();
+        assert!(*old.closed.borrow());
+        views.close("old");
+        assert!(!*selected.closed.borrow());
+        assert!(views.selected("old", "first").is_err());
+        assert!(views.selected("new", "first").is_err());
+        // A read arriving after cleanup is rejected without starting transport.
+        let polled = AtomicBool::new(false);
+        let result = old.read(async { polled.store(true, Ordering::SeqCst); Ok(()) }).await;
+        assert!(result.is_err());
+        assert!(!polled.load(Ordering::SeqCst));
+        assert!(selected.read(async { Ok(()) }).await.is_ok());
+    }); }
+    #[test] fn selecting_another_view_releases_the_previous_subscription() { tauri::async_runtime::block_on(async {
+        struct Released(Option<tokio::sync::oneshot::Sender<()>>);
+        impl Drop for Released { fn drop(&mut self) { if let Some(sender) = self.0.take() { let _ = sender.send(()); } } }
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (released, stopped) = tokio::sync::oneshot::channel();
+        let mut views = ChatViews::default();
+        views.open("first".into(), "old".into());
+        views.watch = Some(tauri::async_runtime::spawn(async move {
+            let _release = Released(Some(released));
+            started.send(()).unwrap();
+            std::future::pending::<()>().await;
+        }));
+        ready.await.unwrap();
+        views.open("second".into(), "new".into());
+        tokio::time::timeout(Duration::from_secs(1), stopped).await.unwrap().unwrap();
+        assert!(views.watch.is_none());
+        assert!(views.selected("new", "second").is_ok());
+    }); }
+    #[test] fn closing_a_view_drops_its_http_body_read_but_preserves_write_admission() { tauri::async_runtime::block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let (headers_sent, headers_received) = tokio::sync::oneshot::channel();
+        let server = tauri::async_runtime::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = vec![];
+            let mut buffer = [0; 1024];
+            while !request.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = socket.read(&mut buffer).await.unwrap();
+                assert!(count > 0);
+                request.extend_from_slice(&buffer[..count]);
+            }
+            socket.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/x-ndjson\r\nContent-Length: 1000000\r\nConnection: close\r\n\r\n{\"type\":\"session.started\"}\n").await.unwrap();
+            headers_sent.send(()).unwrap();
+            // The response intentionally never finishes. A cancelled view must
+            // close this owned read, rather than wait for the 30s client timeout.
+            tokio::time::timeout(Duration::from_secs(2), socket.read(&mut buffer)).await.unwrap().unwrap()
+        });
+        let connection = connection(url);
+        connection.pending.lock().unwrap().insert("pending-write".into(), 42);
+        let write = DispatchGuard::reserve(&connection);
+        let mut views = ChatViews::default();
+        views.open("first".into(), "view".into());
+        let view = views.selected("view", "first").unwrap();
+        let read_connection = Arc::clone(&connection);
+        let reader = tauri::async_runtime::spawn(async move {
+            let state = state();
+            view.read(snapshot(&state, &read_connection, "first", 0)).await
+        });
+        headers_received.await.unwrap();
+        views.close("view");
+        let result = tokio::time::timeout(Duration::from_secs(1), reader).await.unwrap().unwrap();
+        assert!(result.is_err());
+        assert_eq!(server.await.unwrap(), 0, "view cleanup must drop the HTTP response body");
+        assert_eq!(connection.pending.lock().unwrap().get("pending-write"), Some(&42));
+        assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
+        drop(write);
+    }); }
 }

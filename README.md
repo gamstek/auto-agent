@@ -27,7 +27,7 @@ Wiki 统一提供 collections/catalog/search/read 等操作。knowledge 集合�
 
 ### Climber 设备连接
 
-在桌面“设置 → 仪器”填写实际厂家 HTTP(S) `/api/v1` 地址并启用，或在唯一配置文件中设置 climber。设置空闲应用后，助手获得健康、当前状态、登记和启动四项工具；仪器页只读展示 MCP/厂家状态，不提供设备写入入口。
+桌面“设置 → 仪器”默认开启 Climber，并预填本机厂家接口 `http://127.0.0.1:18080/api/v1`。可修改为实际厂家 HTTP(S) `/api/v1` 地址，或在唯一配置文件中设置 climber。设置空闲应用后，助手获得健康、当前状态、登记和启动四项工具；仪器页只读展示 MCP/厂家状态，不提供设备写入入口。
 
 登记与启动分开执行，保留批次、实验、原管号及厂家路径。未知写入记录由 MCP 服务持久保存在 `dataDir/climber`，重启不解除阻断，也不重发操作。详情见 [Climber MCP](packages/climber-mcp/README.md)。
 
@@ -49,7 +49,7 @@ UTF-8 Markdown/TXT → LLM 分析 → 生成/合并 Markdown 知识页
 
 仅使用 **pnpm 10.15.1** 安装依赖。应用、Corax CLI、MCP、构建与发布脚本使用 **Node.js 24+**；系统 Bun 1.4.2 仅用于部分测试。
 
-ShellJS 调用宿主已安装的真实 Bash；Windows 使用 Git Bash，需使 Git/Bash 可通过 PATH 发现。ShellJS 不提供 Bash 解释器。`sandbox.ts` 使用 Corax 公开 Provider 接口，文件和程序都在真实宿主执行；工作目录为 `dataDir/workspace`，Skill 引用由 Provider 绑定到实际安装资源，不依赖构建机的模板缓存。
+ShellJS 调用宿主已安装的真实 Bash；Windows 使用 Git Bash，需使 Git/Bash 可通过 PATH 发现。ShellJS 不提供 Bash 解释器。`corax/sandbox.ts` 使用 Corax 公开 Provider 接口，文件和程序都在真实宿主执行；工作目录为 `dataDir/workspace`，Skill 引用由 Provider 绑定到实际安装资源，不依赖构建机的模板缓存。
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -59,6 +59,8 @@ pnpm dev:desktop
 
 - CLI dev/build 与桌面开发默认使用项目内 `.auto-agent/config.json`，缺失时创建当前配置。
 - `pnpm dev` 使用 Node 启动 Corax 原生 dev；桌面开发使用 dev --no-ui，前端由 Vite 热更新。
+- Corax 应用集中在 `corax/`：agent、instructions、sandbox、lib、tools、channels 和 skills。CLI 与桌面以此为项目根目录，开发监听不扫描相邻的桌面 Cargo 构建目录。该 workspace 包保留 `auto-agent` 名称和会话身份；仓库根包为 `auto-agent-workspace`。
+- 开发配置和可选 `.env` 仍位于仓库根目录，构建产物位于 `corax/.output`；独立源码目录不改变既有数据路径。
 - CLI start、正式桌面版与 LLM Wiki CLI 默认使用 `~/.auto-agent/config.json`。
 - CLI 用 `AUTO_AGENT_CONFIG` 选择配置；桌面可传 `--config` 或隔离的 `--data-dir`。
 - Node 直接读取唯一 config.json，Corax 进程固定自己的内存配置。桌面忙碌时允许保存，空闲后重启生效。
@@ -75,7 +77,7 @@ pnpm dev:desktop
   "maxInputTokens": 128000,
   "maxOutputTokens": 16000,
   "systemPrompt": "",
-  "climber": { "enabled": false, "serviceURL": "", "timeoutMs": 5000 },
+  "climber": { "enabled": true, "serviceURL": "http://127.0.0.1:18080/api/v1", "timeoutMs": 5000 },
   "llmWiki": {
     "sources": [{ "id": "manuals", "type": "directory", "path": "knowledge" }]
   }

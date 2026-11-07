@@ -31,6 +31,7 @@ import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest
 import { useChat } from './hooks/useChat';
 import { StartupScreen } from './components/StartupScreen/StartupScreen';
 import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
+import { chatTrace } from './lib/chat-debug';
 import './App.css';
 
 export function App() {
@@ -136,17 +137,20 @@ export function App() {
     loading: chatLoading,
     error: chatError,
     refresh: sync,
+    ready: chatReady,
+    clearHistory,
   } = useChat(sessionId, connection === 'connected');
   const messages = snapshot?.conversation.messages ?? [];
-  const busy = snapshot?.turnActive ?? false;
-  const backgroundBusy = !!snapshot?.busy && !busy;
+  const busy = chatReady && !!snapshot?.turnActive;
+  const backgroundBusy = chatReady && !!snapshot?.busy && !busy;
   const hasActiveAssistant = messages.some(
     (message) =>
       message.role === 'assistant' &&
       message.metadata?.turnId &&
       snapshot?.conversation.turns[message.metadata.turnId]?.status === 'active',
   );
-  const streamPaused = connection !== 'connected' || !!snapshot?.connectionError || !!chatError;
+  const streamPaused =
+    !chatReady || connection !== 'connected' || !!snapshot?.connectionError || !!chatError;
   const inputs = snapshot?.closed
     ? []
     : Object.values(snapshot?.conversation.inputs ?? {}).filter((value) => value.status === 'open');
@@ -158,6 +162,14 @@ export function App() {
   const requestLock = useRef(false),
     inputRef = useRef<HTMLTextAreaElement>(null);
   const navigationEpoch = useRef(0);
+  useEffect(() => {
+    chatTrace('chat-state').mark('state', {
+      sending,
+      loading: chatLoading,
+      busy,
+      connected: connection === 'connected',
+    });
+  }, [sending, chatLoading, busy, connection]);
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!initialized) return;
@@ -194,6 +206,7 @@ export function App() {
   async function boot() {
     if (bootLock.current) return;
     bootLock.current = true;
+    clearHistory();
     setBooting(true);
     setBootStage('server');
     setConnection('starting');
@@ -240,6 +253,7 @@ export function App() {
       const streams = await listen<string>('backend-stream', ({ payload }) => {
         if (bootLock.current) return;
         if (payload === 'connected') {
+          clearHistory();
           void api<BackendHealth>('/global/health')
             .then((health) => {
               assertDesktopProtocol(health);
@@ -284,6 +298,7 @@ export function App() {
       !text.trim() ||
       requestLock.current ||
       busy ||
+      (!!sessionId && !chatReady) ||
       chatLoading ||
       chatError ||
       snapshot?.connectionError ||
@@ -298,10 +313,13 @@ export function App() {
     setError('');
     stick.current = true;
     const epoch = navigationEpoch.current;
+    const trace = chatTrace('send', { initial: !idRef.current });
     try {
       let id = idRef.current;
       if (!id) {
+        trace.mark('create');
         const session = await api<Session>('/session', 'POST', {});
+        trace.mark('created');
         id = session.id;
         if (navigationEpoch.current === epoch) {
           idRef.current = id;
@@ -309,19 +327,27 @@ export function App() {
           localStorage.setItem('last-session', id);
         }
       }
+      trace.mark('submit');
       await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
+      trace.mark('accepted');
       if (navigationEpoch.current === epoch) {
         setInput('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
+        trace.mark('sync');
         await sync();
+        trace.mark('synced');
       }
+      trace.mark('list');
       await refreshSessions();
+      trace.mark('listed');
     } catch (e) {
+      trace.mark('error');
       if (navigationEpoch.current === epoch) setError(sendErrorText(e));
       await sync().catch(() => {});
     } finally {
       requestLock.current = false;
       setSending(false);
+      trace.mark('end');
     }
   }
   function newSession() {
@@ -337,6 +363,7 @@ export function App() {
     inputRef.current?.focus();
   }
   async function respond(response: InputResponse) {
+    if (!chatReady || snapshot?.closed || capabilities.interaction?.respond !== true) return;
     const id = sessionId;
     await api(`/session/${id}/respond`, 'POST', { responses: [response] });
     if (idRef.current === id) await sync();
@@ -349,7 +376,7 @@ export function App() {
       inputRef={inputRef}
       onSend={() => void send()}
       onCancel={() => {
-        if (cancelling || capabilities.sessions?.cancel !== true) return;
+        if (!chatReady || cancelling || capabilities.sessions?.cancel !== true) return;
         const id = sessionId,
           epoch = navigationEpoch.current;
         setCancelling(true);
@@ -368,10 +395,14 @@ export function App() {
       busy={busy}
       sending={sending}
       canCancel={
-        capabilities.sessions?.cancel === true && !cancelling && connection === 'connected'
+        chatReady &&
+        capabilities.sessions?.cancel === true &&
+        !cancelling &&
+        connection === 'connected'
       }
       connected={
         connection === 'connected' &&
+        (!sessionId || chatReady) &&
         !chatLoading &&
         !chatError &&
         !snapshot?.connectionError &&
@@ -534,6 +565,7 @@ export function App() {
             initialTab={settingsTab}
             onSaved={(applied) => {
               if (applied) void boot();
+              else clearHistory();
             }}
             active={settings}
             instant={instant}
@@ -672,6 +704,7 @@ export function App() {
                     key={`${sessionId}:${input.request.requestId}`}
                     input={input}
                     disabled={
+                      !chatReady ||
                       connection !== 'connected' ||
                       !!chatError ||
                       !!snapshot?.connectionError ||

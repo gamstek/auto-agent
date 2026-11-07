@@ -15,7 +15,7 @@ desktop/playwright-report/
 logs/
 .env
 *.sqlite*
-!skills/device-automation/assets/library.sqlite
+!corax/skills/device-automation/assets/library.sqlite
 coverage/
 docs/internal/
 .corax/

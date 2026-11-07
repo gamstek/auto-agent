@@ -4,8 +4,8 @@ import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LlmWiki, discoverText, type IngestModel } from '@auto-agent/llm-wiki';
-import { configSchema, DATA_LAYOUT, ensureConfig, loadConfig } from '../../lib/config';
-import { ingestLlmWiki } from '../../lib/wiki/ingest';
+import { configSchema, DATA_LAYOUT, ensureConfig, loadConfig } from 'auto-agent/config';
+import { ingestLlmWiki } from 'auto-agent/wiki/ingest';
 import { listenFetch } from './http-fixture';
 
 test('configuration exposes only text LLM Wiki sources and rejects SQLite bundle configuration', async () => {
@@ -15,6 +15,23 @@ test('configuration exposes only text LLM Wiki sources and rejects SQLite bundle
     ensureConfig(path);
     assert.equal(await readFile(join(root, '.data-layout'), 'utf8'), DATA_LAYOUT);
     assert.deepEqual(loadConfig(path).llmWiki, { sources: [] });
+    assert.deepEqual(loadConfig(path).climber, {
+      enabled: true,
+      serviceURL: 'http://127.0.0.1:18080/api/v1',
+      timeoutMs: 5000,
+    });
+    await writeFile(
+      path,
+      JSON.stringify({
+        climber: { enabled: false, serviceURL: 'http://manufacturer.example:18080/api/v1' },
+      }),
+    );
+    ensureConfig(path);
+    assert.deepEqual(loadConfig(path).climber, {
+      enabled: false,
+      serviceURL: 'http://manufacturer.example:18080/api/v1',
+      timeoutMs: 5000,
+    });
     for (const raw of [
       { wiki: {} },
       { llmWiki: { bundles: [] } },

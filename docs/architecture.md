@@ -17,6 +17,8 @@ Corax 管理会话 ID、标题、消息和持久化；应用不另建 Agent 循�
 
 ## 分层
 
+Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、instructions、sandbox、tools、channels 和 lib 路径均相对此目录。开发 CLI 的 CWD 和项目根目录只指向该包，桌面构建产物不进入其递归监听范围。`corax/package.json` 保留 `auto-agent` 身份与发布白名单，仓库根包仅负责工作区命令和验证。
+
 | 路径                                | 职责                                                |
 | ----------------------------------- | --------------------------------------------------- |
 | agent.ts / instructions.ts          | 动态模型与角色/共享原则                             |

@@ -13,6 +13,10 @@ pnpm dev:desktop
 
 开发模式由 Rust 使用系统 Node 调用 npm `@coraxjs/core` 的标准 `corax dev --no-ui`，保留后端原生重载与前端 Vite HMR。没有额外应用 HTTP 桥接或旧后端 EXE。
 
+Corax 开发项目根目录是仓库的 `corax/`，只包含其 authored 内容与依赖；桌面 Cargo 产物在该目录之外，避免递归监听导致冷启动 I/O 拥塞。开发配置与可选 `.env` 仍在仓库根目录，生产资源由 `corax/package.json` 白名单部署到原有 `src-tauri/runtime` 布局。
+
+开发态聊天分段耗时自动写入启动时 `dataDir/corax/logs/desktop-debug.log`（默认项目 `.auto-agent/corax/logs/desktop-debug.log`），也可从“设置 → 关于与诊断 → 打开日志”进入该目录。日志包含发送受理、生命周期锁/提交锁等待、活动检查、HTTP 响应、历史读取/投影、订阅首事件和列表刷新；仅记录固定阶段标签、数字与布尔状态，不记录消息、会话 ID、路径或凭据。每个文件上限 2 MiB，保留一份 `desktop-debug.previous.log`；正式构建不写入。修改 Rust 后需重启开发桌面进程再复现。
+
 组件位于 `src/components/<Name>/<Name>.tsx` 并导入同目录 CSS；App 负责页面组合，theme.css 负责 tokens，styles.css 负责共享重置和可访问性。
 
 ## 配置与数据
@@ -33,6 +37,8 @@ API Key 来自 `AUTO_AGENT_API_KEY` 或系统凭据库；不返回已保存的 K
 
 前后端共享 `packages/desktop-protocol` v4。Rust 从原生 NDJSON 流按游标转发事件，经 `corax-events` 原生事件交给 React；React 使用官方 conversationReducer、toolCallState 处理正文、思考、Skill、工具、人工输入和任务，不建立桌面会话数据库。
 
+选中会话的历史请求和事件订阅绑定临时视图，切换聊天或断线会释放旧订阅、取消尚未完成的旧历史读取。取消读取只关闭桌面持有的 HTTP/订阅传输，不等于取消 Corax 后台任务或设备操作。调试日志中正常切换对应 cancelled。
+
 首次启动在 StartupScreen 等待后端、健康、协议和会话列表检查；后续断线保留工作空间并读取状态恢复，不重放写请求。关闭/Alt+F4 先空闲安全地停止后端再退出，只有悬浮助手动作隐藏窗口。
 
 设置只显示实际生效的能力。当前没有设备后端能力，因此仪器导航禁用；领域 Skill 和独立 MCP 包的存在不代表已连接仪器。
@@ -50,9 +56,9 @@ prepare-runtime 白名单部署 Corax 产物、生产依赖与技能（含 devic
 
 Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件进行冻结部署；仅发布目录使用 `node-linker=hoisted`，开发环境继续使用默认的 isolated 布局。发布时移除依赖 sourcemap，保留源码、声明、许可证和原生/WASM 资源。
 
-“设置 → 仪器”配置 Climber 厂家 /api/v1 地址、超时和启用状态；忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
+“设置 → 仪器”配置 Climber 厂家 /api/v1 地址、超时和启用状态；默认开启，地址为 `http://127.0.0.1:18080/api/v1`，旧配置地址为空时显式启用会填入该默认地址。已有配置保留保存的启用状态与地址。忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
 
-“工具 / 技能”展示 Corax 官方运行信息中的实际目录；Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“LLM Wiki”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
+“工具”展示 Auto-Agent 当前注册的工具与动态工具，过滤 Corax 框架内置项；“技能”展示 Corax 官方运行信息中的实际目录。Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“LLM Wiki”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
 
 Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v1 标识时清理并初始化，后续同布局安装保留数据；正常启动和开发不会清理个人目录。
 

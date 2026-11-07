@@ -3,6 +3,7 @@ mod updates;
 mod support;
 mod configuration;
 mod corax;
+mod chat_debug;
 use corax::{CoraxRuntime, start, stop, has_active_work};
 
 use futures_util::StreamExt;
@@ -78,6 +79,7 @@ fn settings_read(state: State<'_, Desktop>) -> Result<Value, String> {
     let document = configuration::read(&state.config_path)?;
     let environment_key = std::env::var("AUTO_AGENT_API_KEY").ok().is_some_and(|v| !v.trim().is_empty());
     Ok(json!({ "settings": configuration::settings(&state.config_path, &document.raw)?, "configRevision": document.revision,
+        "defaults": {"climber": configuration::ClimberSettings::default()},
         "configPath": configuration::display_path(&state.config_path), "apiKeySource": if environment_key { "environment" } else { "keyring" },
         "hasApiKey": environment_key || read_key(&state.root)?.is_some(), "pendingApply": state.pending_apply.load(Ordering::SeqCst),
         "dataDirectory": configuration::data_directory(&state.config_path, &document.raw)?, "version": env!("CARGO_PKG_VERSION") }))
@@ -212,6 +214,11 @@ fn main() {
             let root = config_path.parent().ok_or("配置路径无效")?.to_path_buf();
             std::fs::create_dir_all(&root)?;
             if !args.iter().any(|arg| arg == "--config") { configuration::ensure(&config_path)?; }
+            #[cfg(debug_assertions)] {
+                let document = configuration::read(&config_path)?;
+                let logs = configuration::data_directory(&config_path, &document.raw)?.join("corax/logs");
+                chat_debug::initialize(&logs);
+            }
             let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(30)).build()?;
             app.manage(Desktop { root, config_path, backend: Mutex::new(None), client, pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) });
             tauri::async_runtime::spawn(apply_when_idle(app.handle().clone()));
@@ -229,7 +236,7 @@ fn main() {
             "launcher-exit" => request_exit(app.clone()),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, exit_app])
+        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, exit_app])
         .run(tauri::generate_context!()).expect("Unable to start desktop application");
 }
 

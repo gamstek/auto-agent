@@ -5,8 +5,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { callClimber } from '../../lib/climber';
-import { configSchema } from '../../lib/config';
+import { callClimber } from '../../corax/lib/climber';
+import { configSchema } from 'auto-agent/config';
 import { listenFetch } from './http-fixture';
 
 test(
@@ -14,7 +14,10 @@ test(
   { timeout: 30000 },
   async () => {
     const directory = await mkdtemp(join(tmpdir(), 'climber-sam-mcp-'));
-    const config = configSchema.parse({ dataDir: directory });
+    const config = configSchema.parse({
+      dataDir: directory,
+      climber: { enabled: false, serviceURL: '' },
+    });
     const call = async (operation: string, input: Record<string, unknown>) =>
       (await callClimber(
         config,

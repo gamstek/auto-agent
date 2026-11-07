@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import type { MessageStreamEvent } from '@coraxjs/core/client';
 import type { ChatSnapshot } from '@auto-agent/desktop-protocol';
-import { api, native, desktop, errorText } from '../bridge';
+import { native, desktop, errorText } from '../bridge';
 import { reconcileChatSnapshot } from '../lib/chat-snapshot';
 import { CoraxProjection } from '../lib/corax-projection';
+import { chatTrace } from '../lib/chat-debug';
+import { ChatHistoryCache, type CachedChatHistory } from '../lib/chat-history-cache';
 
 interface EventSnapshot {
   sessionId: string;
@@ -16,6 +18,7 @@ interface EventSnapshot {
 }
 interface EventBatch {
   sessionId: string;
+  generation?: string;
   watchId: string;
   startIndex: number;
   events: MessageStreamEvent[];
@@ -24,62 +27,131 @@ interface EventBatch {
   error?: string;
 }
 
+interface ViewLease {
+  id: string;
+  ready: Promise<void>;
+  disposed: boolean;
+  dirty: boolean;
+  pending?: Promise<void>;
+  confirmed: boolean;
+}
+
+function chatContext(id: string, cached?: CachedChatHistory) {
+  return {
+    id,
+    projection: cached?.projection ?? new CoraxProjection(id),
+    snapshot: (cached?.snapshot ?? null) as ChatSnapshot | null,
+    watchId: '',
+    loaded: !!cached,
+    view: undefined as ViewLease | undefined,
+    generation: cached?.generation ?? '',
+    loading: !!id,
+    error: '',
+  };
+}
+
 /** Rust owns the authenticated stream; this hook owns only the official UI projection. */
 export function useChat(sessionId: string, connected: boolean) {
-  const [snapshot, setSnapshot] = useState<ChatSnapshot | null>(null);
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
-  const current = useRef({
-    id: '',
-    projection: new CoraxProjection(''),
-    watchId: '',
-    loaded: false,
-    dirty: false,
-    pending: undefined as Promise<void> | undefined,
-    generation: '',
-  });
-  if (current.current.id !== sessionId)
-    current.current = {
-      id: sessionId,
-      projection: new CoraxProjection(sessionId),
-      watchId: '',
-      loaded: false,
-      dirty: false,
-      pending: undefined,
-      generation: '',
-    };
+  const [, render] = useState(0);
+  const [identity, setIdentity] = useState(0);
+  const cache = useRef(new ChatHistoryCache());
+  const current = useRef(chatContext(''));
+  if (current.current.id !== sessionId) {
+    const previous = current.current;
+    const cached = cache.current.take(sessionId);
+    if (previous.loaded) cache.current.put(previous.projection, previous.generation);
+    current.current = chatContext(sessionId, cached);
+  }
+  const notify = useCallback(() => render((value) => value + 1), []);
+  // Called at backend/configuration boundaries, including deferred settings application.
+  const clearHistory = useCallback(() => {
+    cache.current.clear();
+    current.current = chatContext(current.current.id);
+    setIdentity((value) => value + 1);
+  }, []);
   const notification = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  // Serialize only short lease commands, never history or stream network waits.
+  const viewQueue = useRef(Promise.resolve());
+  const queueView = useCallback((command: string, args: Record<string, unknown>) => {
+    const operation = viewQueue.current.then(() => native<void>(command, args));
+    viewQueue.current = operation.catch(() => {});
+    return operation;
+  }, []);
 
   const publish = useCallback(() => {
     const context = current.current;
     const next = context.projection.snapshot();
-    setSnapshot((previous) => reconcileChatSnapshot(previous, next));
-  }, []);
+    context.snapshot = reconcileChatSnapshot(context.snapshot, next);
+    notify();
+  }, [notify]);
+
+  const invalidate = useCallback(() => {
+    const context = current.current;
+    context.projection = new CoraxProjection(context.id);
+    context.snapshot = null;
+    context.loaded = false;
+    context.generation = '';
+    context.watchId = '';
+    if (context.view) context.view.confirmed = false;
+    notify();
+  }, [notify]);
 
   const refresh = useCallback((): Promise<void> => {
     const context = current.current;
-    if (!context.id) return Promise.resolve();
-    setLoading(true);
-    context.dirty = true;
-    if (context.pending) return context.pending;
-    context.pending = (async () => {
+    const view = context.view;
+    if (!context.id || !view || view.disposed) return Promise.resolve();
+    const active = () => context === current.current && context.view === view && !view.disposed;
+    context.loading = true;
+    notify();
+    view.dirty = true;
+    if (view.pending) {
+      chatTrace('chat-sync').mark('joined');
+      return view.pending;
+    }
+    const trace = chatTrace('chat-sync', { loaded: context.loaded });
+    view.pending = (async () => {
       try {
-        while (context.dirty && context === current.current) {
-          context.dirty = false;
+        await view.ready;
+        while (view.dirty && active()) {
+          view.dirty = false;
           const cursor = context.loaded ? context.projection.nextIndex : 0;
           const query =
             context.loaded && context.generation
               ? `?startIndex=${cursor}&generation=${encodeURIComponent(context.generation)}`
               : '';
-          const value = await api<EventSnapshot>(`/session/${context.id}/events${query}`);
-          if (context !== current.current) return;
+          trace.mark('history', { cursor });
+          const value = await native<EventSnapshot>('backend_request', {
+            method: 'GET',
+            path: `/session/${context.id}/events${query}`,
+            body: null,
+            viewId: view.id,
+          });
+          trace.mark('projection', {
+            count: Array.isArray(value.events) ? value.events.length : 0,
+          });
+          if (!active()) return;
           if (
             value.sessionId !== context.id ||
+            typeof value.generation !== 'string' ||
+            !value.generation ||
+            !Number.isSafeInteger(value.startIndex ?? 0) ||
+            (value.startIndex ?? 0) < 0 ||
             !Array.isArray(value.events) ||
             value.revision !== (value.startIndex ?? 0) + value.events.length
           )
             throw new Error('Corax 会话快照格式无效。');
           const startIndex = value.startIndex ?? 0;
+          if (context.generation && context.generation !== value.generation) cache.current.clear();
+          if (
+            startIndex !== 0 &&
+            (!context.loaded || context.generation !== value.generation || startIndex !== cursor)
+          ) {
+            invalidate();
+            // Only a read is repeated: rebuild an incompatible prefix from index zero.
+            if (cursor === 0) throw new Error('Corax 会话快照缺少初始事件。');
+            view.dirty = true;
+            continue;
+          }
           const reset =
             !context.loaded || context.generation !== value.generation || startIndex === 0;
           const projectionStarted = performance.now();
@@ -93,8 +165,14 @@ export function useChat(sessionId: string, connected: boolean) {
           context.generation = value.generation;
           context.watchId = crypto.randomUUID();
           context.loaded = true;
-          if (reset) setSnapshot(context.projection.snapshot());
-          else publish();
+          if (reset) {
+            context.snapshot = context.projection.snapshot();
+            notify();
+          } else publish();
+          trace.mark('watch', {
+            reset,
+            durationMs: Math.round(performance.now() - projectionStarted),
+          });
           if (import.meta.env.DEV && performance.now() - projectionStarted > 250)
             console.debug('[chat-projection]', {
               elapsedMs: Math.round(performance.now() - projectionStarted),
@@ -104,34 +182,67 @@ export function useChat(sessionId: string, connected: boolean) {
             sessionId: context.id,
             startIndex: context.projection.nextIndex,
             watchId: context.watchId,
+            viewId: view.id,
           });
-          setError('');
+          trace.mark('watched');
+          if (active()) {
+            context.error = '';
+            view.confirmed = true;
+          }
         }
       } catch (cause) {
-        if (context === current.current) setError(errorText(cause));
+        trace.mark(active() ? 'error' : 'cancelled');
+        if (active()) {
+          context.error = errorText(cause);
+          view.confirmed = false;
+        }
       } finally {
-        context.pending = undefined;
-        if (context === current.current) setLoading(false);
+        view.pending = undefined;
+        if (active()) {
+          context.loading = false;
+          notify();
+        }
+        trace.mark('end');
       }
     })();
-    return context.pending;
-  }, [publish]);
+    return view.pending;
+  }, [publish, notify, invalidate]);
 
   useEffect(() => {
-    setSnapshot(null);
-    setError('');
-  }, [sessionId]);
-  useEffect(() => {
-    setLoading(!!sessionId);
+    const selected = current.current;
+    selected.loading = !!sessionId;
     if (!desktop || !sessionId || !connected) {
-      setLoading(false);
+      selected.loading = false;
+      notify();
       return;
     }
+    const viewId = crypto.randomUUID();
+    const view: ViewLease = {
+      id: viewId,
+      ready: queueView('backend_chat_open', { sessionId, viewId }),
+      disposed: false,
+      dirty: false,
+      confirmed: false,
+    };
+    selected.view = view;
     let disposed = false;
+    const streamTrace = chatTrace('chat-stream');
+    let received = false;
     let unlisten: (() => void) | undefined;
     void listen<EventBatch>('corax-events', ({ payload }) => {
       const context = current.current;
+      if (disposed || context !== selected || context.view !== view) return;
       if (payload.sessionId !== context.id || payload.watchId !== context.watchId) return;
+      if (payload.generation && payload.generation !== context.generation) {
+        cache.current.clear();
+        invalidate();
+        void refresh();
+        return;
+      }
+      if (!received && payload.events.length) {
+        received = true;
+        streamTrace.mark('first-event', { count: payload.events.length });
+      }
       try {
         context.projection.append(payload.startIndex, payload.events);
         if (payload.closed)
@@ -142,6 +253,7 @@ export function useChat(sessionId: string, connected: boolean) {
           publish();
         }, 40);
       } catch {
+        invalidate();
         void refresh();
       }
     })
@@ -154,19 +266,36 @@ export function useChat(sessionId: string, connected: boolean) {
       })
       .catch((cause) => {
         if (!disposed) {
-          setError(errorText(cause));
-          setLoading(false);
+          selected.error = errorText(cause);
+          selected.loading = false;
+          notify();
         }
       });
     return () => {
       disposed = true;
+      view.disposed = true;
+      view.dirty = false;
+      if (selected.view === view) selected.view = undefined;
+      void queueView('backend_chat_close', { viewId }).catch(() => {});
       unlisten?.();
       if (notification.current) {
         clearTimeout(notification.current);
         notification.current = undefined;
       }
     };
-  }, [sessionId, connected, publish, refresh]);
+  }, [sessionId, connected, identity, publish, refresh, queueView, notify, invalidate]);
 
-  return { snapshot: snapshot?.sessionId === sessionId ? snapshot : null, loading, error, refresh };
+  const context = current.current;
+  return {
+    snapshot: context.snapshot,
+    loading: context.loading,
+    error: context.error,
+    ready:
+      connected &&
+      !!context.view?.confirmed &&
+      !context.error &&
+      !context.snapshot?.connectionError,
+    refresh,
+    clearHistory,
+  };
 }

@@ -15,7 +15,7 @@ for (const mode of [
     const root = resolve(import.meta.dirname, '../..');
     // Relocate the payload outside the workspace so missing production dependencies
     // cannot accidentally resolve from the developer's node_modules.
-    const project = join(temporary, 'project');
+    const project = join(temporary, mode === 'development' ? 'workspace/corax' : 'project');
     let usedWiki = false;
     let usedHost = false;
     let usedHostFile = false;
@@ -198,7 +198,7 @@ for (const mode of [
         },
       });
     } else {
-      await mkdir(project);
+      await mkdir(project, { recursive: true });
       for (const name of [
         'agent.ts',
         'instructions.ts',
@@ -207,10 +207,9 @@ for (const mode of [
         'tools',
         'channels',
         'skills',
-        'scripts',
         'package.json',
       ])
-        await cp(join(root, name), join(project, name), { recursive: true });
+        await cp(join(root, 'corax', name), join(project, name), { recursive: true });
       for (const name of [
         '@coraxjs/core',
         'ai',
@@ -226,6 +225,19 @@ for (const mode of [
         const target = join(project, 'node_modules', name);
         await mkdir(dirname(target), { recursive: true });
         await symlink(await realpath(join(root, 'node_modules', name)), target, 'junction');
+      }
+      if (mode === 'development') {
+        const workspace = dirname(project);
+        await cp(join(root, 'scripts'), join(workspace, 'scripts'), { recursive: true });
+        await cp(join(root, 'package.json'), join(workspace, 'package.json'));
+        for (const [name, source] of [
+          ['auto-agent', project],
+          ['@coraxjs/core', await realpath(join(root, 'node_modules/@coraxjs/core'))],
+        ]) {
+          const target = join(workspace, 'node_modules', name!);
+          await mkdir(dirname(target), { recursive: true });
+          await symlink(source!, target, 'junction');
+        }
       }
     }
     // Packaged mode adds this after deployment: its read proves the provider
@@ -250,7 +262,7 @@ for (const mode of [
     };
     const cli =
       mode === 'development'
-        ? join(project, 'scripts/corax.ts')
+        ? join(project, '../scripts/corax.ts')
         : mode === 'packaged'
           ? join(project, 'node_modules/@coraxjs/core/bin/corax.js')
           : fileURLToPath(import.meta.resolve('@coraxjs/core/bin'));

@@ -1,7 +1,7 @@
 import { lstat, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { DATA_LAYOUT } from '../../../lib/config/paths';
+import { DATA_LAYOUT } from 'auto-agent/config/paths';
 
 /** Installer-only layout cutover. Tests supply an isolated directory, never the user profile. */
 export async function resetInstalledData(directory: string) {

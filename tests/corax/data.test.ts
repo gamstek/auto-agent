@@ -2,7 +2,7 @@ import { test, expect } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { ownCoraxRuntime, prepareCoraxData } from '../../lib/config';
+import { ownCoraxRuntime, prepareCoraxData } from 'auto-agent/config';
 
 test('one backend owns the configured Corax runtime directory', async () => {
   const root = await mkdtemp(join(tmpdir(), 'corax-runtime-owner-'));

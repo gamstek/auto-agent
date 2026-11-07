@@ -36,7 +36,7 @@
 | 进程生命周期 | 关闭桌面退出其管理的后端，忙时拒绝退出           | 保留交互模式；以后明确增加独立常驻服务模式                    |
 | 定时与跨设备 | 未实现                                           | 持久化调度、设备预留、明确的错过触发和恢复规则                |
 
-当前真实厂家接口仅包括 health、status、register、start。现有接口约束见 [Climber 参考](../../skills/device-automation/references/climber.md)。本设计不据此推导停止、暂停、历史任务查询等额外能力。
+当前真实厂家接口仅包括 health、status、register、start。现有接口约束见 [Climber 参考](../../corax/skills/device-automation/references/climber.md)。本设计不据此推导停止、暂停、历史任务查询等额外能力。
 
 ## 已确定的设计决策
 
@@ -54,7 +54,7 @@
 
 ## 两种流程必须区分
 
-现有 [自动化接口契约](../../skills/device-automation/references/automation.md) 描述的是：外部自动化控制系统拥有完整流程，Agent 选择其已有模板并提交一次运行。新宿主流程不能悄悄改变该契约。
+现有 [自动化接口契约](../../corax/skills/device-automation/references/automation.md) 描述的是：外部自动化控制系统拥有完整流程，Agent 选择其已有模板并提交一次运行。新宿主流程不能悄悄改变该契约。
 
 | 执行主体             | 宿主负责                                     | 外部系统负责                       |
 | -------------------- | -------------------------------------------- | ---------------------------------- |

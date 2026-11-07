@@ -3,8 +3,8 @@ import { test } from 'node:test';
 import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { createHostSession } from '../../lib/host/session';
-import { toShellPath } from '../../lib/host/paths';
+import { createHostSession } from '../../corax/lib/host/session';
+import { toShellPath } from '../../corax/lib/host/paths';
 
 test('ShellJS host environment runs real programs and shares native files with Corax aliases', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auto-agent host 量仔-'));

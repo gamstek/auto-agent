@@ -7,7 +7,7 @@ import {
   removeLegacyResources,
   resetInstalledData,
 } from '../../desktop/src-tauri/installer/reset-data';
-import { DATA_LAYOUT } from '../../lib/config/paths';
+import { DATA_LAYOUT } from 'auto-agent/config/paths';
 
 test('installer resets an incompatible isolated layout once and preserves compatible reinstalls', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auto-agent-install-'));

@@ -1,4 +1,5 @@
 packages:
+  - corax
   - desktop
   - packages/*
 
