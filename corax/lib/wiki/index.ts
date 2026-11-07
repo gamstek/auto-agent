@@ -17,7 +17,7 @@ export function referenceSource(
   return {
     path: join(projectRoot, 'skills/device-automation/assets/library.sqlite'),
     parserId: 'sam.reference',
-    note: '预置历史参数证据；不是完整 SAM 文件，也不证明当前仪器状态或科学适用。',
+    note: '预置历史参数证据；案例名称、原始路径和样品身份信息已在数据源脱敏，案例编号不是实际文件路径。保留的 sourceSha256 对应原始 SAM 文件；本库不是完整 SAM 文件，也不证明当前仪器状态或科学适用。',
     protectedPaths: [
       join(projectRoot, 'skills/device-automation/assets'),
       join(projectRoot, 'skills/device-automation/references/materials'),

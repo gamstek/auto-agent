@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { callClimber } from '../../corax/lib/climber';
@@ -31,6 +31,62 @@ test(
         'g12',
         'g5',
       ]);
+      for (const profile of profiles.profiles) {
+        assert.match(profile.origin.path, /^cases\/(?:[^/]+\/)?case-[a-f0-9]{64}\.(SAM|SMP)$/);
+        assert.match(profile.origin.sha256, /^[a-f0-9]{64}$/);
+      }
+      // Run the documented explicit program through the real MCP/file path: it
+      // must override historical program defaults without expanding its segments.
+      const guidance = await readFile(
+        new URL('../../corax/skills/device-automation/references/sam-create.md', import.meta.url),
+        'utf8',
+      );
+      const example = /```json\s*\n([\s\S]*?)\n```/.exec(guidance);
+      assert.ok(example, 'SAM guidance must contain its documented create example');
+      const documentInput = JSON.parse(example[1]!);
+      assert.ok(documentInput.settings.pressureProgram?.length);
+      assert.equal(typeof documentInput.settings.temperatureK, 'number');
+      const documentPath = join(directory, 'document-template.SAM');
+      const documented = await call('create', { ...documentInput, path: documentPath });
+      assert.equal(documented.written, true);
+      assert.equal(documented.generation.defaultedFields.includes('pressureProgram'), false);
+      const checkedDocument = await call('compare', {
+        path: documentPath,
+        product: documentInput.product,
+        requirements: {
+          temperatureK: documentInput.settings.temperatureK,
+          pressureMode: documentInput.settings.pressureMode,
+          collectionMode: 'target-pressure',
+          pressureProgram: documentInput.settings.pressureProgram,
+        },
+      });
+      assert.equal(checkedDocument.comparison.overall, 'match');
+      assert.equal(
+        checkedDocument.pressureProgram.segments.length,
+        documentInput.settings.pressureProgram.length,
+      );
+      // SiCOPE file support remains offline and keeps its own format/version.
+      const sicopeProfile = profiles.profiles.find((profile: any) => profile.product === 'g12');
+      const sicope = await call('create', {
+        ...documentInput,
+        product: 'g12',
+        path: join(directory, 'sicope.SAM'),
+      });
+      assert.equal(sicope.written, true);
+      assert.equal(sicope.status.family, 'g12');
+      assert.equal(sicope.facts.softwareVersion.value, sicopeProfile.softwareVersion);
+      assert.equal(sicope.facts.clientVersion.value, sicopeProfile.clientVersion);
+      assert.equal(sicope.executionVerified, false);
+      const co2Path = join(directory, 'unsupported-co2.SAM');
+      const unsupportedGas = await call('create', {
+        ...documentInput,
+        product: 'g12',
+        path: co2Path,
+        settings: { ...documentInput.settings, gasMnemonic: 'CO2', temperatureK: 273 },
+      });
+      assert.equal(unsupportedGas.error.code, 'UNSUPPORTED_PROFILE');
+      assert.equal(unsupportedGas.written, undefined);
+      await assert.rejects(readFile(co2Path), { code: 'ENOENT' });
       const path = join(directory, 'sample.SAM');
       const created = await call('create', {
         path,
@@ -43,6 +99,7 @@ test(
         },
       });
       assert.equal(created.written, true);
+      assert.equal(created.identity.sampleName, 'Local fixture');
       assert.equal(created.facts.labType.value, 0);
       const inspected = await call('inspect', { path, product: 'g5' });
       assert.equal(inspected.file.sha256, created.file.sha256);

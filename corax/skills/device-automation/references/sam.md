@@ -2,7 +2,14 @@
 
 ## 用途与入口
 
-Climber MCP 的 `sam_file` 支持读取与对比 SAM/SMP，以及新建、修改和另存为 G5/G12 模板。文件由 MCP 执行主机写入；将厂家可访问的绝对 `.SAM` 路径交给实际提供的登记能力，登记明确成功后再启动同一 batchId，具体见 [Climber 接口](./climber.md)。文件历史状态不代表本次实验的状态。
+Climber MCP 的 `sam_file` 提供共享的 SAM/SMP 文件能力，支持 Climber（研发别称 G5）和 SiCOPE（研发别称 G12）的模板读取、对比、新建、修改和另存为。G5/G12 是两款产品的研发别称，不是另外两款仪器；MCP 包名也不代表其中的文件能力只服务 Climber。
+
+| 对外产品名称 | 研发别称 | SAM 参数标识 |
+| ------------ | -------- | ------------ |
+| Climber      | G5       | `g5`         |
+| SiCOPE       | G12      | `g12`        |
+
+文件由 MCP 执行主机写入。仅在对应仪器的控制能力已提供时，才将厂家可访问的绝对 `.SAM` 路径交给该仪器的登记能力；明确登记成功后再启动同一 batchId。当前已接入的设备控制是 [Climber 接口](./climber.md)，不能因可处理 SiCOPE 文件就把 SiCOPE 任务交给 Climber 控制工具。文件历史状态不代表本次实验的状态。
 
 优先使用当前工具目录中的 SAM 专用文件能力。Auto-Agent 的 `sam_file` 接收 `operation` 与 `input` 对象，例如：
 
@@ -13,7 +20,7 @@ Climber MCP 的 `sam_file` 支持读取与对比 SAM/SMP，以及新建、修改
 }
 ```
 
-实现与完整产品配置在 Climber MCP 内，不需要虚拟 shell 或技能脚本。路径必须是 MCP 执行宿主的绝对路径，不是 JustBash 的 `/workspace`；厂家进程可访问的 samPath 不保证 MCP 主机也能读取。
+实现与完整产品配置在 Climber MCP 内，无需为此寻找解释器或另写调用脚本。路径必须是 MCP 执行宿主的原生绝对路径，不是宿主 Shell 的 `/workspace` 别名；厂家进程可访问的 samPath 不保证 MCP 主机也能读取。
 
 读取时 operation 为 inspect；对比时 operation 为 compare，下面对象放在 input 中，无需手动序列化或拼接命令。
 
@@ -39,7 +46,7 @@ Climber MCP 的 `sam_file` 支持读取与对比 SAM/SMP，以及新建、修改
 
 ## 文件格式与产品
 
-- product 必填，取 `g5`、`g12` 或 `s60pro`，来自实际设备信息；不根据扩展名、文件夹名或单独的 softwareVersion 猜测产品。
+- product 必填，取 `g5`、`g12` 或 `s60pro`；其中 `g5` 对应 Climber，`g12` 对应 SiCOPE。按实际目标产品选择，不根据扩展名、文件夹名或单独的 softwareVersion 猜测产品。保留历史产品标识与原文件哈希；公开案例的身份字段按资料库脱敏约定处理。
 - Qt 文件按 int32 大端状态、uint32 大端字符串字节长度、UTF-16BE JSON 解码；长度必须精确匹配。也支持明确以对象开始的 UTF-8 JSON 文本。其他编码、截断、非有限数值等报错。
 - `.SMP` 扩展名不保证 Qt 格式。案例中存在以 `^vMIC` 开头的其他厂家 SMP，返回 UNSUPPORTED_FORMAT；不改扩展名、不套用 G5/G12 解释。
 - 枚举依据2026-10-27字段说明的当前定义，始终返回 `versionVerified=false`。G5/G12 状态家族不匹配所选产品时，相应枚举不作归一化。S60Pro 未确认的实验类型、自由空间枚举及绝对压力倍率保持未知。
@@ -57,7 +64,7 @@ Climber MCP 的 `sam_file` 支持读取与对比 SAM/SMP，以及新建、修改
 - `T_` 表示目标压力模式、`D_` 表示注气增量模式。低压注气事实只取当前模式且开关已启用的字段；停用或缺失时为未知。
 - 两张表可以同时存在，以 active 标识哪张被模式选中，不合并为执行点。压力段保留原顺序和 start/end/step，step=0 标为 endpointOnly，不自动展开或补齐点位。
 - `unit`、零起始 `port` 原样返回，不自动换成厂家 analysisPort，更不把管号当端口。
-- reports 的 selected 才表示勾选。报告存在不证明自动导出 PDF。
+- reports 的 selected 只表示报告整体勾选；当前摘要不返回概要报告内部选项，不能据此声称概要子项已核验。报告存在不证明自动导出 PDF。
 
 facts 用 presence=missing/null/value 区分字段缺失、显式null和有值；标量保留 rawValue，归一化失败不把字符串数字当成有效枚举。两张分段表也带 presence，空数组不会变成 null。false、0 保留原值。出现未解释的扩展字段会报告 extraKeys/warnings，不解释其执行行为。
 
@@ -93,7 +100,7 @@ comparison.checks 的状态为 match、mismatch、unknown 或 unsupported；over
 
 调用 `profiles/create/modify/save-as` 前，阅读 [SAM 模板写入接口](./sam-create.md)。该文档包含按需生成、完整配置、参数单位、待填模板、修改和另存为的完整契约。
 
-新建优先使用内置完整配置和本次 settings，无需用户提供基准文件。生成后复用返回的 file.path；仅在厂家访问条件或跨机映射缺失时询问对应缺项。登记及启动按 [Climber 接口](./climber.md) 分阶段执行。
+新建用内置完整配置承载已选文档方案和本次 settings，无需用户提供基准文件。仅文件任务在核对结果并返回 file.path 后结束。只有用户要求在 Climber 上执行时，才按 [Climber 接口](./climber.md) 分阶段登记/启动并核对厂家路径；SiCOPE 文件不进入 Climber 控制流程。
 
 ## 调用边界
 

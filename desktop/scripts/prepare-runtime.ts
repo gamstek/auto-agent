@@ -52,6 +52,7 @@ for (const path of [
   'node_modules/tsx/package.json',
   'node_modules/shelljs/package.json',
   'sandbox.ts',
+  'memory.ts',
 ]) {
   if (!(await stat(join(output, path))).isFile())
     throw new Error(`Runtime resource missing: ${path}`);

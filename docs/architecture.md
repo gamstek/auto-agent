@@ -6,7 +6,7 @@ Node.js 24+、npm `@coraxjs/core`、Tauri 2 与 React。应用、CLI、工具及
 React（官方 reducer 投影）
   └─ Tauri 受限命令 → Rust 认证 HTTP/NDJSON
                         └─ 标准 Corax CLI dev/start（Node）
-                             ├─ agent / instructions
+                             ├─ agent / instructions / memory
                              ├─ tools / channels / skills
                              └─ 会话、工作流、事件与默认工具
 ```
@@ -17,11 +17,12 @@ Corax 管理会话 ID、标题、消息和持久化；应用不另建 Agent 循�
 
 ## 分层
 
-Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、instructions、sandbox、tools、channels 和 lib 路径均相对此目录。开发 CLI 的 CWD 和项目根目录只指向该包，桌面构建产物不进入其递归监听范围。`corax/package.json` 保留 `auto-agent` 身份与发布白名单，仓库根包仅负责工作区命令和验证。
+Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、instructions、sandbox、memory、tools、channels 和 lib 路径均相对此目录。开发 CLI 的 CWD 和项目根目录只指向该包，桌面构建产物不进入其递归监听范围。`corax/package.json` 保留 `auto-agent` 身份与发布白名单，仓库根包仅负责工作区命令和验证。
 
 | 路径                                | 职责                                                |
 | ----------------------------------- | --------------------------------------------------- |
 | agent.ts / instructions.ts          | 动态模型与角色/共享原则                             |
+| memory.ts                           | Corax 原生长期记忆、稳定本地用户作用域              |
 | sandbox.ts / lib/host               | 公开 Corax Provider、ShellJS 宿主进程与真实文件 I/O |
 | tools/wiki.ts                       | Agent 通用 Wiki：知识、只读证据与显式摄入           |
 | tools/climber.ts                    | MCP 契约驱动的动态 SAM/Climber 工具                 |
@@ -44,6 +45,12 @@ Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、
 
 模型只看到统一 wiki 工具的资料集合，不再分别暴露 device_reference 与 llm_wiki。两份人工规则属于 Skill references，按需阅读，不做 guidance 操作或另一套查询服务。
 
+## 跨会话长期记忆
+
+`memory.ts` 通过公开 `defineMemory` 和 `fileMemory({ backend: sqliteMemory(...) })` 接入 Corax 原生召回、保存和删除工具。持久文件为 `dataDir/corax/memory.sqlite`；固定 namespace=`auto-agent`、scope=`local-user`，同一数据目录跨会话、进程重启和安装资源迁移保持身份，不依赖随机传输令牌。不同 dataDir 使用各自的文件。
+
+Corax 在新一轮开始及上下文压缩完成时召回，默认记忆文本上限 4000 字符。记忆只承载本地用户的稳定事实与偏好；聊天记录、展示缓存、Wiki 知识、配置和设备未知写入仍由各自模块拥有，不从记忆推断任务状态。没有应用自建记忆数据库实现、额外模型调用链或桌面数据库接口。
+
 ## LLM Wiki 与领域资料
 
 LLM Wiki 仅接受 UTF-8 Markdown/TXT：原文 → LLM 分析 → 页面生成/合并。内容在 dataDir/llm-wiki，检索缓存是派生 JSON；原文和 Markdown 页是持久知识，不能当缓存丢弃。按完整版本发布，失败/取消保留之前内容；批次按来源逐项提交并报告 completed。
@@ -51,6 +58,8 @@ LLM Wiki 仅接受 UTF-8 Markdown/TXT：原文 → LLM 分析 → 页面生成/�
 device-automation 的历史数据库位于 Skill 的 assets/library.sqlite，经 Agent Wiki reference 集合只读查询；人工规则在同一 Skill 的 references/materials，属于指导。用户知识属于 knowledge 集合。两类数据不混入同一摄入流程，不送人工规则/历史库给 LLM 重写，也没有公开数据库路径、SQL 或 SQLite 资料包导入接口。只读查询使用通用元数据 filters，不在 Wiki 工具 schema 中写入产品/气体专用参数。
 
 ## Climber MCP 与 SAM
+
+Climber 的研发别称为 G5，SiCOPE 的研发别称为 G12；命名对应关系不新增仪器类型。SAM 参数和历史资料保留 g5/g12 标识，各自版本与格式独立。`sam_file` 是两款产品共享的文件能力，当前已实现的厂家控制适配仍仅为 Climber，不把 SiCOPE 文件支持解释为 SiCOPE 控制支持。
 
 Corax 动态工具 → 官方 MCP SDK stdio 客户端 → 当前 Node + 固定 tsx loader → `@auto-agent/climber-mcp/cli`。Corax 的公开原生 MCP connection 只支持 HTTP/SSE；应用以公开 defineTool/defineDynamic 适配标准 stdio，不使用私有 SDK 或增加 HTTP 桥。工具定义与 schema 由 MCP 包导出，应用不复制厂家协议或 SAM 逻辑。
 
@@ -66,6 +75,6 @@ SAM 路径属于 MCP 执行宿主，使用其原生绝对路径，不能直接�
 
 开发配置为项目内 .auto-agent/config.json，生产为 ~/.auto-agent/config.json。相对路径从配置文件解析。Corax 数据在 dataDir/corax，用户知识在 dataDir/llm-wiki。Rust 传原配置路径，Node 使用进程内快照；忙碌时保存，空闲后重启应用。
 
-Rust 转发原始事件，React 使用官方投影；重连只续读、不重发写。Windows Job Object 持有进程树，退出/更新前检查工作。
+Rust 转发原始事件，React 使用官方投影；重连只续读、不重发写。Windows Job Object 持有进程树，普通退出/更新前检查工作。交互退出忙碌或状态未知时，Rust 提供继续运行/强制关闭确认；只有明确确认可强制结束自有进程树，更新和设置重启不使用该例外，未知写入仍需核对。
 
 发布资源白名单只包含应用、生产依赖、固定资料、Node 和安装脚本，不含用户数据或凭据。布局标识保持 corax-node-llm-wiki-v1，运行时切换不触发额外清理。仅安装器处理旧布局切换；普通启动不删除或迁移数据。更新由 Rust 校验签名后安装。

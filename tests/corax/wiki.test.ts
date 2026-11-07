@@ -20,6 +20,8 @@ test('generic Wiki reference collection preserves immutable evidence and support
   ) as any;
   expect(results.results).toHaveLength(1);
   const hit = results.results[0];
+  expect(hit.title).toMatch(/^case-[a-f0-9]{64}\.(SAM|SMP)$/);
+  expect(hit.origin).toMatch(/^[^/]+\/case-[a-f0-9]{64}\.(SAM|SMP)$/);
   expect(hit.attributes['sam.product']).toBe('g5');
   expect(hit.reference.assetSha256).toBe(catalog.assetSha256);
   const evidence = queryReference(
@@ -27,8 +29,11 @@ test('generic Wiki reference collection preserves immutable evidence and support
     source,
   ) as any;
   expect(evidence.sourceSha256).toBe(hit.sourceSha256);
+  expect(evidence.sourceSha256).toMatch(/^[a-f0-9]{64}$/);
   expect(evidence.sourceVerified).toBe(false);
   expect(evidence.units.length).toBeGreaterThan(0);
+  expect(['[已脱敏]', null, '']).toContain(evidence.units[0].data.identity.sampleName);
+  expect(['[已脱敏]', null, '']).toContain(evidence.units[0].data.identity.uuid);
   expect(() =>
     queryReference(
       referenceInput.parse({

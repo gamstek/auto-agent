@@ -9,7 +9,7 @@ pub struct CoraxRuntime {
     child: Child,
     connection: Arc<Connection>,
     chat: ChatViews,
-    tree: ProcessTree,
+    tree: Arc<ProcessTree>,
     monitor: Option<tauri::async_runtime::JoinHandle<()>>,
     _ownership: Ownership,
 }
@@ -138,7 +138,7 @@ fn process_alive(pid: u32) -> Result<bool, String> {
 }
 
 #[cfg(windows)]
-struct ProcessTree(windows_sys::Win32::Foundation::HANDLE);
+pub(super) struct ProcessTree(windows_sys::Win32::Foundation::HANDLE);
 #[cfg(windows)]
 unsafe impl Send for ProcessTree {}
 #[cfg(windows)]
@@ -161,18 +161,20 @@ impl ProcessTree {
         }
     }
     fn stop(&self) { unsafe { windows_sys::Win32::System::JobObjects::TerminateJobObject(self.0, 0); } }
+    fn force_stop(&self) { self.stop(); }
 }
 #[cfg(windows)]
 impl Drop for ProcessTree { fn drop(&mut self) { unsafe { windows_sys::Win32::Foundation::CloseHandle(self.0); } } }
 #[cfg(not(windows))]
-struct ProcessTree(i32);
+pub(super) struct ProcessTree { group: i32, forced: AtomicBool }
 #[cfg(not(windows))]
 impl ProcessTree {
-    fn attach(child: &Child) -> Result<Self, String> { Ok(Self(child.id().ok_or("Corax 进程无效")? as i32)) }
-    fn stop(&self) { unsafe { libc::kill(-self.0, libc::SIGTERM); } }
+    fn attach(child: &Child) -> Result<Self, String> { Ok(Self { group: child.id().ok_or("Corax 进程无效")? as i32, forced: AtomicBool::new(false) }) }
+    fn stop(&self) { unsafe { libc::kill(-self.group, libc::SIGTERM); } }
+    fn force_stop(&self) { if !self.forced.swap(true, Ordering::SeqCst) { unsafe { libc::kill(-self.group, libc::SIGKILL); } } }
 }
 #[cfg(not(windows))]
-impl Drop for ProcessTree { fn drop(&mut self) { unsafe { libc::kill(-self.0, libc::SIGKILL); } } }
+impl Drop for ProcessTree { fn drop(&mut self) { self.force_stop(); } }
 
 fn cli_path(project: &Path) -> Result<PathBuf, String> {
     let package = project.join("node_modules/@coraxjs/core");
@@ -223,8 +225,10 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     command.arg(if cfg!(debug_assertions) { "dev" } else { "start" });
     if cfg!(debug_assertions) { command.arg("--no-ui"); }
     command.args(["--host", "127.0.0.1", "--port", &port]);
+    if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
     let mut child = command.spawn().map_err(|_| "无法启动 Node/Corax，请检查运行时和应用资源")?;
-    let tree = ProcessTree::attach(&child)?;
+    let tree = Arc::new(ProcessTree::attach(&child)?);
+    *state.owned_tree.lock().unwrap_or_else(|error| error.into_inner()) = Some(Arc::downgrade(&tree));
     let ready = Arc::new(AtomicBool::new(false));
     let output = Arc::new(SyncMutex::new(VecDeque::<String>::new()));
     for pipe in [child.stdout.take().map(|pipe| Box::pin(pipe) as std::pin::Pin<Box<dyn tokio::io::AsyncRead + Send>>), child.stderr.take().map(|pipe| Box::pin(pipe) as std::pin::Pin<Box<dyn tokio::io::AsyncRead + Send>>)] {
@@ -270,14 +274,72 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
 }
 
 pub async fn stop(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
+    stop_if_idle(state, slot, None).await
+}
+
+// Interactive exit has a bounded probe so an unresponsive backend can still
+// lead to an explicit force-close choice. Automatic restarts keep the strict path.
+pub(super) async fn stop_for_exit(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
+    stop_if_idle(state, slot, Some(Duration::from_secs(3))).await
+}
+
+async fn stop_if_idle(state: &Desktop, slot: &mut Option<CoraxRuntime>, check_timeout: Option<Duration>) -> Result<(), String> {
     if let Some(backend) = slot.as_mut() {
-        if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none() {
-            if has_active_work(state, backend).await? { return Err("任务仍在执行，请完成或取消后再退出".into()); }
+        let running = backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none();
+        if !running && (check_timeout.is_some() || backend.in_flight.load(Ordering::SeqCst) > 0 || !backend.pending.lock().unwrap().is_empty()) {
+            return Err("后台进程已退出，尚无法确认任务和写入的最终状态。".into());
+        }
+        if running {
+            let checking = has_active_work(state, backend);
+            let busy = if let Some(limit) = check_timeout {
+                tokio::time::timeout(limit, checking).await.map_err(|_| "无法及时确认后台任务状态。")??
+            } else { checking.await? };
+            if busy { return Err("仍有后台任务在执行，或有写入尚待确认。".into()); }
             backend.tree.stop();
             tokio::time::timeout(Duration::from_secs(25), backend.child.wait()).await.map_err(|_| "Corax 正在退出，请稍后重试")?.map_err(|_| "无法等待 Corax 退出")?;
         }
     }
     *slot = None;
+    Ok(())
+}
+
+// Rust-only operator action. Never register this as IPC or call it from the
+// updater/settings path; shutdown invokes it only after native confirmation.
+pub(super) async fn force_stop(slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
+    if let Some(backend) = slot.as_mut() {
+        if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none() {
+            backend.tree.force_stop();
+            match tokio::time::timeout(Duration::from_secs(5), backend.child.wait()).await {
+                Ok(result) => { result.map_err(|_| "无法等待后台进程退出")?; },
+                Err(_) => {
+                    backend.child.start_kill().map_err(|_| "无法结束 Corax 进程")?;
+                    tokio::time::timeout(Duration::from_secs(5), backend.child.wait()).await
+                        .map_err(|_| "后台进程未能及时退出，请稍后重试")?
+                        .map_err(|_| "无法等待后台进程退出")?;
+                },
+            }
+        }
+    }
+    // No cancellation/reconciliation requests and no changes to persisted work.
+    *slot = None;
+    Ok(())
+}
+
+pub(super) async fn force_exit(state: &Desktop) -> Result<(), String> {
+    force_exit_with_wait(state, Duration::from_secs(3)).await
+}
+
+async fn force_exit_with_wait(state: &Desktop, lock_wait: Duration) -> Result<(), String> {
+    // The weak owner handle also covers startup, before the runtime reaches its
+    // managed slot. Never use a global process search or an external PID here.
+    let tree = state.owned_tree.lock().unwrap_or_else(|error| error.into_inner())
+        .as_ref().and_then(std::sync::Weak::upgrade);
+    if let Some(tree) = tree { tree.force_stop(); }
+    if let Ok(mut slot) = tokio::time::timeout(lock_wait, state.backend.lock()).await {
+        force_stop(&mut slot).await?;
+    }
+    // If another lifecycle operation is stalled, the owned tree was signalled
+    // above; explicit native confirmation still permits the UI process to exit.
     Ok(())
 }
 impl Drop for CoraxRuntime { fn drop(&mut self) { self.chat.clear(); if let Some(task) = self.monitor.take() { task.abort(); } } }
@@ -492,7 +554,7 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     let (backend, _dispatch_guard, view) = {
         let slot = state.backend.lock().await;
         let backend = slot.as_ref().ok_or("Corax 尚未启动")?;
-        if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
+        if state.exiting.load(Ordering::SeqCst) && !read_only { return Err("应用正在退出或安装更新".into()); }
         let connection = Arc::clone(&backend.connection);
         let view = view_id.as_ref().map(|view_id| backend.chat.selected(view_id, path.split('/').nth(2).unwrap_or(""))).transpose()?;
         let guard = (!read_only).then(|| DispatchGuard::reserve(&connection));
@@ -766,7 +828,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(!allowed_request("POST", "/capabilities"));
     }
     fn state() -> Desktop {
-        Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
+        Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), owned_tree: SyncMutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
     }
     async fn server(responses: Vec<(u16, Value)>) -> (String, tauri::async_runtime::JoinHandle<usize>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -882,5 +944,87 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert_eq!(connection.pending.lock().unwrap().get("pending-write"), Some(&42));
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
         drop(write);
+    }); }
+
+    async fn shutdown_fixture(url: String) -> (PathBuf, Option<CoraxRuntime>, Arc<Connection>) {
+        let root = std::env::temp_dir().join(format!("auto-agent-exit-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("keep.txt"), "host workspace data").unwrap();
+        let ownership = Ownership::acquire(&root).unwrap();
+        let mut command = Command::new("node");
+        command.args(["-e", "setInterval(() => {}, 1000)"]).current_dir(&root)
+            .env_remove("AUTO_AGENT_API_KEY").env_remove("AUTO_AGENT_TOKEN")
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).kill_on_drop(true);
+        #[cfg(windows)] command.creation_flags(0x08000000);
+        #[cfg(unix)] command.process_group(0);
+        let child = command.spawn().unwrap();
+        let tree = Arc::new(ProcessTree::attach(&child).unwrap());
+        let connection = connection(url);
+        let backend = CoraxRuntime { child, connection: Arc::clone(&connection), chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
+        (root, Some(backend), connection)
+    }
+
+    #[test] fn normal_stop_blocks_active_work_and_confirmed_force_preserves_workspace_and_unknown_admission() { tauri::async_runtime::block_on(async {
+        let (root, mut slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
+        let write = DispatchGuard::reserve(&connection);
+        connection.pending.lock().unwrap().insert("unconfirmed-write".into(), 42);
+        let result = stop(&state(), &mut slot).await;
+        assert!(result.is_err());
+        assert!(slot.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        force_stop(&mut slot).await.unwrap();
+        assert!(slot.is_none());
+        assert_eq!(connection.pending.lock().unwrap().get("unconfirmed-write"), Some(&42));
+        assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
+        assert_eq!(std::fs::read_to_string(root.join("keep.txt")).unwrap(), "host workspace data");
+        drop(write);
+        std::fs::remove_dir_all(root).unwrap();
+    }); }
+
+    #[test] fn exit_probe_timeout_keeps_the_process_available_for_the_users_decision() { tauri::async_runtime::block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let server = tauri::async_runtime::spawn(async move {
+            let (_socket, _) = listener.accept().await.unwrap();
+            std::future::pending::<()>().await;
+        });
+        let (root, mut slot, _) = shutdown_fixture(url).await;
+        let result = stop_if_idle(&state(), &mut slot, Some(Duration::from_millis(50))).await;
+        assert!(result.unwrap_err().contains("无法及时确认"));
+        assert!(slot.as_mut().unwrap().child.try_wait().unwrap().is_none());
+        force_stop(&mut slot).await.unwrap();
+        assert!(slot.is_none());
+        server.abort();
+        std::fs::remove_dir_all(root).unwrap();
+    }); }
+
+    #[test] fn confirmed_force_uses_the_owned_handle_even_when_lifecycle_lock_is_busy() { tauri::async_runtime::block_on(async {
+        let (root, slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
+        let state = state();
+        state.exiting.store(true, Ordering::SeqCst);
+        *state.owned_tree.lock().unwrap() = Some(Arc::downgrade(&slot.as_ref().unwrap().tree));
+        connection.pending.lock().unwrap().insert("unknown-write".into(), 3);
+        *state.backend.lock().await = slot;
+        let mut held = state.backend.lock().await;
+        force_exit_with_wait(&state, Duration::from_millis(50)).await.unwrap();
+        tokio::time::timeout(Duration::from_secs(2), held.as_mut().unwrap().child.wait()).await.unwrap().unwrap();
+        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&3));
+        drop(held);
+        force_exit_with_wait(&state, Duration::from_millis(50)).await.unwrap();
+        assert!(state.backend.lock().await.is_none());
+        assert_eq!(std::fs::read_to_string(root.join("keep.txt")).unwrap(), "host workspace data");
+        std::fs::remove_dir_all(root).unwrap();
+    }); }
+
+    #[test] fn an_exited_backend_does_not_silently_clear_unknown_write_protection() { tauri::async_runtime::block_on(async {
+        let (root, mut slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
+        let backend = slot.as_mut().unwrap();
+        backend.tree.force_stop();
+        backend.child.wait().await.unwrap();
+        connection.pending.lock().unwrap().insert("unknown-write".into(), 9);
+        assert!(stop(&state(), &mut slot).await.is_err());
+        assert!(slot.is_some());
+        force_stop(&mut slot).await.unwrap();
+        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&9));
+        std::fs::remove_dir_all(root).unwrap();
     }); }
 }

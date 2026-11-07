@@ -7,6 +7,7 @@
     "agent.ts",
     "instructions.ts",
     "sandbox.ts",
+    "memory.ts",
     "channels",
     "tools",
     "lib",

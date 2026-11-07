@@ -4,7 +4,9 @@ mod support;
 mod configuration;
 mod corax;
 mod chat_debug;
+mod shutdown;
 use corax::{CoraxRuntime, start, stop, has_active_work};
+use shutdown::request_exit;
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -54,7 +56,7 @@ impl Settings {
         Ok(())
     }
 }
-struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<CoraxRuntime>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
+struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<CoraxRuntime>>, owned_tree: std::sync::Mutex<Option<std::sync::Weak<corax::ProcessTree>>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
 fn credential(root: &Path) -> Result<keyring::Entry, String> { keyring::Entry::new("com.gamstek.autoagent", &format!("model-api-key:{}", root.display())).map_err(|_| "无法访问系统凭据库".into()) }
 fn read_key(root: &Path) -> Result<Option<String>, String> {
     match credential(root)?.get_password() { Ok(key) => Ok(Some(key)), Err(keyring::Error::NoEntry) => Ok(None), Err(_) => Err("无法读取系统凭据库，请检查 Windows 凭据服务".into()) }
@@ -167,24 +169,6 @@ fn drag_launcher(app: tauri::AppHandle) { if let Some(window) = app.get_webview_
 #[tauri::command]
 fn launcher_compact(app: tauri::AppHandle, compact: bool) { if let Some(window) = app.get_webview_window("launcher") { let _ = window.set_size(tauri::LogicalSize::new(if compact { 44.0 } else { 88.0 }, if compact { 84.0 } else { 120.0 })); } }
 #[tauri::command]
-async fn exit_app(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result<(), String> {
-    if state.exiting.swap(true, Ordering::SeqCst) { return Ok(()); }
-    let mut slot = state.backend.lock().await;
-    if let Err(error) = stop(&state, &mut slot).await {
-        state.exiting.store(false, Ordering::SeqCst);
-        return Err(error);
-    }
-    app.exit(0);
-    Ok(())
-}
-fn request_exit(app: tauri::AppHandle) {
-    tauri::async_runtime::spawn(async move {
-        if let Err(error) = exit_app(app.clone(), app.state::<Desktop>()).await {
-            app.dialog().message(error).title("暂时无法退出").show(|_| {});
-        }
-    });
-}
-#[tauri::command]
 fn launcher_menu(app: tauri::AppHandle, window: tauri::WebviewWindow) -> Result<(), String> {
     if window.label() != "launcher" { return Err("此菜单仅用于悬浮助手".into()); }
     let open = tauri::menu::MenuItem::with_id(&app, "launcher-open", "打开 AI 助理", true, None::<&str>).map_err(|_| "无法创建菜单")?;
@@ -220,23 +204,23 @@ fn main() {
                 chat_debug::initialize(&logs);
             }
             let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(30)).build()?;
-            app.manage(Desktop { root, config_path, backend: Mutex::new(None), client, pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) });
+            app.manage(Desktop { root, config_path, backend: Mutex::new(None), owned_tree: std::sync::Mutex::new(None), client, pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) });
             tauri::async_runtime::spawn(apply_when_idle(app.handle().clone()));
             tauri::WebviewWindowBuilder::new(app, "launcher", tauri::WebviewUrl::App("index.html?launcher".into()))
                 .title("AI 助理").inner_size(88.0, 120.0).decorations(false).transparent(true).always_on_top(true).skip_taskbar(true).resizable(false).visible(false).build()?;
             Ok(())
         })
-        .on_window_event(|window, event| { if window.label() == "main" { match event {
-            tauri::WindowEvent::CloseRequested { api, .. } => { api.prevent_close(); request_exit(window.app_handle().clone()); },
-            tauri::WindowEvent::Resized(_) => { let _ = window.emit("main-window-state", ()); },
+        .on_window_event(|window, event| { match event {
+            tauri::WindowEvent::CloseRequested { api, .. } if matches!(window.label(), "main" | "launcher") => { api.prevent_close(); request_exit(window.app_handle().clone()); },
+            tauri::WindowEvent::Resized(_) if window.label() == "main" => { let _ = window.emit("main-window-state", ()); },
             _ => {}
-        } } })
+        } })
         .on_menu_event(|app, event| match event.id().as_ref() {
             "launcher-open" => show_main(app.clone()),
             "launcher-exit" => request_exit(app.clone()),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, exit_app])
+        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, shutdown::exit_app])
         .run(tauri::generate_context!()).expect("Unable to start desktop application");
 }
 

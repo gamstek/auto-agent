@@ -6,7 +6,7 @@
       "product": "g5",
       "gas": "N2",
       "origin": {
-        "path": "彩虹半导体_球形硅微粉_1_Mesopore_U1P1_20261030105331.SAM",
+        "path": "cases/球形硅微粉/case-2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4.SAM",
         "sha256": "2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4",
         "status": 4112
       },
@@ -1511,7 +1511,7 @@
       "product": "g12",
       "gas": "N2",
       "origin": {
-        "path": "文档/自动化/案例库/多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "path": "cases/多孔碳/case-5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34.SAM",
         "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
         "status": 8208
       },
@@ -3087,7 +3087,7 @@
   "programs": {
     "bet": {
       "origin": {
-        "path": "文档/自动化/案例库/三元材料/2026.7.29-宜宾锂宝/climber/1#_宜宾锂宝_1_BET_U1P1_20260729205441.SAM",
+        "path": "cases/三元材料/case-77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33.SAM",
         "sha256": "77d60492b33b7ffa8aa42c93d6ee778d8756748a9b990b33fbbb686a86ab2f33",
         "status": 4160
       },
@@ -3156,7 +3156,7 @@
     },
     "micropore": {
       "origin": {
-        "path": "文档/自动化/案例库/多孔碳/2026.4.16-浙江启源/浙江启源-微孔测试模板_微孔_Port1_20260421163617.SAM",
+        "path": "cases/多孔碳/case-5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34.SAM",
         "sha256": "5ac96b4ec510aed364204bc57dfea90e1f4e379b547a580ca85493e98ff97d34",
         "status": 8208
       },
@@ -3532,7 +3532,7 @@
     },
     "mesopore": {
       "origin": {
-        "path": "彩虹半导体_球形硅微粉_1_Mesopore_U1P1_20261030105331.SAM",
+        "path": "cases/球形硅微粉/case-2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4.SAM",
         "sha256": "2528900a6a8056ee840dc751baeee541a9fad749d38ae082212814f9975977a4",
         "status": 4112
       },

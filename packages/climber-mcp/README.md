@@ -2,6 +2,10 @@
 
 pnpm workspace 中运行于 **Node.js 24+** 的标准 stdio MCP Server，SQLite 使用 node:sqlite。`sam_file` 提供 profiles/inspect/compare/create/modify/save-as；明确配置厂家地址后，再提供 `get_health`、`get_status`、`register_batch`、`start_batch`。SAM 实现、完整产品配置、厂家规则、批次验证和设备预留都在本包，不依赖 Agent、Skill 名称或 Agent 数据库。
 
+产品名称与研发别称对应为 **Climber＝G5、SiCOPE＝G12**，不是四款独立仪器。`sam_file` 是共享文件能力，现有 SAM 参数继续使用 `product=g5/g12`，各自的版本、枚举和配置保持独立，历史产品标识与原文件哈希保留。本包名称中的 Climber 指已实现的厂家控制适配；四项设备工具仅控制 Climber，不因支持 SiCOPE 文件就推定已接入 SiCOPE 控制接口。
+
+随包 `sam-profiles.json` 的来源文件名和路径已直接替换为匿名案例编号，保留材料类别、原文件 SHA-256 和完整科学配置。`profiles` 及新建回执中的来源路径是脱敏追溯标识，不是待打开的实际文件。用户本次明确提供的样品名称和输出路径仍按原值使用。
+
 运行环境变量：
 
 - `CLIMBER_SERVICE_URL`：可选的厂家 HTTP(S) `/api/v1` 地址；未配置时只提供离线 SAM 文件工具，不打开设备状态数据库、不请求厂家。

@@ -5,9 +5,11 @@
 ## 能力与指导
 
 - **Wiki Tool**：Agent 通用的知识查询与显式摄入能力，补齐 Corax 当前没有提供的 Wiki 功能。
-- **Climber Tool**：SAM 文件与仪器操作能力，通过 Climber MCP 实现。
+- **sam_file Tool**：Climber（研发别称 G5）和 SiCOPE（研发别称 G12）的 SAM 文件处理能力，由 MCP 提供。
+- **Climber Tool**：Climber 仪器的健康、当前状态、批次登记和启动能力；SiCOPE 文件支持不等于已接入其设备控制。
 - **device-automation Skill**：方法、材料规则、文件准备及测样流程指导，按目标组合 Wiki 和 Climber。
 - **宿主执行环境**：通过 ShellJS 接入真实宿主 Bash 与文件系统，保留 Corax 原生工具，不使用 JustBash 虚拟环境。
+- **跨会话长期记忆**：使用 Corax 原生记忆能力，保留本地用户的稳定事实与偏好，重启后继续可用。
 
 Wiki 统一提供 collections/catalog/search/read 等操作。knowledge 集合保存用户文本编译的知识页；reference 集合提供随版本发布的只读证据。统一工具入口不改变数据归属，不把预置资料送入用户摄入流程。
 
@@ -45,6 +47,14 @@ UTF-8 Markdown/TXT → LLM 分析 → 生成/合并 Markdown 知识页
 
 只接受 `.md`、`.markdown`、`.txt`，也校验内容不是二进制。没有 SQLite 资料包导入、数据库路径、SQL 或 SAM 解析接口。
 
+### 跨会话长期记忆
+
+可以告诉助手“记住：以后用三条短句总结”，或要求“忘记这条偏好”。助手通过 Corax 原生记忆工具保存、删除；同一 dataDir 下的新会话会自动召回，关闭或重启应用后仍保留。记忆使用 Corax 的有界文本存储，默认最多 4000 字符，不是完整聊天历史。
+
+`corax/memory.ts` 使用公开 `defineMemory`、`fileMemory` 和 `sqliteMemory`，数据存于 `dataDir/corax/memory.sqlite`。命名空间和本地用户作用域固定，不随会话 ID、启动令牌或安装目录改变；切换 dataDir 则使用对应目录中的记忆。
+
+长期记忆用于稳定偏好与事实，不保存凭据、应用配置副本、临时测试参数或执行状态。当前确认、工具结果和技能文档仍需单独核验。删除记忆不删除聊天记录，删除聊天记录也不等于删除记忆。
+
 ## 开发与启动
 
 仅使用 **pnpm 10.15.1** 安装依赖。应用、Corax CLI、MCP、构建与发布脚本使用 **Node.js 24+**；系统 Bun 1.4.2 仅用于部分测试。
@@ -59,7 +69,7 @@ pnpm dev:desktop
 
 - CLI dev/build 与桌面开发默认使用项目内 `.auto-agent/config.json`，缺失时创建当前配置。
 - `pnpm dev` 使用 Node 启动 Corax 原生 dev；桌面开发使用 dev --no-ui，前端由 Vite 热更新。
-- Corax 应用集中在 `corax/`：agent、instructions、sandbox、lib、tools、channels 和 skills。CLI 与桌面以此为项目根目录，开发监听不扫描相邻的桌面 Cargo 构建目录。该 workspace 包保留 `auto-agent` 名称和会话身份；仓库根包为 `auto-agent-workspace`。
+- Corax 应用集中在 `corax/`：agent、instructions、sandbox、memory、lib、tools、channels 和 skills。CLI 与桌面以此为项目根目录，开发监听不扫描相邻的桌面 Cargo 构建目录。该 workspace 包保留 `auto-agent` 名称和会话身份；仓库根包为 `auto-agent-workspace`。
 - 开发配置和可选 `.env` 仍位于仓库根目录，构建产物位于 `corax/.output`；独立源码目录不改变既有数据路径。
 - CLI start、正式桌面版与 LLM Wiki CLI 默认使用 `~/.auto-agent/config.json`。
 - CLI 用 `AUTO_AGENT_CONFIG` 选择配置；桌面可传 `--config` 或隔离的 `--data-dir`。
@@ -119,6 +129,7 @@ dataDir/
 ├─ config.json                    默认 dataDir 为配置所在目录
 ├─ .data-layout
 ├─ corax/                        Corax 会话、工作流、日志与缓存
+│  └─ memory.sqlite              Corax 原生长期记忆（持久内容）
 ├─ climber/                      MCP 拥有的设备预留与操作结果，按厂家端点区分
 ├─ workspace/                    原生工具共享的真实宿主工作目录
 └─ llm-wiki/

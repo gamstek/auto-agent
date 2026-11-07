@@ -3,7 +3,27 @@ import { mkdtemp, mkdir, cp, rm, symlink, realpath, writeFile, lstat } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { Client, conversationReducer } from '@coraxjs/core/client';
+import { Client, ClientError, conversationReducer, type ClientSession } from '@coraxjs/core/client';
+
+// Prewarmed sessions can still be initializing after create() returns. Only
+// this explicit no-admission response may be retried; ambiguous sends propagate.
+async function sendWhenReady(session: ClientSession, message: string) {
+  const deadline = Date.now() + 10000;
+  for (;;) {
+    try {
+      return await session.send(message);
+    } catch (error) {
+      if (
+        !(error instanceof ClientError) ||
+        error.status !== 409 ||
+        error.code !== 'session_not_ready' ||
+        Date.now() >= deadline
+      )
+        throw error;
+      await Bun.sleep(100);
+    }
+  }
+}
 
 for (const mode of [
   'development',
@@ -22,6 +42,9 @@ for (const mode of [
     let usedSkillReference = false;
     let usedRelocatedResource = false;
     let usedResumedHost = false;
+    const memoryFact = '用户偏好以三条短句总结。MEMORY-FIXTURE-PREFERENCE';
+    let checkingMemory = false;
+    let recalledMemory = false;
     const writes: unknown[] = [];
     let task: { batchId: string; state: string; experiments?: unknown[] } | null = null;
     const health = {
@@ -48,7 +71,8 @@ for (const mode of [
         return Response.json({ ok: true, data: { task } });
       },
     });
-    const calls = [
+    const calls: { name: string; arguments: Record<string, unknown> }[] = [
+      { name: 'memory__save_memory', arguments: { text: memoryFact } },
       {
         name: 'bash',
         arguments: {
@@ -122,6 +146,10 @@ for (const mode of [
           max_tokens?: number;
         };
         expect(body.max_tokens).toBe(1234);
+        if (checkingMemory)
+          recalledMemory ||= body.messages.some((message) =>
+            JSON.stringify(message.content).includes(memoryFact),
+          );
         expect(
           body.tools?.some((tool) => ['device_reference', 'llm_wiki'].includes(tool.function.name)),
         ).toBe(false);
@@ -203,6 +231,7 @@ for (const mode of [
         'agent.ts',
         'instructions.ts',
         'sandbox.ts',
+        'memory.ts',
         'lib',
         'tools',
         'channels',
@@ -342,10 +371,11 @@ for (const mode of [
         host,
         auth: { basic: { username: 'auto-agent', password: token } },
       });
+      let activeClient = client;
       await client.health();
       const information = await client.info();
       expect(information.sandbox.provider).toBe('host');
-      for (const name of ['bash', 'read_file', 'write_file'])
+      for (const name of ['bash', 'read_file', 'write_file', 'web_fetch'])
         expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
           'framework',
         );
@@ -388,8 +418,9 @@ for (const mode of [
           'coldHistory',
           `/corax/v1/session/${session.state.sessionId}/stream?startIndex=0&follow=false`,
         );
-      const response = await session.send(
-        '本地模拟验证：查询 Wiki，检查 SAM 配置，并登记、启动 LOCAL-BATCH 测试批次。',
+      const response = await sendWhenReady(
+        session,
+        `本地模拟验证：查询 Wiki，检查 SAM 配置，并登记、启动 LOCAL-BATCH 测试批次。请记住我的长期偏好：${memoryFact}`,
       );
       const result = await response.result();
       expect(result.message).toContain('Wiki 已连接');
@@ -403,6 +434,16 @@ for (const mode of [
       );
       expect(result.message).toContain('Climber MCP 已连接');
       expect(writes).toHaveLength(2);
+      expect(await Bun.file(join(temporary, 'corax/memory.sqlite')).exists()).toBe(true);
+      expect(await Bun.file(join(project, '.corax/memory.sqlite')).exists()).toBe(false);
+      checkingMemory = true;
+      recalledMemory = false;
+      const other = await client.sessions.create();
+      await (
+        await sendWhenReady(other.session, '这是新的对话，请按已保存的长期偏好回答。')
+      ).result();
+      expect(recalledMemory).toBe(true);
+      checkingMemory = false;
       const snapshot = await session.snapshot();
       const conversation = snapshot.events.reduce(
         (state, event) => conversationReducer.reduce(state, event),
@@ -460,21 +501,46 @@ for (const mode of [
           name: 'bash',
           arguments: { command: 'cat host-fixture.txt; printf RESUMED-HOST' },
         });
+        const restartedToken = crypto.randomUUID();
+        env.AUTO_AGENT_TOKEN = restartedToken;
         child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
         errors = new Response(child.stderr).text();
         const restarted = await ready();
         const resumed = new Client({
           host: restarted,
-          auth: { basic: { username: 'auto-agent', password: token } },
+          auth: { basic: { username: 'auto-agent', password: restartedToken } },
         });
+        activeClient = resumed;
         await resumed.health();
-        const turn = await resumed.sessions
-          .attach(session.state.sessionId)
-          .send('重启后只读核对会话，不再登记或启动。');
+        const turn = await sendWhenReady(
+          resumed.sessions.attach(session.state.sessionId),
+          '重启后只读核对会话，不再登记或启动。',
+        );
         expect((await turn.result()).message).toContain('Wiki 已连接');
         expect(usedResumedHost).toBe(true);
         expect(writes).toHaveLength(2);
+        checkingMemory = true;
+        recalledMemory = false;
+        const afterRestart = await resumed.sessions.create();
+        await (
+          await sendWhenReady(afterRestart.session, '进程已经重启，请使用保存过的长期偏好。')
+        ).result();
+        expect(recalledMemory).toBe(true);
+        checkingMemory = false;
       }
+      nextCall = calls.length;
+      calls.push({ name: 'memory__remove_memory', arguments: { index: 0 } });
+      const forgetting = await activeClient.sessions.create();
+      await (await sendWhenReady(forgetting.session, '忘记刚才那条长期偏好。')).result();
+      checkingMemory = true;
+      recalledMemory = false;
+      const afterForget = await activeClient.sessions.create();
+      await (
+        await sendWhenReady(afterForget.session, '再开一个新对话，核对当前保留的长期偏好。')
+      ).result();
+      expect(recalledMemory).toBe(false);
+      checkingMemory = false;
+      expect(writes).toHaveLength(2);
     } finally {
       const stderr = await stop();
       await mock.stop(true);

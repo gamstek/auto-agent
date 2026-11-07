@@ -1,0 +1,46 @@
+[
+  {
+    "query": "帮我检查这个 G12 的 .SAM 文件，看看实际温度和压力模式是什么。",
+    "should_trigger": true
+  },
+  { "query": "这份 Climber SAM 只想多勾选 BJH 吸附和脱附，别动其他设置。", "should_trigger": true },
+  { "query": "比较附件两份 SMP 的预处理与采集设置，解释差别。", "should_trigger": true },
+  {
+    "query": "石墨粉末只测比表面积，帮我选 Climber 的文档模板并生成文件。",
+    "should_trigger": true
+  },
+  { "query": "SiCOPE 做硬碳全孔分析，应该选哪个模板，样品如何预处理？", "should_trigger": true },
+  { "query": "BET、BJH 和孔径 DFT 分别能得到什么结果？", "should_trigger": true },
+  { "query": "硬碳做 CO2 超微孔分析，帮我整理气体温度、脱气和模板条件。", "should_trigger": true },
+  { "query": "SAM 里 labType=1 是什么意思？这份文件能直接拿去登记吗？", "should_trigger": true },
+  {
+    "query": "文件、原管号和称量都确认了，帮我在 Climber 登记并启动这个批次。",
+    "should_trigger": true
+  },
+  {
+    "query": "这类多孔聚合物本地没案例，帮我查吸附相关特性和合适的表面积/孔径方法。",
+    "should_trigger": true
+  },
+  { "query": "只查询 Climber 当前连接是否正常，不准备模板或实验。", "should_trigger": false },
+  { "query": "直接用现有状态工具看当前 B-01 是否仍在运行，不修改任务。", "should_trigger": false },
+  {
+    "query": "把 Climber 的厂家地址改成我提供的新地址，这是设置修改，不做测样。",
+    "should_trigger": false
+  },
+  {
+    "query": "把这篇 BET 原理 Markdown 摄入我的知识库，暂时不问材料方案。",
+    "should_trigger": false
+  },
+  { "query": "用 SAM 图像分割模型把图片中的人物抠出来。", "should_trigger": false },
+  {
+    "query": "我想用量子化学 DFT 计算硅晶体能带，不涉及气体吸附或孔径分析。",
+    "should_trigger": false
+  },
+  { "query": "左侧会话列表与右侧内容之间的间距改成 0.5px。", "should_trigger": false },
+  { "query": "帮我检查今天的车间温湿度传感器数据。", "should_trigger": false },
+  { "query": "实现一个通用搜索引擎结果解析器，不涉及材料或仪器。", "should_trigger": false },
+  {
+    "query": "帮我解释这个数据表里的普通回归系数和置信区间，不做吸附方法判断。",
+    "should_trigger": false
+  }
+]
