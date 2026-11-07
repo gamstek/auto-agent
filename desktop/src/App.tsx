@@ -673,11 +673,12 @@ export function App() {
                         paused={streamPaused}
                       />
                     ))}
-                {(chatLoading ||
-                  sending ||
-                  cancelling ||
-                  backgroundBusy ||
-                  (busy && (!hasActiveAssistant || snapshot?.waiting || streamPaused))) && (
+                {(chatLoading
+                  ? !snapshot
+                  : sending ||
+                    cancelling ||
+                    backgroundBusy ||
+                    (busy && (!hasActiveAssistant || snapshot?.waiting || streamPaused))) && (
                   <div className="chat-activity" role="status">
                     <ProcessingLabel
                       active={busy && !streamPaused && !snapshot?.waiting}

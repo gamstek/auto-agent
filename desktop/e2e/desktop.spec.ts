@@ -495,6 +495,7 @@ test('switching back shows cached history before the unread suffix is available 
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await expect(page.getByText('离开期间收到的新消息', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.chat-activity')).toHaveCount(0);
   await page.getByRole('textbox', { name: '输入消息' }).fill('同步前禁止发送');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await expect(page.getByRole('button', { name: '取消本次回复', exact: true })).toHaveCount(0);
@@ -521,6 +522,7 @@ test('switching back shows cached history before the unread suffix is available 
   await expect(page.getByText('离开期间收到的新消息', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
   await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(1);
+  await expect(page.locator('.chat-activity')).toHaveCount(0);
   const state = await page.evaluate(() => (window as any).__desktopTest);
   expect(state.viewCalls.filter((call: any) => call.command === 'backend_chat_close').length).toBe(
     2,
@@ -538,6 +540,7 @@ test('switching away cancels a held history read and does not subscribe the stal
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('正在读取会话…', { exact: true })).toBeVisible();
   await expect
     .poll(() =>
       page.evaluate(() =>

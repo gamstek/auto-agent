@@ -41,8 +41,8 @@ export class ChatHistoryCache {
   private bytes = 0;
 
   constructor(
-    readonly maxSessions = 8,
-    readonly maxBytes = 24 * 1024 * 1024,
+    readonly maxSessions = 16,
+    readonly maxBytes = 64 * 1024 * 1024,
   ) {}
 
   get size() {

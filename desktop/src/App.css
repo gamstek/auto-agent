@@ -3,6 +3,7 @@
   height: 100dvh;
   display: grid;
   --sidebar-width: 260px;
+  --workspace-panel-gap: 1px;
   grid-template-columns: 52px 0 minmax(0, 1fr);
   grid-template-rows: 38px minmax(0, 1fr);
   background: linear-gradient(155deg, var(--shell-bg) 8%, #f4f9ff 100%);
@@ -51,8 +52,9 @@
   grid-column: 2;
   grid-row: 2;
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--control-border);
-  border-radius: 14px 0 0 14px;
+  border-radius: var(--panel-radius) 0 0 var(--panel-radius);
+  box-shadow: var(--panel-shadow);
+  clip-path: inset(-8px 0 -8px -8px);
   padding: 20px var(--sidebar-padding-inline) 16px;
   margin-bottom: 5px;
   display: flex;
@@ -90,14 +92,15 @@
   flex-direction: column;
   position: relative;
   background: white;
-  border: 1px solid #e5ebed;
-  border-radius: 15px;
+  border-radius: var(--panel-radius);
+  box-shadow: var(--panel-shadow);
   margin: 0 5px 5px 0;
   overflow: hidden;
 }
 .with-sidebar .main-area {
-  border-radius: 0 15px 15px 0;
-  border-left: 0;
+  margin-left: var(--workspace-panel-gap);
+  border-radius: 0 var(--panel-radius) var(--panel-radius) 0;
+  clip-path: inset(-8px -8px -8px 0);
 }
 .view-host {
   display: flex;
