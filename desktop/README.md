@@ -58,7 +58,7 @@ prepare-runtime 白名单部署 Corax 产物、生产依赖与技能（含 devic
 
 在仓库根目录执行 `pnpm test:installer` 可使用 7-Zip 解包实际安装包，在隔离目录验证生产启动及 Wiki/SAM/MCP，并验证同布局覆盖安装清除旧 `backend` 和 `auto-agent-backend.exe`、保留用户数据。该检查不运行安装器，不更改真实安装目录或注册表。
 
-Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件进行冻结部署；仅发布目录使用 `node-linker=hoisted`，开发环境继续使用默认的 isolated 布局。发布时移除依赖 sourcemap，保留源码、声明、许可证和原生/WASM 资源。
+Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件进行冻结部署；仅发布目录使用 `node-linker=hoisted`，开发环境继续使用默认的 isolated 布局。发布时移除依赖 sourcemap 和 `node_modules/.bin` 命令快捷方式（Linux 符号链接、Windows shims），保留源码、声明、许可证和原生/WASM 资源。运行时通过固定 Node 入口启动 CLI/MCP，不依赖 `.bin`；其余资源仍严格拒绝符号链接或目录链接。
 
 “设置 → 仪器”配置 Climber 厂家 /api/v1 地址、超时和启用状态；默认开启，地址为 `http://127.0.0.1:18080/api/v1`，旧配置地址为空时显式启用会填入该默认地址。已有配置保留保存的启用状态与地址。忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
 

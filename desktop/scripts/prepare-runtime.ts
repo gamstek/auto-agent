@@ -1,8 +1,9 @@
-import { copyFile, mkdir, rm, stat, readFile, writeFile, readdir } from 'node:fs/promises';
+import { copyFile, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { pnpmCommand } from '../../scripts/shared/pnpm';
 import { startProcess } from '../../scripts/shared/process';
+import { preparePublishedTree } from './runtime-tree';
 
 const root = resolve(import.meta.dirname, '../..');
 if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64')
@@ -74,25 +75,9 @@ if (
   throw new Error(
     'Packaged runtime must select the ShellJS host sandbox, not a virtual sandbox template',
   );
-let sourceMapBytes = 0;
-async function preparePublishedTree(directory: string, dependencyArtifacts = false) {
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isSymbolicLink()) throw new Error(`Runtime must not contain links: ${path}`);
-    if (entry.isDirectory())
-      await preparePublishedTree(
-        path,
-        dependencyArtifacts || entry.name === 'node_modules' || entry.name === '.output',
-      );
-    else if (dependencyArtifacts && entry.isFile() && entry.name.endsWith('.map')) {
-      sourceMapBytes += (await stat(path)).size;
-      await rm(path);
-    }
-  }
-}
-// Dependency source maps are debugging artifacts, not runtime inputs. Keep package
-// sources, declarations, licenses and native/WASM assets intact.
-await preparePublishedTree(output);
+// PATH launchers and dependency source maps are deployment/debugging artifacts,
+// not runtime inputs. Keep sources, declarations, licenses and native/WASM assets.
+const sourceMapBytes = await preparePublishedTree(output);
 // Retire the previous generated resource directory after a successful deployment.
 await rm(join(root, 'desktop/src-tauri/backend'), { recursive: true, force: true });
 console.log(`Removed ${(sourceMapBytes / 1048576).toFixed(2)} MiB of dependency source maps`);
