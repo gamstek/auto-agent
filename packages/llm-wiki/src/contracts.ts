@@ -132,3 +132,12 @@ export interface IngestModel {
   maxPromptBytes: number;
   complete(request: CompletionRequest): Promise<string>;
 }
+
+export interface IngestResult {
+  source: string;
+  reused: boolean;
+  generation: string;
+  wikiDirectory?: string;
+  pages: string[];
+  issues?: string[];
+}

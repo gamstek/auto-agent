@@ -11,6 +11,7 @@ import {
   type TextDocument,
   type IngestModel,
   type GeneratedPage,
+  type IngestResult,
 } from './contracts';
 import { analysisPrompt, generationPrompt, PIPELINE_VERSION } from './prompts';
 export { discoverText } from './files';
@@ -140,7 +141,7 @@ export class LlmWiki {
     this.storage = new WikiStorage(directory);
   }
 
-  async catalog(offset = 0, limit = 30): Promise<WikiCatalog> {
+  async catalog(offset = 0, limit = 30, generation?: string): Promise<WikiCatalog> {
     if (
       !Number.isSafeInteger(offset) ||
       offset < 0 ||
@@ -149,7 +150,9 @@ export class LlmWiki {
       limit > 100
     )
       throw new Error('目录分页参数无效');
-    const manifest = await this.storage.current();
+    const manifest = generation
+      ? await this.storage.manifest(generation)
+      : await this.storage.current();
     if (!manifest)
       return {
         published: false,
@@ -339,7 +342,71 @@ export class LlmWiki {
     };
   }
 
-  async ingest(document: TextDocument, model: IngestModel, signal: AbortSignal) {
+  private async completeSource(base: Manifest, document: Pick<TextDocument, 'id' | 'sha256'>) {
+    const existing = base.sources[document.id];
+    if (!existing?.pages.length) return false;
+    for (const path of existing.pages) {
+      if (
+        !base.pages[path]?.sources.some(
+          (ref) => ref.id === document.id && ref.sha256 === document.sha256,
+        )
+      )
+        return false;
+      await this.storage.readPage(base, path);
+    }
+    return true;
+  }
+
+  /** Read-only inspection; source selection alone never initializes or compiles a Wiki. */
+  async inspectSources(
+    documents: readonly Pick<TextDocument, 'id' | 'name' | 'sha256'>[],
+    modelIdentity: string,
+  ) {
+    const base = await this.storage.current();
+    const context = await this.storage.context();
+    const pipelineHash = sha256(JSON.stringify([PIPELINE_VERSION, modelIdentity, context]));
+    const sources = [];
+    for (const document of documents) {
+      const existing = base?.sources[document.id];
+      let status: 'pending' | 'ready' | 'changed' | 'error' = 'pending';
+      let message: string | undefined;
+      if (existing) {
+        if (existing.sha256 !== document.sha256 || existing.pipelineHash !== pipelineHash) {
+          status = 'changed';
+        } else {
+          try {
+            status = base && (await this.completeSource(base, document)) ? 'ready' : 'changed';
+          } catch (error) {
+            status = 'error';
+            message = [...(error instanceof Error ? error.message : '知识页校验失败')]
+              .slice(0, 1200)
+              .join('');
+          }
+        }
+      }
+      sources.push({
+        id: document.id,
+        name: document.name,
+        status,
+        pageCount: existing?.pages.length ?? 0,
+        ingestedAt: existing?.ingestedAt,
+        message,
+      });
+    }
+    return {
+      published: !!base,
+      generation: base?.generation,
+      wikiDirectory: base ? this.storage.wikiDirectory(base.generation) : undefined,
+      pageCount: Object.keys(base?.pages ?? {}).filter((path) => !managed.has(path)).length,
+      sources,
+    };
+  }
+
+  async ingest(
+    document: TextDocument,
+    model: IngestModel,
+    signal: AbortSignal,
+  ): Promise<IngestResult> {
     if (
       !/^[a-f0-9]{64}$/.test(document.id) ||
       !isTextPath(document.name) ||
@@ -357,19 +424,7 @@ export class LlmWiki {
       const rawPath = await this.storage.saveRaw(document);
       const existing = base?.sources[document.id];
       if (existing?.sha256 === document.sha256 && existing.pipelineHash === pipelineHash && base) {
-        let complete = true;
-        for (const path of existing.pages) {
-          if (
-            !base.pages[path]?.sources.some(
-              (ref) => ref.id === document.id && ref.sha256 === document.sha256,
-            )
-          ) {
-            complete = false;
-            break;
-          }
-          await this.storage.readPage(base, path);
-        }
-        if (complete && existing.pages.length)
+        if (await this.completeSource(base, document))
           return {
             source: document.name,
             reused: true,

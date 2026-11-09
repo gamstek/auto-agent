@@ -40,6 +40,7 @@ async function run(action: 'dev' | 'build' | 'start', parameters: string[]) {
       join(root, '.env'),
       fileURLToPath(import.meta.resolve('@coraxjs/core/bin')),
       action,
+      ...(action === 'dev' && !parameters.includes('--resume') ? ['--resume'] : []),
       ...(action === 'build' ? [] : ['--host', '127.0.0.1']),
       ...parameters,
     ],

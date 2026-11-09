@@ -7,13 +7,11 @@ import {
   Check,
   Cpu,
   Cable,
-  FolderOpen,
   Info,
   LoaderCircle,
   Puzzle,
   Settings2,
   Wrench,
-  X,
 } from 'lucide-react';
 import {
   api,
@@ -26,6 +24,7 @@ import {
   type RuntimeCapabilities,
 } from '../../bridge';
 import { Maintenance } from '../Maintenance/Maintenance';
+import { KnowledgeBase } from '../KnowledgeBase/KnowledgeBase';
 import { Button } from '../Button/Button';
 import { IconButton } from '../IconButton/IconButton';
 import { Input } from '../Input/Input';
@@ -67,8 +66,8 @@ const categories = [
   },
   {
     id: 'knowledge',
-    label: 'LLM Wiki',
-    description: '纯文本 来源 Markdown 知识 摄入',
+    label: '用户知识库',
+    description: '资料 来源 Markdown TXT 知识 整理 LLM Wiki',
     icon: BookOpen,
     group: '工作空间',
   },
@@ -371,48 +370,6 @@ export function Settings({
       }
     />
   );
-  const paths = () => (
-    <>
-      <Row
-        label="纯文本来源"
-        description="添加文件或文件夹；文件夹内只导入 UTF-8 Markdown/TXT。"
-        wide
-        control={
-          <div className="setting-source-actions">
-            <Button variant="subtle" onClick={() => void pickText('file')}>
-              添加文件
-            </Button>
-            <Button variant="subtle" onClick={() => void pickText('directory')}>
-              <FolderOpen size={15} />
-              添加文件夹
-            </Button>
-          </div>
-        }
-      />
-      {!!draft?.llmWiki.sources.length && (
-        <div className="setting-paths">
-          {draft.llmWiki.sources.map((entry) => (
-            <div key={entry.id}>
-              <span className="setting-source-kind">
-                {entry.type === 'directory' ? '文件夹' : '文件'}
-              </span>
-              <code title={entry.path}>{entry.path}</code>
-              <IconButton
-                label={`移除 ${entry.path}`}
-                onClick={() =>
-                  update('llmWiki', {
-                    sources: draft.llmWiki.sources.filter((value) => value.id !== entry.id),
-                  })
-                }
-              >
-                <X size={14} />
-              </IconButton>
-            </div>
-          ))}
-        </div>
-      )}
-    </>
-  );
   const capabilityRows = (entries: CapabilityEntry[]) =>
     entries.map((entry) => (
       <Row
@@ -637,12 +594,26 @@ export function Settings({
               )}
               {initialTab === 'knowledge' && (
                 <>
-                  <Group title="LLM Wiki 来源">{paths()}</Group>
-                  <p className="settings-section-note">
-                    添加来源只保存配置。明确要求助手摄入这些来源，或运行 pnpm llm-wiki
-                    ingest，才会调用模型分析并生成持久 Markdown 知识页。普通问答只查询已整理的知识。
-                  </p>
-                  <Group title="内置仪器资料">
+                  <KnowledgeBase
+                    sources={draft.llmWiki.sources}
+                    onAdd={(kind) => void pickText(kind)}
+                    onRemove={(id) =>
+                      update('llmWiki', {
+                        sources: draft.llmWiki.sources.filter((source) => source.id !== id),
+                      })
+                    }
+                    configRevision={info?.configRevision}
+                    blockedReason={
+                      pendingApply
+                        ? '资料配置已保存，等待任务结束后生效。'
+                        : changed || saving
+                          ? '正在保存资料配置，请稍候。'
+                          : undefined
+                    }
+                    refreshKey={capabilityRevision}
+                    active={active}
+                  />
+                  <Group title="内置参考资料">
                     <Row
                       label="device-automation"
                       description="人工规则属于技能指导，历史参考由 Wiki 只读集合提供；不进入用户摄入流程。"

@@ -34,7 +34,7 @@ export default defineTool({
       .strict(),
   ]),
   label: {
-    start: (input) => (input.action === 'ingest' ? 'Wiki 分析与知识编译' : '查阅 Wiki'),
+    start: (input) => (input.action === 'ingest' ? '整理用户知识库' : '查阅资料'),
   },
   async execute(input, context) {
     if (input.action === 'collections')

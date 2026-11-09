@@ -18,9 +18,16 @@ pub struct Connection {
     token: String,
     secrets: Vec<String>,
     generation: String,
-    pending: SyncMutex<HashMap<String, usize>>,
+    config_revision: String,
+    pending: SyncMutex<HashMap<String, PendingAdmission>>,
+    knowledge_pending: SyncMutex<Option<String>>,
     dispatch: Mutex<()>,
     in_flight: std::sync::atomic::AtomicUsize,
+}
+#[derive(Debug, PartialEq)]
+enum PendingAdmission {
+    Cursor(usize),
+    Delivery { id: Option<String>, observed: VecDeque<String> },
 }
 impl std::ops::Deref for CoraxRuntime {
     type Target = Connection;
@@ -223,7 +230,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     drop(listener);
     let mut command = corax_command(&runtime, &project, &state.config_path, &data, &token, key.as_deref())?;
     command.arg(if cfg!(debug_assertions) { "dev" } else { "start" });
-    if cfg!(debug_assertions) { command.arg("--no-ui"); }
+    if cfg!(debug_assertions) { command.args(["--no-ui", "--resume"]); }
     command.args(["--host", "127.0.0.1", "--port", &port]);
     if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
     let mut child = command.spawn().map_err(|_| "无法启动 Node/Corax，请检查运行时和应用资源")?;
@@ -245,7 +252,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
         });
     }
     let secrets: Vec<String> = std::iter::once(token.clone()).chain(key).collect();
-    let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
+    let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), config_revision: document.revision, pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
     let mut backend = CoraxRuntime { child, connection, chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
@@ -402,14 +409,39 @@ async fn snapshot(state: &Desktop, backend: &Connection, id: &str, start_index: 
 }
 fn admitted(backend: &Connection, id: &str, events: &[Value], start_index: usize) -> bool {
     let mut pending = backend.pending.lock().unwrap();
-    let Some(baseline) = pending.get(id).copied() else { return false; };
-    if events.iter().skip(baseline.saturating_sub(start_index)).any(|event| ["turn.started", "message.received", "input.resolved", "session.completed", "session.failed"].contains(&event["type"].as_str().unwrap_or(""))) { pending.remove(id); false }
-    else { true }
+    let Some(entry) = pending.get_mut(id) else { return false; };
+    let observed = match entry {
+        PendingAdmission::Cursor(baseline) => events.iter().skip(baseline.saturating_sub(start_index)).any(|event| ["turn.started", "message.received", "input.resolved", "session.completed", "session.failed"].contains(&event["type"].as_str().unwrap_or(""))),
+        PendingAdmission::Delivery { id: accepted, observed } => {
+            let mut matched = false;
+            for event in events {
+                if ["session.completed", "session.failed"].contains(&event["type"].as_str().unwrap_or("")) { matched = true; }
+                if let Some(deliveries) = event["meta"]["deliveryIds"].as_array() {
+                    for delivery in deliveries.iter().filter_map(Value::as_str) {
+                        if accepted.as_deref() == Some(delivery) { matched = true; }
+                        if accepted.is_none() && delivery.len() <= 256 && !observed.iter().any(|previous| previous == delivery) {
+                            observed.push_back(delivery.into());
+                            if observed.len() > 256 { observed.pop_front(); }
+                        }
+                    }
+                }
+            }
+            matched
+        },
+    };
+    if observed { pending.remove(id); false } else { true }
+}
+fn accept_delivery(backend: &Connection, session: &str, delivery: &str) {
+    let mut pending = backend.pending.lock().unwrap();
+    if let Some(PendingAdmission::Delivery { id, observed }) = pending.get_mut(session) {
+        if observed.iter().any(|previous| previous == delivery) { pending.remove(session); }
+        else { *id = Some(delivery.into()); observed.clear(); }
+    }
 }
 async fn activities(state: &Desktop, backend: &Connection, ids: &[String]) -> Result<Vec<Value>, String> {
     let sessions: Vec<_> = {
         let pending = backend.pending.lock().unwrap();
-        ids.iter().map(|id| json!({"id":id,"after":pending.get(id)})).collect()
+        ids.iter().map(|id| json!({"id":id,"after":match pending.get(id) { Some(PendingAdmission::Cursor(cursor)) => Some(*cursor), _ => None }})).collect()
     };
     let body = json!({"sessions":sessions});
     let mut result = None;
@@ -434,6 +466,10 @@ pub async fn has_active_work(state: &Desktop, backend: &CoraxRuntime) -> Result<
 }
 async fn connection_has_active_work(state: &Desktop, backend: &Connection) -> Result<bool, String> {
     if backend.in_flight.load(Ordering::SeqCst) > 0 { return Ok(true); }
+    let knowledge = request(state, backend, "GET", "/desktop/knowledge/operation", None).await?;
+    let uncertain = reconcile_knowledge(backend, &knowledge);
+    if knowledge["operation"]["state"].as_str().is_some_and(|state| ["running", "cancelling"].contains(&state)) { return Ok(true); }
+    if uncertain { return Err("知识整理请求的结果尚未确认，请先刷新知识库状态".into()); }
     for offset in (0..).step_by(100) {
         let page = request(state, backend, "GET", &format!("/corax/v1/session?limit=100&offset={offset}"), None).await?;
         let sessions = page["sessions"].as_array().ok_or("Corax 会话目录无效")?;
@@ -452,6 +488,14 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "POST" && route == "/session" { return true; }
     if method == "GET" && path == "/devices" { return true; }
     if method == "POST" && path == "/devices/climber/refresh" { return true; }
+    if method == "GET" && ["/knowledge", "/knowledge/operation"].contains(&path) { return true; }
+    if method == "GET" && route == "/knowledge/pages" {
+        return path == route || path.strip_prefix("/knowledge/pages?offset=").is_some_and(|query| {
+            let (offset, generation) = query.split_once("&generation=").map_or((query, None), |(offset, generation)| (offset, Some(generation)));
+            !offset.is_empty() && offset.bytes().all(|byte| byte.is_ascii_digit()) && generation.is_none_or(|generation| uuid::Uuid::parse_str(generation).is_ok())
+        });
+    }
+    if method == "POST" && ["/knowledge/ingest", "/knowledge/cancel", "/knowledge/read"].contains(&path) { return true; }
     let parts: Vec<_> = route.trim_start_matches('/').split('/').collect();
     parts.len() == 3 && parts[0] == "session" && valid_session_id(parts[1]) &&
         ((method == "GET" && parts[2] == "events" && event_cursor(path).is_ok()) || (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
@@ -493,6 +537,98 @@ async fn send_request(state: &Desktop, backend: &Connection, path: &str, payload
         tokio::time::sleep(delay.min(deadline.saturating_duration_since(tokio::time::Instant::now()))).await;
         delay = (delay * 2).min(Duration::from_secs(2));
     }
+}
+
+// Like the official client, send directly to native admission. A full history
+// preflight (including a stream-tail query) grows with the conversation length.
+async fn submit_prompt(state: &Desktop, backend: &Connection, id: &str, content: &str) -> Result<Value, Value> {
+    if content.trim().is_empty() { return Err("消息不能为空".into()); }
+    {
+        let mut pending = backend.pending.lock().unwrap();
+        if pending.contains_key(id) { return Err("尚有消息受理结果待确认，请先读取会话状态".into()); }
+        pending.insert(id.into(), PendingAdmission::Delivery { id: None, observed: VecDeque::new() });
+    }
+    match send_request(state, backend, &format!("/corax/v1/session/{id}"), json!({"message":content}), true).await {
+        Ok((status, value)) if status.is_success() => {
+            let Some(delivery) = value["deliveryId"].as_str().filter(|delivery| !delivery.is_empty() && delivery.len() <= 256) else {
+                return Err(json!({"message":"Corax 未返回可核对的受理身份，请先读取会话确认结果。","admission":"unknown"}));
+            };
+            if value["sessionId"].as_str() != Some(id) {
+                return Err(json!({"message":"Corax 返回的会话身份不一致，请先读取会话确认结果。","admission":"unknown"}));
+            }
+            accept_delivery(backend, id, delivery);
+            Ok(value)
+        },
+        Ok((status, value)) => {
+            let rejected = status.is_client_error();
+            if rejected { backend.pending.lock().unwrap().remove(id); }
+            let message = if session_not_ready(status, &value) { "会话仍在准备中，本次消息尚未受理，请稍后发送。" } else { value["error"].as_str().unwrap_or("Corax 拒绝请求") };
+            Err(json!({"code":value["code"],"message":redact_text(message, &backend.secrets),"admission":if rejected { "rejected" } else { "unknown" }}))
+        },
+        Err(error) => Err(Value::from(error)),
+    }
+}
+
+// Compilation has no conversation or task database. Its only pending host
+// admission is reconciled against the same operation identity, never replayed.
+fn reconcile_knowledge(backend: &Connection, value: &Value) -> bool {
+    let mut pending = backend.knowledge_pending.lock().unwrap();
+    if let Some(id) = pending.as_deref() {
+        if value["operation"]["id"].as_str() != Some(id) { return true; }
+        match value["operation"]["state"].as_str() {
+            Some("completed" | "failed" | "cancelled") => { *pending = None; },
+            Some("running" | "cancelling") => {},
+            _ => return true,
+        }
+    }
+    false
+}
+
+async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, path: &str, body: Option<Value>) -> Result<Value, Value> {
+    let mut payload = body.unwrap_or(json!({}));
+    let start = path == "/knowledge/ingest";
+    let cancel = path == "/knowledge/cancel";
+    let mut operation_id = None;
+    if start || cancel {
+        if payload["generation"].as_str() != Some(backend.generation.as_str()) {
+            return Err(json!({"message":"后端连接已经变化，请刷新用户知识库后操作","admission":"rejected"}));
+        }
+        if start {
+            if payload.as_object().is_none_or(|object| object.keys().any(|key| !["generation", "configRevision", "sourceId"].contains(&key.as_str()))) || payload.get("sourceId").is_some_and(|source| !source.is_null() && !source.is_string()) {
+                return Err(json!({"message":"知识整理参数无效","admission":"rejected"}));
+            }
+            if state.pending_apply.load(Ordering::SeqCst) || payload["configRevision"].as_str() != Some(backend.config_revision.as_str()) || configuration::read(&state.config_path)?.revision != backend.config_revision {
+                return Err(json!({"message":"资料配置尚未保存或生效，请等待设置应用","admission":"rejected"}));
+            }
+            let has_pending = backend.knowledge_pending.lock().unwrap().is_some();
+            if has_pending {
+                let current = request(state, backend, "GET", "/desktop/knowledge/operation", None).await?;
+                if reconcile_knowledge(backend, &current) || backend.knowledge_pending.lock().unwrap().is_some() {
+                    return Err(json!({"message":"已有整理请求尚未结束或结果待确认，请刷新状态","admission":"rejected"}));
+                }
+            }
+            let id = uuid::Uuid::new_v4().to_string();
+            *backend.knowledge_pending.lock().unwrap() = Some(id.clone());
+            payload = if let Some(source) = payload["sourceId"].as_str() { json!({"operationId":id,"configRevision":backend.config_revision,"sourceId":source}) } else { json!({"operationId":id,"configRevision":backend.config_revision}) };
+            operation_id = Some(id);
+        } else {
+            payload = json!({"operationId":payload["operationId"]});
+        }
+    }
+    let (status, mut value) = request_status(state, backend, method, &format!("/desktop{path}"), if method == "POST" { Some(payload) } else { None }).await?;
+    if !status.is_success() {
+        if start && status.is_client_error() { *backend.knowledge_pending.lock().unwrap() = None; }
+        return Err(json!({"message":value["error"].as_str().unwrap_or("用户知识库请求失败"),"admission":if status.is_client_error() {"rejected"} else {"unknown"}}));
+    }
+    if operation_id.as_deref().is_some_and(|id| value["operation"]["id"].as_str() != Some(id)) {
+        return Err(json!({"message":"整理受理身份不一致，请刷新核对结果","admission":"unknown"}));
+    }
+    if value.is_object() {
+        value["generation"] = json!(backend.generation);
+        if value.get("configRevision").is_none() { value["configRevision"] = json!(backend.config_revision); }
+        if value.get("operation").is_some() { value["admissionUncertain"] = json!(reconcile_knowledge(backend, &value)); }
+    }
+    Ok(value)
 }
 
 // Fixed labels only: never write a URL, session ID or query string to the timing log.
@@ -549,7 +685,7 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     if !allowed_request(&method, &path) { return Err("不支持的桌面接口请求".into()); }
     if view_id.is_some() && (method != "GET" || !path.split('?').next().unwrap_or("").ends_with("/events")) { return Err("视图标识仅用于会话读取".into()); }
     let timing = chat_debug::Span::new(timing_operation(&method, &path));
-    let read_only = method == "GET" || path == "/devices/climber/refresh";
+    let read_only = method == "GET" || path == "/devices/climber/refresh" || path == "/knowledge/read";
     #[cfg(debug_assertions)] let lock_started = std::time::Instant::now();
     let (backend, _dispatch_guard, view) = {
         let slot = state.backend.lock().await;
@@ -578,6 +714,7 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     }
     let _serialized = if read_only { None } else { Some(backend.dispatch.lock().await) };
     timing.mark("dispatch-lock", json!({"readOnly":read_only}));
+    if path.starts_with("/knowledge") { return knowledge_request(&state, &backend, &method, &path, body).await; }
     if path.split('?').next() == Some("/session") {
         let value = request(&state, &backend, &method, &format!("/corax/v1{path}"), if method == "POST" { Some(json!({})) } else { None }).await?;
         if method == "GET" { return Ok(value["sessions"].clone()); }
@@ -604,18 +741,22 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
         return Ok(json!({"sessionId":id,"generation":backend.generation,"startIndex":start_index,"revision":revision,"admitted":admitted,"events":events}));
     }
     let mut payload = body.unwrap_or(json!({}));
+    if action == "prompt_async" {
+        let content = payload["content"].as_str().ok_or("消息不能为空")?;
+        let result = submit_prompt(&state, &backend, id, content).await;
+        timing.mark("response", json!({"success":result.is_ok()}));
+        let _ = app.emit("agent-event", json!({"sessionId":id,"type":"session.updated","properties":{}}));
+        return result;
+    }
     let endpoint = match action {
-        "prompt_async" | "respond" => {
+        "respond" => {
             timing.mark("preflight-begin", json!({}));
             let status = activities(&state, &backend, &[id.to_string()]).await?.pop().ok_or("Corax 会话状态无效")?;
             timing.mark("preflight-end", json!({}));
             if status["closed"] == true { return Err("会话已失效，请新建会话".into()); }
-            if action == "prompt_async" && (status["turnActive"] == true || backend.pending.lock().unwrap().contains_key(id)) { return Err("会话仍在执行".into()); }
-            if action == "prompt_async" {
-                let content = payload["content"].as_str().filter(|text| !text.trim().is_empty()).ok_or("消息不能为空")?;
-                payload = json!({"message":content});
-            } else { payload = json!({"inputResponses":payload["responses"]}); }
-            backend.pending.lock().unwrap().insert(id.into(), status["revision"].as_u64().ok_or("Corax 事件游标无效")? as usize);
+            if backend.pending.lock().unwrap().contains_key(id) { return Err("尚有消息受理结果待确认，请先读取会话状态".into()); }
+            payload = json!({"inputResponses":payload["responses"]});
+            backend.pending.lock().unwrap().insert(id.into(), PendingAdmission::Cursor(status["revision"].as_u64().ok_or("Corax 事件游标无效")? as usize));
             format!("/corax/v1/session/{id}")
         },
         "abort" => format!("/corax/v1/session/{id}/cancel"),
@@ -803,7 +944,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     }); }
 
     fn connection(url: String) -> Arc<Connection> {
-        Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), pending: SyncMutex::new(HashMap::new()), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })
+        Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), config_revision: "fixture".into(), pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })
     }
     #[test] fn capability_catalog_uses_runtime_entries_and_projects_only_display_metadata() {
         let info = json!({
@@ -865,11 +1006,127 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let connection = connection("http://127.0.0.1".into());
         let guard = DispatchGuard::reserve(&connection);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
-        connection.pending.lock().unwrap().insert("session".into(), 10);
+        connection.pending.lock().unwrap().insert("session".into(), PendingAdmission::Cursor(10));
         assert!(!admitted(&connection, "session", &[json!({"type":"message.received"})], 10));
         drop(guard);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 0);
     }
+    #[test] fn knowledge_routes_and_operation_admission_are_scoped() {
+        for (method, path) in [("GET", "/knowledge"), ("GET", "/knowledge/operation"), ("GET", "/knowledge/pages?offset=20"), ("POST", "/knowledge/read"), ("POST", "/knowledge/ingest"), ("POST", "/knowledge/cancel")] {
+            assert!(allowed_request(method, path));
+        }
+        for (method, path) in [("GET", "/knowledge/ingest"), ("POST", "/knowledge/sql"), ("GET", "/knowledge?path=private"), ("GET", "/knowledge/pages?offset=0&path=private")] {
+            assert!(!allowed_request(method, path));
+        }
+        assert!(allowed_request("GET", "/knowledge/pages?offset=20&generation=00000000-0000-4000-8000-000000000099"));
+        assert!(!allowed_request("GET", "/knowledge/pages?offset=20&generation=invalid"));
+        assert!(!allowed_request("GET", "/knowledge/pages?offset=20&generation=00000000-0000-4000-8000-000000000099&path=private"));
+        let connection = connection("http://127.0.0.1".into());
+        *connection.knowledge_pending.lock().unwrap() = Some("expected".into());
+        assert!(reconcile_knowledge(&connection, &json!({"operation":{"id":"other","state":"completed"}})));
+        assert!(connection.knowledge_pending.lock().unwrap().is_some());
+        assert!(!reconcile_knowledge(&connection, &json!({"operation":{"id":"expected","state":"cancelling"}})));
+        assert!(connection.knowledge_pending.lock().unwrap().is_some());
+        assert!(!reconcile_knowledge(&connection, &json!({"operation":{"id":"expected","state":"cancelled"}})));
+        assert!(connection.knowledge_pending.lock().unwrap().is_none());
+    }
+    #[test] fn active_knowledge_compilation_blocks_idle_shutdown_without_a_conversation() { tauri::async_runtime::block_on(async {
+        let (url, task) = server(vec![(200, json!({"operation":{"id":"compiler","state":"running"}}))]).await;
+        assert!(connection_has_active_work(&state(), &connection(url)).await.unwrap());
+        assert_eq!(task.await.unwrap(), 1);
+    }); }
+    #[test] fn uncertain_knowledge_admission_cannot_be_cleared_by_an_unrelated_completed_operation() { tauri::async_runtime::block_on(async {
+        let (url, task) = server(vec![(200, json!({"operation":{"id":"other","state":"completed"}}))]).await;
+        let connection = connection(url);
+        *connection.knowledge_pending.lock().unwrap() = Some("expected".into());
+        assert!(connection_has_active_work(&state(), &connection).await.is_err());
+        assert_eq!(task.await.unwrap(), 1);
+        assert!(connection.knowledge_pending.lock().unwrap().is_some());
+    }); }
+    #[test] fn stale_knowledge_requests_are_rejected_before_any_model_dispatch() { tauri::async_runtime::block_on(async {
+        let connection = connection("http://127.0.0.1:9".into());
+        let result = knowledge_request(&state(), &connection, "POST", "/knowledge/ingest", Some(json!({"generation":"stale","configRevision":"stale"}))).await.unwrap_err();
+        assert_eq!(result["admission"], "rejected");
+        assert!(connection.knowledge_pending.lock().unwrap().is_none());
+        let state = state();
+        state.pending_apply.store(true, Ordering::SeqCst);
+        let result = knowledge_request(&state, &connection, "POST", "/knowledge/ingest", Some(json!({"generation":connection.generation,"configRevision":"stale"}))).await.unwrap_err();
+        assert_eq!(result["admission"], "rejected");
+        assert!(connection.knowledge_pending.lock().unwrap().is_none());
+    }); }
+    #[test] fn knowledge_start_checks_the_saved_revision_and_keeps_ambiguous_admission_reserved() { tauri::async_runtime::block_on(async {
+        let root = std::env::temp_dir().join(format!("auto-agent-knowledge-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir(&root).unwrap();
+        let mut state = state();
+        state.config_path = root.join("config.json");
+        std::fs::write(&state.config_path, "{}").unwrap();
+        let revision = configuration::read(&state.config_path).unwrap().revision;
+        let (url, task) = server(vec![(500, json!({"error":"unknown admission"}))]).await;
+        let mut connection = connection(url);
+        Arc::get_mut(&mut connection).unwrap().config_revision = revision.clone();
+        let stale = knowledge_request(&state, &connection, "POST", "/knowledge/ingest", Some(json!({"generation":connection.generation,"configRevision":"stale"}))).await.unwrap_err();
+        assert_eq!(stale["admission"], "rejected");
+        assert!(connection.knowledge_pending.lock().unwrap().is_none());
+        let error = knowledge_request(&state, &connection, "POST", "/knowledge/ingest", Some(json!({"generation":connection.generation,"configRevision":revision}))).await.unwrap_err();
+        assert_eq!(error["admission"], "unknown");
+        assert_eq!(task.await.unwrap(), 1);
+        assert!(connection.knowledge_pending.lock().unwrap().is_some());
+        assert!(reconcile_knowledge(&connection, &json!({"operation":null})));
+        std::fs::remove_dir_all(root).unwrap();
+    }); }
+    #[test] fn prompts_use_only_native_admission_and_match_the_exact_delivery_instead_of_scanning_history() { tauri::async_runtime::block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let connection = connection(format!("http://{}", listener.local_addr().unwrap()));
+        let task = tauri::async_runtime::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = [0; 8192];
+            let count = socket.read(&mut bytes).await.unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..count]).starts_with("POST /corax/v1/session/fixture HTTP/1.1\r\n"));
+            let body = json!({"sessionId":"fixture","deliveryId":"accepted-current"}).to_string();
+            socket.write_all(format!("HTTP/1.1 202 Accepted\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        let result = submit_prompt(&state(), &connection, "fixture", "local message").await.unwrap();
+        assert_eq!(result["deliveryId"], "accepted-current");
+        task.await.unwrap();
+        let unrelated = vec![json!({"type":"turn.started","meta":{"deliveryIds":["older-delivery"]}}); 10000];
+        assert!(admitted(&connection, "fixture", &unrelated, 0));
+        assert!(!admitted(&connection, "fixture", &[json!({"type":"message.received","meta":{"deliveryIds":["accepted-current"]}})], 10000));
+        assert!(connection.pending.lock().unwrap().is_empty());
+    }); }
+    #[test] fn events_before_the_http_receipt_are_bounded_and_reconciled_by_delivery_identity() {
+        let connection = connection("http://127.0.0.1".into());
+        connection.pending.lock().unwrap().insert("fixture".into(), PendingAdmission::Delivery { id: None, observed: VecDeque::new() });
+        let ids: Vec<_> = (0..1000).map(|index| format!("delivery-{index}")).collect();
+        assert!(admitted(&connection, "fixture", &[json!({"type":"turn.started","meta":{"deliveryIds":ids}})], 0));
+        match connection.pending.lock().unwrap().get("fixture").unwrap() {
+            PendingAdmission::Delivery { observed, .. } => assert_eq!(observed.len(), 256),
+            _ => panic!("expected a delivery reservation"),
+        }
+        accept_delivery(&connection, "fixture", "delivery-999");
+        assert!(connection.pending.lock().unwrap().is_empty());
+    }
+    #[test] fn unknown_prompt_outcomes_are_not_retried_or_cleared_by_unrelated_events() { tauri::async_runtime::block_on(async {
+        let (url, task) = server(vec![(500, json!({"error":"uncertain"}))]).await;
+        let connection = connection(url);
+        let error = submit_prompt(&state(), &connection, "fixture", "local message").await.unwrap_err();
+        assert_eq!(error["admission"], "unknown");
+        assert_eq!(task.await.unwrap(), 1);
+        assert!(admitted(&connection, "fixture", &[json!({"type":"turn.started","meta":{"deliveryIds":["unrelated"]}})], 0));
+        assert!(submit_prompt(&state(), &connection, "fixture", "must not be sent").await.is_err());
+        assert!(connection_has_active_work(&state(), &connection).await.is_err());
+        assert!(connection.pending.lock().unwrap().contains_key("fixture"));
+    }); }
+    #[test] fn explicit_prompt_rejection_releases_admission_but_an_unidentified_success_does_not() { tauri::async_runtime::block_on(async {
+        let (url, task) = server(vec![(400, json!({"error":"rejected"})), (202, json!({"sessionId":"fixture"}))]).await;
+        let connection = connection(url);
+        let error = submit_prompt(&state(), &connection, "fixture", "local message").await.unwrap_err();
+        assert_eq!(error["admission"], "rejected");
+        assert!(connection.pending.lock().unwrap().is_empty());
+        let error = submit_prompt(&state(), &connection, "fixture", "local message").await.unwrap_err();
+        assert_eq!(error["admission"], "unknown");
+        assert!(connection.pending.lock().unwrap().contains_key("fixture"));
+        assert_eq!(task.await.unwrap(), 2);
+    }); }
     #[test] fn stale_view_cleanup_cannot_close_the_new_selection() { tauri::async_runtime::block_on(async {
         let mut views = ChatViews::default();
         views.open("first".into(), "old".into());
@@ -926,7 +1183,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
             tokio::time::timeout(Duration::from_secs(2), socket.read(&mut buffer)).await.unwrap().unwrap()
         });
         let connection = connection(url);
-        connection.pending.lock().unwrap().insert("pending-write".into(), 42);
+        connection.pending.lock().unwrap().insert("pending-write".into(), PendingAdmission::Cursor(42));
         let write = DispatchGuard::reserve(&connection);
         let mut views = ChatViews::default();
         views.open("first".into(), "view".into());
@@ -941,7 +1198,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let result = tokio::time::timeout(Duration::from_secs(1), reader).await.unwrap().unwrap();
         assert!(result.is_err());
         assert_eq!(server.await.unwrap(), 0, "view cleanup must drop the HTTP response body");
-        assert_eq!(connection.pending.lock().unwrap().get("pending-write"), Some(&42));
+        assert_eq!(connection.pending.lock().unwrap().get("pending-write"), Some(&PendingAdmission::Cursor(42)));
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
         drop(write);
     }); }
@@ -967,13 +1224,13 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     #[test] fn normal_stop_blocks_active_work_and_confirmed_force_preserves_workspace_and_unknown_admission() { tauri::async_runtime::block_on(async {
         let (root, mut slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
         let write = DispatchGuard::reserve(&connection);
-        connection.pending.lock().unwrap().insert("unconfirmed-write".into(), 42);
+        connection.pending.lock().unwrap().insert("unconfirmed-write".into(), PendingAdmission::Cursor(42));
         let result = stop(&state(), &mut slot).await;
         assert!(result.is_err());
         assert!(slot.as_mut().unwrap().child.try_wait().unwrap().is_none());
         force_stop(&mut slot).await.unwrap();
         assert!(slot.is_none());
-        assert_eq!(connection.pending.lock().unwrap().get("unconfirmed-write"), Some(&42));
+        assert_eq!(connection.pending.lock().unwrap().get("unconfirmed-write"), Some(&PendingAdmission::Cursor(42)));
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
         assert_eq!(std::fs::read_to_string(root.join("keep.txt")).unwrap(), "host workspace data");
         drop(write);
@@ -1002,12 +1259,12 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let state = state();
         state.exiting.store(true, Ordering::SeqCst);
         *state.owned_tree.lock().unwrap() = Some(Arc::downgrade(&slot.as_ref().unwrap().tree));
-        connection.pending.lock().unwrap().insert("unknown-write".into(), 3);
+        connection.pending.lock().unwrap().insert("unknown-write".into(), PendingAdmission::Cursor(3));
         *state.backend.lock().await = slot;
         let mut held = state.backend.lock().await;
         force_exit_with_wait(&state, Duration::from_millis(50)).await.unwrap();
         tokio::time::timeout(Duration::from_secs(2), held.as_mut().unwrap().child.wait()).await.unwrap().unwrap();
-        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&3));
+        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&PendingAdmission::Cursor(3)));
         drop(held);
         force_exit_with_wait(&state, Duration::from_millis(50)).await.unwrap();
         assert!(state.backend.lock().await.is_none());
@@ -1020,11 +1277,11 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let backend = slot.as_mut().unwrap();
         backend.tree.force_stop();
         backend.child.wait().await.unwrap();
-        connection.pending.lock().unwrap().insert("unknown-write".into(), 9);
+        connection.pending.lock().unwrap().insert("unknown-write".into(), PendingAdmission::Cursor(9));
         assert!(stop(&state(), &mut slot).await.is_err());
         assert!(slot.is_some());
         force_stop(&mut slot).await.unwrap();
-        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&9));
+        assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&PendingAdmission::Cursor(9)));
         std::fs::remove_dir_all(root).unwrap();
     }); }
 }

@@ -1,0 +1,119 @@
+.knowledge-base {
+  display: grid;
+  gap: 16px;
+}
+.knowledge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.knowledge-actions [role='status'] {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.knowledge-source {
+  display: grid;
+  gap: 8px;
+  padding: 16px 0;
+  border-top: 1px solid var(--line);
+}
+.knowledge-source-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.knowledge-source strong,
+.knowledge-page-link strong {
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.knowledge-source code,
+.knowledge-directory code {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.knowledge-source p,
+.knowledge-operation p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.knowledge-status {
+  flex-shrink: 0;
+  padding: 3px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  background: var(--control-bg);
+  color: var(--text-secondary);
+}
+.knowledge-status[data-state='ready'] {
+  background: var(--accent-soft);
+  color: var(--accent-selected-text);
+}
+.knowledge-notice {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.65;
+}
+.knowledge-empty,
+.knowledge-directory {
+  margin: 8px 0;
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+}
+.knowledge-operation {
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border: 1px solid var(--accent-border);
+  border-radius: 10px;
+  background: var(--accent-soft);
+}
+.knowledge-operation > .ui-button {
+  justify-self: start;
+}
+.knowledge-page-link.ui-button {
+  width: 100%;
+  height: auto;
+  display: grid;
+  justify-items: start;
+  gap: 5px;
+  padding: 12px 0;
+  white-space: normal;
+  text-align: left;
+}
+.knowledge-page-link span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.knowledge-preview {
+  padding: 16px;
+  border: 1px solid var(--control-border);
+  border-radius: 10px;
+  font-size: 13px;
+  line-height: 1.75;
+  overflow-wrap: anywhere;
+}
+.knowledge-preview header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+.knowledge-preview h2 {
+  font-size: 16px;
+  margin: 0;
+}
+.knowledge-preview pre {
+  overflow-x: auto;
+}

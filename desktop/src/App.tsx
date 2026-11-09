@@ -330,6 +330,7 @@ export function App() {
       trace.mark('submit');
       await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
       trace.mark('accepted');
+      setSending(false);
       if (navigationEpoch.current === epoch) {
         setInput('');
         if (inputRef.current) inputRef.current.style.height = 'auto';
@@ -338,8 +339,9 @@ export function App() {
         trace.mark('synced');
       }
       trace.mark('list');
-      await refreshSessions();
-      trace.mark('listed');
+      void refreshSessions()
+        .then(() => trace.mark('listed'))
+        .catch(() => {});
     } catch (e) {
       trace.mark('error');
       if (navigationEpoch.current === epoch) setError(sendErrorText(e));

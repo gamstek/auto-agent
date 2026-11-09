@@ -1,5 +1,6 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { configSchema, type AppConfig } from './schema';
 import { DATA_LAYOUT, defaultConfigPath } from './paths';
 
@@ -9,9 +10,23 @@ export { coraxDataDirectory, ownCoraxRuntime, prepareCoraxData } from './runtime
 
 // One immutable process-local configuration, shared by all compiled authored modules.
 const key = Symbol.for('auto-agent.runtime-config');
-const host = globalThis as typeof globalThis & { [key]?: Readonly<AppConfig> };
+const revisionKey = Symbol.for('auto-agent.runtime-config-revision');
+const host = globalThis as typeof globalThis & {
+  [key]?: Readonly<AppConfig>;
+  [revisionKey]?: string;
+};
 export function getRuntimeConfig(): Readonly<AppConfig> {
-  return (host[key] ??= Object.freeze(loadConfig()));
+  if (!host[key]) {
+    const absolute = resolve(process.env.AUTO_AGENT_CONFIG ?? defaultConfigPath());
+    const text = readFileSync(absolute, 'utf8');
+    host[key] = Object.freeze(parseConfig(absolute, text));
+    host[revisionKey] = createHash('sha256').update(text).digest('hex');
+  }
+  return host[key];
+}
+export function getRuntimeConfigRevision() {
+  getRuntimeConfig();
+  return host[revisionKey] ?? null;
 }
 
 export function ensureConfig(path = defaultConfigPath()) {
@@ -30,7 +45,10 @@ export function ensureConfig(path = defaultConfigPath()) {
 /** Read and validate one current configuration; returned paths are absolute. */
 export function loadConfig(path = process.env.AUTO_AGENT_CONFIG ?? defaultConfigPath()): AppConfig {
   const absolute = resolve(path);
-  const config = configSchema.parse(JSON.parse(readFileSync(absolute, 'utf8')));
+  return parseConfig(absolute, readFileSync(absolute, 'utf8'));
+}
+function parseConfig(absolute: string, text: string): AppConfig {
+  const config = configSchema.parse(JSON.parse(text));
   const fromConfig = (path: string) => resolve(dirname(absolute), path);
   return {
     ...config,

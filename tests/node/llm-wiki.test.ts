@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { LlmWiki, discoverText, type IngestModel } from '@auto-agent/llm-wiki';
@@ -89,8 +89,19 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
         });
       },
     };
+    assert.equal(
+      (await wiki.inspectSources(documents, model.identity)).sources[0].status,
+      'pending',
+    );
+    await assert.rejects(stat(join(root, 'knowledge')), { code: 'ENOENT' });
+    assert.equal(calls, 0);
     await wiki.ingest(documents[0], model, signal);
     assert.equal(calls, 2);
+    assert.equal((await wiki.inspectSources(documents, model.identity)).sources[0].status, 'ready');
+    assert.equal(
+      (await wiki.inspectSources(documents, 'changed-model')).sources[0].status,
+      'changed',
+    );
     const hit = (await wiki.search('石墨')).results.find(
       (row) => row.reference.path === 'concepts/石墨.md',
     )!;
@@ -101,6 +112,10 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
     await writeFile(path, '# 更新原文\n300 ℃');
     const updated = (await discoverText([{ id: 'material', type: 'file', path }], signal))
       .documents[0];
+    assert.equal(
+      (await wiki.inspectSources([updated], model.identity)).sources[0].status,
+      'changed',
+    );
     await assert.rejects(
       wiki.ingest(
         updated,
@@ -120,6 +135,62 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
       discoverText([{ id: 'bad', type: 'file', path: join(root, 'disguised.md') }], signal),
       /纯文本/,
     );
+    await writeFile(
+      join(wiki.storage.wikiDirectory(hit.reference.generation), hit.reference.path),
+      '# 外部修改',
+    );
+    assert.equal((await wiki.inspectSources(documents, model.identity)).sources[0].status, 'error');
+    assert.equal(calls, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('knowledge catalogs can stay pinned to a publication while a newer version becomes current', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent-wiki-catalog-version-'));
+  const path = join(root, 'notes.md');
+  const signal = new AbortController().signal;
+  try {
+    const wiki = new LlmWiki(join(root, 'knowledge'));
+    let title = '版本一';
+    const model: IngestModel = {
+      identity: 'local-version-fixture',
+      maxPromptBytes: 100000,
+      async complete(request) {
+        if (request.stage === 'analysis') return title;
+        const input = JSON.parse(request.prompt.split('\n\n')[0]);
+        return JSON.stringify({
+          pages: [
+            {
+              path: input.source.summaryPath,
+              type: 'source',
+              title,
+              summary: title,
+              body: `# ${title}`,
+              sources: [input.source.reference],
+              related: [],
+            },
+          ],
+          issues: [],
+        });
+      },
+    };
+    await writeFile(path, title);
+    const first = (await discoverText([{ id: 'notes', type: 'file', path }], signal)).documents[0];
+    const publication = await wiki.ingest(first, model, signal);
+    title = '版本二';
+    await writeFile(path, title);
+    const second = (await discoverText([{ id: 'notes', type: 'file', path }], signal)).documents[0];
+    await wiki.ingest(second, model, signal);
+    assert.equal(
+      (await wiki.catalog()).pages.find((page) => page.type === 'source')?.title,
+      '版本二',
+    );
+    const pinned = await wiki.catalog(0, 30, publication.generation);
+    const page = pinned.pages.find((page) => page.type === 'source')!;
+    assert.equal(pinned.generation, publication.generation);
+    assert.equal(page.title, '版本一');
+    assert.match((await wiki.read(page.reference)).text, /版本一/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }

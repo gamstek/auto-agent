@@ -2,6 +2,15 @@
 export const DESKTOP_PROTOCOL_VERSION = 4;
 export * from './chat';
 export type { InstrumentSnapshot } from './instrument';
+export type {
+  KnowledgeReference,
+  KnowledgeOperation,
+  KnowledgeOperationState,
+  KnowledgeSourceState,
+  KnowledgePageEntry,
+  KnowledgeSnapshot,
+  KnowledgePage,
+} from './knowledge';
 
 /** Features callable through the application bridge; absence means unavailable. */
 export interface BackendCapabilities {

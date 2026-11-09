@@ -11,7 +11,7 @@ pnpm install --frozen-lockfile
 pnpm dev:desktop
 ```
 
-开发模式由 Rust 使用系统 Node 调用 npm `@coraxjs/core` 的标准 `corax dev --no-ui`，保留后端原生重载与前端 Vite HMR。没有额外应用 HTTP 桥接或旧后端 EXE。
+开发模式由 Rust 使用系统 Node 调用 npm `@coraxjs/core` 的标准 `corax dev --no-ui --resume`，保留后端原生重载与前端 Vite HMR。`--resume` 恢复仍有有效快照的既有开发运行；当前 Corax 的旧快照清理仍可能终止所依赖的运行，详见 [开发接入](../docs/corax-development.md)。没有额外应用 HTTP 桥接或旧后端 EXE。
 
 Corax 开发项目根目录是仓库的 `corax/`，只包含其 authored 内容与依赖；桌面 Cargo 产物在该目录之外，避免递归监听导致冷启动 I/O 拥塞。开发配置与可选 `.env` 仍在仓库根目录，生产资源由 `corax/package.json` 白名单部署到原有 `src-tauri/runtime` 布局。
 
@@ -25,7 +25,9 @@ Corax 开发项目根目录是仓库的 `corax/`，只包含其 authored 内容�
 
 长期记忆使用 Corax 原生工具，存于 dataDir/corax/memory.sqlite。同一数据目录的新会话及重启后自动召回用户的稳定事实与偏好，随机传输令牌或安装目录变化不改变其作用域。可在聊天中要求记住或忘记；删除偏好与删除聊天记录彼此独立。记忆不保存当前设备状态、临时任务参数或凭据，也不参与桌面写入受理判断。
 
-配置包含模型/角色/容量、dataDir 和 `llmWiki: {sources}`。LLM Wiki 页只选择 UTF-8 Markdown/TXT 文件或目录，没有 SQLite 资料包或内置库开关。添加来源只保存设置，生效后明确要求助手 ingest，或用 CLI 摄入，才会调用模型生成知识页。设置保存校验 revision 并保留相对路径，忙碌时保存、空闲后应用。
+配置包含模型/角色/容量、dataDir 和 `llmWiki: {sources}`。“用户知识库”添加 UTF-8 Markdown/TXT 文件或目录后只保存来源；设置生效后显式点击“开始整理”，才调用当前模型生成知识页。页面显示待整理/已整理/需要更新、实际分析与发布阶段、已完成数量及知识页预览。取消等待实际终态并保留已发布内容，移除来源不删除已有知识。设置保存校验 revision 并保留相对路径，忙碌时保存、空闲后应用。
+
+桌面通过 Rust 白名单访问认证的 `channels/knowledge.ts`：来源检查与分页阅读只读，开始整理绑定当前配置 revision 和后端 generation，取消绑定具体操作 ID。编译过程复用 LLM Wiki 引擎，不执行聊天 Agent 或设备工具；只保留单个进程内编译状态。运行中、取消中和受理结果未知均保护空闲退出/设置重启；状态丢失后核对既有发布内容，不自动重放摄入。
 
 API Key 来自 `AUTO_AGENT_API_KEY` 或系统凭据库；不返回已保存的 Key 明文。后端的随机传输令牌只在 Rust 和 Node 子进程之间使用。
 
@@ -62,7 +64,7 @@ Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件�
 
 “设置 → 仪器”配置 Climber 厂家 /api/v1 地址、超时和启用状态；默认开启，地址为 `http://127.0.0.1:18080/api/v1`，旧配置地址为空时显式启用会填入该默认地址。已有配置保留保存的启用状态与地址。忙碌时保存、空闲后重启应用。生产依赖包含 climber-mcp 及其完整 SAM 配置；固定 Node stdio MCP 处理文件与设备操作。仪器页只读调用 get_status，经认证 channel 与 Rust 白名单返回；WebView 不能调用登记、启动或任意 MCP 工具。未知设备写入记录由 MCP 保存在 dataDir/climber。
 
-“工具”展示 Auto-Agent 当前注册的工具与动态工具，过滤 Corax 框架内置项；“技能”展示 Corax 官方运行信息中的实际目录。Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“LLM Wiki”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
+“工具”展示 Auto-Agent 当前注册的工具与动态工具，过滤 Corax 框架内置项；“技能”展示 Corax 官方运行信息中的实际目录。Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“用户知识库”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
 
 Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v1 标识时清理并初始化，后续同布局安装保留数据；正常启动和开发不会清理个人目录。
 

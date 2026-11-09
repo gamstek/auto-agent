@@ -4,9 +4,11 @@
 
 ## 启动
 
-`pnpm dev` 设置开发配置、项目/数据目录与占用锁，通过 Node 执行标准 Corax dev，保留原生开发交互与后端重载。
+`pnpm dev` 设置开发配置、项目/数据目录与占用锁，通过 Node 执行标准 Corax `dev --resume`，保留原生开发交互与后端重载。恢复由 Corax 负责，应用不复制会话或重放发送请求；设备未知写入仍由 MCP 的持久记录阻断。
 
-`pnpm dev:desktop` 启动 Vite 和 Tauri。Rust 根据公开 `./bin` 导出定位 CLI，直接执行 `node <corax-bin> dev --no-ui`；发布版使用随包 Node 和 corax start。子进程归 Rust 进程树管理。没有中间应用 HTTP 服务。
+`pnpm dev:desktop` 启动 Vite 和 Tauri。Rust 根据公开 `./bin` 导出定位 CLI，直接执行 `node <corax-bin> dev --no-ui --resume`；发布版使用随包 Node 和 corax start。子进程归 Rust 进程树管理。没有中间应用 HTTP 服务。
+
+`--resume` 是官方支持的开发恢复参数：缺省的新 dev 调用不会恢复先前调用保留的运行。它能恢复仍有有效运行快照的会话，不能复活已经取消或缺失快照的会话。当前 `@coraxjs/core@0.1.0` 会清理超过保留数量且退役超过宽限时间的开发快照；依赖已清理快照的运行会被框架取消，聊天历史仍可能保留，但不再受理消息。该版本没有公开的快照保留配置，应用不修改其私有清理逻辑；完整解决需上游保留仍被会话引用的快照或安全转移执行归属。
 
 原生 dev 的预加载和 Nitro worker 使用 Node。应用内容集中在独立 workspace 包 `corax/`，本页的 agent、sandbox、lib、tools、channels、skills 路径均相对该目录。CLI 和 Rust 都以 `corax/` 为项目根目录，避免 Corax 的递归开发监听扫描相邻的 `desktop/src-tauri/target`。该包保留 `auto-agent` 名称，仓库根包改名 `auto-agent-workspace`；源码移动不改变会话身份。
 
@@ -34,7 +36,7 @@ lib/config 统一管理 schema、路径、IO、进程内快照与数据目录占
 
 lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI 使用固定 tsx loader；工具 schema/说明从 @auto-agent/climber-mcp/contracts 导入，经 tools/climber.ts 动态适配。sam_file 离线可用，climber.enabled 后提供四项设备能力。当前 Corax 原生 MCP connection 只接受 HTTP/SSE，所以这里采用公开工具接口适配，不创建私有 Corax 连接实现。channels/instruments 只提供认证的桌面只读投影。
 
-模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。没有领域专用资料 Tool、Wiki HTTP channel 或数据库导入。
+模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。桌面用户知识库通过 channels/knowledge 的固定认证路由复用同一编译引擎和只读页面接口；不提供领域专用资料 Tool 或数据库导入。
 
 sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 ShellJS 实现宿主进程/文件 I/O；不替换 Corax 原生工具。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 需可发现的 Git Bash，继承宿主环境而非虚拟解释器。
 

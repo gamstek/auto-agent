@@ -9,7 +9,7 @@
 | packages/climber-mcp/src/contracts.ts | SAM 与四项设备工具的 schema、操作边界及未知写恢复  |
 | tools/climber.ts                      | 按配置向 Corax 暴露 MCP 契约，不复制领域指导       |
 | device-automation Skill               | 方法、材料规则、文件准备与设备/流程任务路由        |
-| llm-wiki Skill                        | 用户文本知识的查询、原文核对和显式维护             |
+| knowledge-base Skill                  | 用户资料查询、原文核对与显式整理的工作流           |
 | packages/llm-wiki/src/prompts.ts      | 摄入专用分析/生成提示词，不复用聊天角色            |
 
 自定义 systemPrompt 替换角色，共享原则追加一次；Corax 负责技能与默认工具指导。角色不重复工具 schema、仪器常量或数值程序。
@@ -33,6 +33,8 @@
 材料咨询中的“本地资料不足 → 公开材料检索 → 来源核验 → 方法/模板建议”由 device-automation Skill 及其 Wiki 参考文档组织，复用当前实际可用的 Corax 搜索与网页读取能力。网页读取不等于提供了独立搜索工具；公开搜索页或文献索引可用于发现来源，材料特性仍需核验正文、摘要或技术文档。网络限制必须如实反馈，外部查证不自动摄入 Wiki，也不自动授权生成文件或控制设备。
 
 ## LLM Wiki 摄入
+
+产品页面统一称“用户知识库”，`knowledge-base` Skill 只组织任务流程；`wiki` Tool 拥有操作契约，`packages/llm-wiki` 拥有知识编译实现。Skill 不重复参数、分页和模型生成格式。桌面“添加资料”只登记来源，“开始整理”才授权调用模型；查看状态和移除来源均不隐式摄入。
 
 分析阶段结合纯文本、purpose/schema、目录和相关页，输出简洁的最终事实分析、实体、概念、关联与冲突；生成阶段据此写出/合并 Markdown 页。都不要求输出隐藏思维过程。
 

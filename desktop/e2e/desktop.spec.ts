@@ -24,9 +24,19 @@ async function nativeDesktop(page: Page, existing = false) {
       generation: '00000000-0000-4000-8000-000000000001',
       corruptSuffix: false,
       failHistory: false,
+      holdList: false,
+      knowledgeStarts: [] as any[],
+      knowledgePageRequests: [] as string[],
+      knowledgeUncertain: false,
+      knowledgeReject: false,
+      knowledgeConfigRevision: 'revision',
+      pendingSettingsApply: false,
     };
     const heldHistory = new Map<string, () => void>();
     const releaseHistory = new Map<string, () => void>();
+    const releaseList: (() => void)[] = [];
+    let knowledgeOperation: any = null;
+    let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
     let next = 0,
       watchId = '',
@@ -38,7 +48,7 @@ async function nativeDesktop(page: Page, existing = false) {
       maxInputTokens: 128000,
       maxOutputTokens: 16000,
       systemPrompt: '',
-      llmWiki: { sources: [] },
+      llmWiki: { sources: [] as { id: string; type: 'file' | 'directory'; path: string }[] },
       climber: { enabled: true, serviceURL: 'http://127.0.0.1:18080/api/v1', timeoutMs: 5000 },
     };
     const emit = (event: string, payload: unknown) => {
@@ -52,6 +62,21 @@ async function nativeDesktop(page: Page, existing = false) {
       releaseHistory: () => {
         testState.holdHistoryFor = '';
         for (const release of releaseHistory.values()) release();
+      },
+      releaseList: () => {
+        testState.holdList = false;
+        for (const release of releaseList.splice(0)) release();
+      },
+      finishKnowledge: (state = 'completed', completed = 1) => {
+        knowledgeDone = completed;
+        knowledgeOperation = {
+          ...knowledgeOperation,
+          state,
+          completed,
+          pageCount: completed ? 2 : 0,
+          finishedAt: new Date().toISOString(),
+          ...(state !== 'completed' ? { message: '本次未全部完成，已发布的内容保留。' } : {}),
+        };
       },
     };
     const append = (type: string, data: unknown) =>
@@ -147,7 +172,11 @@ async function nativeDesktop(page: Page, existing = false) {
         if (command === 'settings_save') {
           testState.saves.push(structuredClone(args.settings));
           Object.assign(settings, args.settings);
-          return { saved: true, applied: true, configRevision: 'revision' };
+          return {
+            saved: true,
+            applied: !testState.pendingSettingsApply,
+            configRevision: 'revision',
+          };
         }
         if (command === 'backend_watch') {
           if (args.viewId !== testState.activeView) throw new Error('会话视图已切换');
@@ -170,6 +199,95 @@ async function nativeDesktop(page: Page, existing = false) {
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          const knowledgePage = {
+            path: 'concepts/notes.md',
+            title: '整理后的笔记',
+            type: 'concept',
+            summary: '保留来源的知识页',
+            reference: {
+              generation: '00000000-0000-4000-8000-000000000099',
+              path: 'concepts/notes.md',
+              sha256: 'a'.repeat(64),
+            },
+          };
+          const knowledgeState = () => ({
+            generation: testState.generation,
+            configRevision: testState.knowledgeConfigRevision,
+            operation: knowledgeOperation,
+            admissionUncertain: testState.knowledgeUncertain,
+          });
+          if (args.path === '/knowledge')
+            return {
+              ...knowledgeState(),
+              published: knowledgeDone > 0,
+              publication: knowledgeDone ? knowledgePage.reference.generation : undefined,
+              pageCount: knowledgeDone ? 2 : 0,
+              wikiDirectory: knowledgeDone
+                ? 'C:\\isolated\\llm-wiki\\.state\\generations\\fixture\\wiki'
+                : undefined,
+              sources: settings.llmWiki.sources.map((source, index) => ({
+                id: source.id,
+                status: index < knowledgeDone ? 'ready' : 'pending',
+                documents: 1,
+                ready: index < knowledgeDone ? 1 : 0,
+                pageCount: index < knowledgeDone ? 1 : 0,
+              })),
+              pages: knowledgeDone ? [knowledgePage] : [],
+              nextOffset: knowledgeDone ? 20 : null,
+            };
+          if (args.path.startsWith('/knowledge/pages?')) {
+            testState.knowledgePageRequests.push(args.path);
+            if (
+              new URLSearchParams(args.path.split('?')[1]).get('generation') !==
+              knowledgePage.reference.generation
+            )
+              throw new Error('测试目录版本不匹配');
+            return {
+              pages: [
+                {
+                  ...knowledgePage,
+                  path: 'concepts/extra.md',
+                  title: '额外知识页',
+                  reference: { ...knowledgePage.reference, path: 'concepts/extra.md' },
+                },
+              ],
+              nextOffset: null,
+            };
+          }
+          if (args.path === '/knowledge/operation') return knowledgeState();
+          if (args.path === '/knowledge/ingest') {
+            testState.knowledgeStarts.push(args.body);
+            if (testState.knowledgeReject) {
+              testState.knowledgeUncertain = true;
+              throw { message: '整理受理结果未知', admission: 'unknown' };
+            }
+            knowledgeOperation = {
+              id: '00000000-0000-4000-8000-000000000010',
+              state: 'running',
+              phase: 'analysis',
+              total: args.body.sourceId ? 1 : settings.llmWiki.sources.length,
+              completed: 0,
+              reused: 0,
+              pageCount: 0,
+              startedAt: new Date().toISOString(),
+            };
+            return knowledgeState();
+          }
+          if (args.path === '/knowledge/cancel') {
+            knowledgeOperation = { ...knowledgeOperation, state: 'cancelling' };
+            return knowledgeState();
+          }
+          if (args.path === '/knowledge/read')
+            return {
+              reference: knowledgePage.reference,
+              title: knowledgePage.title,
+              text: args.body.offset
+                ? '后续内容也保留来源。'
+                : '# 整理后的笔记\n这是有来源的知识正文。',
+              startLine: args.body.offset ? 61 : 1,
+              endLine: args.body.offset ? 62 : 60,
+              nextOffset: args.body.offset ? null : 60,
+            };
           if (args.path === '/capabilities')
             return {
               skills: [
@@ -216,7 +334,8 @@ async function nativeDesktop(page: Page, existing = false) {
                 interaction: { respond: true },
               },
             };
-          if (args.path.startsWith('/session?'))
+          if (args.path.startsWith('/session?')) {
+            if (testState.holdList) await new Promise<void>((resolve) => releaseList.push(resolve));
             return existing
               ? [
                   { id: sessionId, title: '会话一', updatedAt: 1800000000001 },
@@ -225,6 +344,7 @@ async function nativeDesktop(page: Page, existing = false) {
               : submitted
                 ? [{ id: sessionId, title: '原生会话', updatedAt: 1800000000000 }]
                 : [];
+          }
           if (args.path === '/session' && args.method === 'POST') {
             return { id: sessionId, title: '新会话', updatedAt: 1800000000000 };
           }
@@ -341,6 +461,47 @@ test('native event records project into the conversation without a Node HTTP bri
   await expect(page.getByRole('button', { name: '仪器', exact: true })).toBeDisabled();
 });
 
+test('accepted sends stop submitting feedback while history sync still gates writes and list refresh is independent', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  const send = page.getByRole('button', { name: '发送消息', exact: true });
+  await page.getByRole('textbox', { name: '输入消息' }).fill('检查受理后的等待');
+  await expect(send).toBeEnabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    (window as any).__desktopTest.holdList = true;
+  });
+  await send.click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.timings.some(
+          (entry: any) => entry.operation === 'send' && entry.stage === 'accepted',
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect(page.locator('.chat-activity').filter({ hasText: '正在提交' })).toHaveCount(0);
+  await expect(send).toBeDisabled();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.timings.some(
+          (entry: any) => entry.operation === 'send' && entry.stage === 'end',
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('列表仍在刷新时的草稿');
+  await expect(send).toBeEnabled();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseList());
+});
+
 test('current settings edit one canonical configuration', async ({ page }) => {
   await nativeDesktop(page);
   await page.goto('/');
@@ -365,8 +526,8 @@ test('current settings edit one canonical configuration', async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => (window as any).__desktopTest.saves.at(-1)?.climber))
     .toEqual({ enabled: true, serviceURL: 'http://127.0.0.1:18080/api/v1', timeoutMs: 5000 });
-  await page.getByRole('button', { name: 'LLM Wiki', exact: true }).click();
-  await expect(page.getByText('纯文本来源', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await expect(page.getByText('资料来源', { exact: true })).toBeVisible();
   await expect(page.getByText('SQLite 资料包', { exact: true })).toHaveCount(0);
 });
 
@@ -396,7 +557,7 @@ test('Wiki sources accept both text files and directories through the native pic
   await nativeDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: 'LLM Wiki', exact: true }).click();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
   await page.getByRole('button', { name: '添加文件', exact: true }).click();
   await expect(page.getByText('C:\\fixtures\\notes.md', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '添加文件夹', exact: true }).click();
@@ -437,6 +598,109 @@ test('known admission rejection keeps the draft and does not claim the send outc
   ).toBeVisible();
   await expect(page.getByRole('textbox', { name: '输入消息' })).toHaveValue('保留这条草稿');
   await expect(page.getByText('请先刷新会话状态确认是否已受理。', { exact: false })).toHaveCount(0);
+});
+
+test('adding a source does not compile until explicitly requested and generated pages remain readable after removing the source', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  const start = page.getByRole('button', { name: '开始整理', exact: true });
+  await expect(start).toBeEnabled();
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(0);
+  await expect(page.getByText('待整理', { exact: true })).toBeVisible();
+  await start.click();
+  await expect(page.getByText('分析资料', { exact: true })).toBeVisible();
+  await page.locator('.settings-menu').getByRole('button', { name: '模型', exact: true }).click();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await expect(page.getByText('分析资料', { exact: true })).toBeVisible();
+  await page.evaluate(() => (window as any).__desktopFixture.finishKnowledge('completed', 1));
+  await expect(page.getByText('整理完成', { exact: true })).toBeVisible();
+  await expect(page.getByText('已整理', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '显示更多知识页', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^额外知识页/ })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      new URLSearchParams((window as any).__desktopTest.knowledgePageRequests[0].split('?')[1]).get(
+        'generation',
+      ),
+    ),
+  ).toBe('00000000-0000-4000-8000-000000000099');
+  await page.getByRole('button', { name: /^整理后的笔记/ }).click();
+  await expect(page.getByText('这是有来源的知识正文。', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: '继续阅读', exact: true }).click();
+  await expect(page.getByText('后续内容也保留来源。', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '移除 C:\\fixtures\\notes.md', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^整理后的笔记/ })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
+});
+
+test('cancelling knowledge compilation waits for a terminal result and reports completed publications', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(page.getByRole('button', { name: '开始整理', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '添加文件夹', exact: true }).click();
+  const all = page.getByRole('button', { name: '整理全部资料', exact: true });
+  await expect(all).toBeEnabled();
+  await all.click();
+  await page.getByRole('button', { name: '取消整理', exact: true }).click();
+  await expect(page.getByText('正在取消，等待当前处理结束', { exact: true })).toBeVisible();
+  await expect(all).toBeDisabled();
+  await page.evaluate(() => (window as any).__desktopFixture.finishKnowledge('cancelled', 1));
+  await expect(page.getByText('整理已取消', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('整理结果')).toContainText('已完成 1/2 份资料');
+  await expect(page.getByRole('button', { name: /^整理后的笔记/ })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
+});
+
+test('knowledge compilation waits for applied settings and never replays an uncertain start', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.pendingSettingsApply = true;
+  });
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(
+    page.getByText('资料配置已保存，等待任务结束后生效。', { exact: true }),
+  ).toBeVisible();
+  const start = page.getByRole('button', { name: '开始整理', exact: true });
+  await expect(start).toBeDisabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.pendingSettingsApply = false;
+    (window as any).__desktopTest.knowledgeConfigRevision = 'not-applied';
+    (window as any).__desktopTest.knowledgeReject = true;
+    (window as any).__desktopFixture.emit('settings-applied', { applied: true });
+  });
+  await expect(
+    page.getByText('资料配置尚未在当前后端生效。外部修改配置后，请重启应用再刷新状态。', {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await expect(start).toBeDisabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.knowledgeConfigRevision = 'revision';
+  });
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await expect(start).toBeEnabled();
+  await start.click();
+  await expect(
+    page.getByText('整理请求结果尚未确认，未自动重试。请刷新并核对已发布内容。', { exact: true }),
+  ).toBeVisible();
+  await expect(start).toBeDisabled();
+  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
 });
 
 test('refreshing the selected conversation requests an unread suffix rather than replaying history', async ({

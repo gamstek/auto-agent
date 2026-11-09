@@ -5,6 +5,7 @@
 ## 能力与指导
 
 - **Wiki Tool**：Agent 通用的知识查询与显式摄入能力，补齐 Corax 当前没有提供的 Wiki 功能。
+- **knowledge-base Skill**：用户知识库的查询、原文核对和显式整理工作流；底层知识编译由 LLM Wiki 引擎实现。
 - **sam_file Tool**：Climber（研发别称 G5）和 SiCOPE（研发别称 G12）的 SAM 文件处理能力，由 MCP 提供。
 - **Climber Tool**：Climber 仪器的健康、当前状态、批次登记和启动能力；SiCOPE 文件支持不等于已接入其设备控制。
 - **device-automation Skill**：方法、材料规则、文件准备及测样流程指导，按目标组合 Wiki 和 Climber。
@@ -68,7 +69,7 @@ pnpm dev:desktop
 ```
 
 - CLI dev/build 与桌面开发默认使用项目内 `.auto-agent/config.json`，缺失时创建当前配置。
-- `pnpm dev` 使用 Node 启动 Corax 原生 dev；桌面开发使用 dev --no-ui，前端由 Vite 热更新。
+- `pnpm dev` 使用 Node 启动 Corax 原生 `dev --resume`；桌面开发使用 `dev --no-ui --resume`，前端由 Vite 热更新。仍有有效运行快照的旧会话由 Corax 恢复；已取消或快照已清理的运行不能由应用复活。
 - Corax 应用集中在 `corax/`：agent、instructions、sandbox、memory、lib、tools、channels 和 skills。CLI 与桌面以此为项目根目录，开发监听不扫描相邻的桌面 Cargo 构建目录。该 workspace 包保留 `auto-agent` 名称和会话身份；仓库根包为 `auto-agent-workspace`。
 - 开发配置和可选 `.env` 仍位于仓库根目录，构建产物位于 `corax/.output`；独立源码目录不改变既有数据路径。
 - CLI start、正式桌面版与 LLM Wiki CLI 默认使用 `~/.auto-agent/config.json`。
@@ -98,7 +99,9 @@ pnpm dev:desktop
 
 ## 使用 LLM Wiki
 
-在桌面“LLM Wiki”中添加文本文件或目录，等待设置生效后，明确要求助手“摄入配置的文本来源”。工具会调用模型并保存知识页；普通查询不会自动摄入。
+在桌面“设置 → 用户知识库”添加文本文件或目录，等待设置保存并生效，再点击“开始整理”（或“整理全部资料”）。该操作会调用当前模型并保存知识页；仅添加来源、查看状态和普通查询不会调用摄入模型。
+
+页面区分待整理、已整理、需要更新和需要核对，展示分析/生成/发布阶段、已完成资料和生成页面，可分页预览正文。取消会等待实际处理结果并保留此前已发布内容，不自动重试；移除来源只取消后续整理，不删除已生成知识。仍可在聊天中明确要求助手整理配置来源，或使用下方 CLI；`wiki` 是通用工具，`knowledge-base` 是操作指南，`packages/llm-wiki` 是编译引擎，`dataDir/llm-wiki` 是持久内容。
 
 也可使用 CLI。摄入使用当前配置的模型服务；服务需要认证时，CLI 从 `AUTO_AGENT_API_KEY` 读取 Key，桌面使用传给 Corax 的系统凭据。免认证服务可以不填 Key。
 

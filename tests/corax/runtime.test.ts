@@ -45,6 +45,11 @@ for (const mode of [
     const memoryFact = '用户偏好以三条短句总结。MEMORY-FIXTURE-PREFERENCE';
     let checkingMemory = false;
     let recalledMemory = false;
+    let knowledgeModelCalls = 0;
+    let releaseKnowledge!: () => void;
+    const knowledgeGate = new Promise<void>((resolve) => {
+      releaseKnowledge = resolve;
+    });
     const writes: unknown[] = [];
     let task: { batchId: string; state: string; experiments?: unknown[] } | null = null;
     const health = {
@@ -90,6 +95,7 @@ for (const mode of [
         arguments: { filePath: '/workspace/host-fixture.txt', content: 'HOST-FILE-UPDATED' },
       },
       { name: 'corax__skill', arguments: { name: 'device-automation' } },
+      { name: 'corax__skill', arguments: { name: 'knowledge-base' } },
       {
         name: 'read_file',
         arguments: { filePath: '$HOME/.agents/skills/device-automation/references/methods.md' },
@@ -144,8 +150,45 @@ for (const mode of [
           tools?: { function: { name: string } }[];
           messages: { role: string; content: unknown }[];
           max_tokens?: number;
+          stream?: boolean;
         };
         expect(body.max_tokens).toBe(1234);
+        if (body.stream !== true) {
+          knowledgeModelCalls++;
+          await knowledgeGate;
+          const prompt = String(body.messages.find((message) => message.role === 'user')?.content);
+          const input = JSON.parse(prompt.split('\n\n')[0]!);
+          const answer =
+            knowledgeModelCalls % 2 === 1
+              ? '隔离资料说明一个可追溯的测试概念。'
+              : JSON.stringify({
+                  pages: [
+                    {
+                      path: input.source.summaryPath,
+                      title: '隔离知识页',
+                      type: 'source',
+                      summary: '保留测试原文的来源',
+                      body:
+                        '# 隔离知识页\n这是本地测试知识。\n' +
+                        '本地'.repeat(6000) +
+                        'LONG-LINE-END',
+                      sources: [input.source.reference],
+                      related: [],
+                    },
+                  ],
+                  issues: [],
+                });
+          return Response.json({
+            id: 'local-knowledge',
+            object: 'chat.completion',
+            created: 1,
+            model: 'local',
+            choices: [
+              { index: 0, message: { role: 'assistant', content: answer }, finish_reason: 'stop' },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          });
+        }
         if (checkingMemory)
           recalledMemory ||= body.messages.some((message) =>
             JSON.stringify(message.content).includes(memoryFact),
@@ -206,6 +249,8 @@ for (const mode of [
     });
     const token = crypto.randomUUID();
     const config = join(temporary, 'config.json');
+    const knowledgeSource = join(temporary, 'knowledge-source.md');
+    await writeFile(knowledgeSource, '# 隔离原文\n只用于知识库整理测试。');
     await writeFile(
       config,
       JSON.stringify({
@@ -213,6 +258,7 @@ for (const mode of [
         model: 'local',
         baseURL: `http://127.0.0.1:${mock.port}/v1`,
         maxOutputTokens: 1234,
+        llmWiki: { sources: [{ id: 'notes', type: 'file', path: knowledgeSource }] },
         climber: { enabled: true, serviceURL: `${vendor.url.origin}/api/v1`, timeoutMs: 1000 },
       }),
     );
@@ -380,7 +426,7 @@ for (const mode of [
           'framework',
         );
       expect(information.skills.static.map((skill) => skill.name)).toContain('device-automation');
-      expect(information.skills.static.map((skill) => skill.name)).toContain('llm-wiki');
+      expect(information.skills.static.map((skill) => skill.name)).toContain('knowledge-base');
       expect(information.tools.dynamic.some((provider) => provider.slug === 'climber')).toBe(true);
       expect(information.tools.static.some((tool) => tool.name === 'wiki')).toBe(true);
       expect(information.tools.static.some((tool) => tool.owner.kind === 'framework')).toBe(true);
@@ -438,13 +484,18 @@ for (const mode of [
       expect(await Bun.file(join(project, '.corax/memory.sqlite')).exists()).toBe(false);
       checkingMemory = true;
       recalledMemory = false;
-      const other = await client.sessions.create();
-      await (
-        await sendWhenReady(other.session, '这是新的对话，请按已保存的长期偏好回答。')
-      ).result();
+      const other = await client.sessions.create({
+        message: '这是新的对话，请按已保存的长期偏好回答。',
+      });
+      await other.response.result();
       expect(recalledMemory).toBe(true);
       checkingMemory = false;
       const snapshot = await session.snapshot();
+      expect(
+        snapshot.events.some(
+          (event) => event.type === 'action.result' && event.data.status === 'failed',
+        ),
+      ).toBe(false);
       const conversation = snapshot.events.reduce(
         (state, event) => conversationReducer.reduce(state, event),
         conversationReducer.initial(),
@@ -494,7 +545,7 @@ for (const mode of [
           }),
         );
       }
-      if (mode === 'start') {
+      if (mode === 'start' || mode === 'development') {
         await stop();
         nextCall = calls.length;
         calls.push({
@@ -521,27 +572,106 @@ for (const mode of [
         expect(writes).toHaveLength(2);
         checkingMemory = true;
         recalledMemory = false;
-        const afterRestart = await resumed.sessions.create();
-        await (
-          await sendWhenReady(afterRestart.session, '进程已经重启，请使用保存过的长期偏好。')
-        ).result();
+        const afterRestart = await resumed.sessions.create({
+          message: '进程已经重启，请使用保存过的长期偏好。',
+        });
+        await afterRestart.response.result();
         expect(recalledMemory).toBe(true);
         checkingMemory = false;
       }
       nextCall = calls.length;
       calls.push({ name: 'memory__remove_memory', arguments: { index: 0 } });
-      const forgetting = await activeClient.sessions.create();
-      await (await sendWhenReady(forgetting.session, '忘记刚才那条长期偏好。')).result();
+      const forgetting = await activeClient.sessions.create({ message: '忘记刚才那条长期偏好。' });
+      await forgetting.response.result();
       checkingMemory = true;
       recalledMemory = false;
-      const afterForget = await activeClient.sessions.create();
-      await (
-        await sendWhenReady(afterForget.session, '再开一个新对话，核对当前保留的长期偏好。')
-      ).result();
+      const afterForget = await activeClient.sessions.create({
+        message: '再开一个新对话，核对当前保留的长期偏好。',
+      });
+      await afterForget.response.result();
       expect(recalledMemory).toBe(false);
       checkingMemory = false;
+      // The desktop can correlate native admission without first scanning the
+      // conversation: HTTP deliveryId is repeated in durable event metadata.
+      const receiptSession = activeClient.sessions.attach(session.state.sessionId);
+      const beforeReceipt = await receiptSession.snapshot();
+      let receiptResponse: Response;
+      for (let attempt = 0; ; attempt++) {
+        receiptResponse = await activeClient.fetch(`/corax/v1/session/${session.state.sessionId}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ message: '核对本条消息的原生受理身份，不执行设备操作。' }),
+        });
+        if (receiptResponse.status !== 409 || attempt === 24) break;
+        const error = await receiptResponse.clone().json();
+        if (error.code !== 'session_not_ready') break;
+        await Bun.sleep(100);
+      }
+      expect(receiptResponse.status).toBe(202);
+      const receipt = await receiptResponse.json();
+      expect(receipt.sessionId).toBe(session.state.sessionId);
+      expect(typeof receipt.deliveryId).toBe('string');
+      let observedDelivery = false;
+      for await (const event of receiptSession.stream({
+        startIndex: beforeReceipt.events.length,
+      })) {
+        observedDelivery ||= event.meta.deliveryIds?.includes(receipt.deliveryId) ?? false;
+        if (event.type === 'turn.completed' || event.type === 'turn.failed') break;
+      }
+      expect(observedDelivery).toBe(true);
+      const knowledgeResponse = await activeClient.fetch('/desktop/knowledge');
+      expect((await fetch(knowledgeResponse.url)).status).toBe(401);
+      const knowledge = await knowledgeResponse.json();
+      expect(knowledge.sources[0].status).toBe('pending');
+      expect(knowledgeModelCalls).toBe(0);
+      expect(await Bun.file(join(temporary, 'llm-wiki/.state/current.json')).exists()).toBe(false);
+      const operationId = crypto.randomUUID();
+      const organizing = await activeClient.fetch('/desktop/knowledge/ingest', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          operationId,
+          sourceId: 'notes',
+          configRevision: knowledge.configRevision,
+        }),
+      });
+      expect(organizing.status).toBe(202);
+      releaseKnowledge();
+      let operation: { id: string; state: string; completed: number; pageCount: number };
+      for (let attempt = 0; ; attempt++) {
+        operation = (await (await activeClient.fetch('/desktop/knowledge/operation')).json())
+          .operation;
+        if (!['running', 'cancelling'].includes(operation.state) || attempt === 99) break;
+        await Bun.sleep(100);
+      }
+      expect(operation).toMatchObject({
+        id: operationId,
+        state: 'completed',
+        completed: 1,
+        pageCount: 1,
+      });
+      expect(knowledgeModelCalls).toBe(2);
+      const organized = await (await activeClient.fetch('/desktop/knowledge')).json();
+      expect(organized.sources[0].status).toBe('ready');
+      expect(
+        organized.pages.every(
+          (page: { reference: { generation: string } }) =>
+            page.reference.generation === organized.publication,
+        ),
+      ).toBe(true);
+      const entry = organized.pages.find((page: { type: string }) => page.type === 'source');
+      const preview = await activeClient.fetch('/desktop/knowledge/read', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ reference: entry.reference }),
+      });
+      const previewPage = await preview.json();
+      expect(previewPage.text).toContain('这是本地测试知识');
+      expect(previewPage.text).toContain('LONG-LINE-END');
+      expect(await Bun.file(join(temporary, 'llm-wiki/.state/current.json')).exists()).toBe(true);
       expect(writes).toHaveLength(2);
     } finally {
+      releaseKnowledge();
       const stderr = await stop();
       await mock.stop(true);
       await vendor.stop(true);
