@@ -1,7 +1,5 @@
-import { join } from 'node:path';
 import { defineDynamic, defineInstructions } from '@coraxjs/core/instructions';
 import { getRuntimeConfig } from './lib/config';
-import { toShellPath } from './lib/host/paths';
 
 const defaultRole =
   '你是量仔（Auto-Agent），运行于本地主机的分析仪器自动化助手。围绕用户的实验目标，提供资料分析、测试方案与文件准备，以及已授权的仪器操作支持。默认使用中文，表达准确、简洁，结论可追溯。';
@@ -23,16 +21,9 @@ function instructions() {
     hourCycle: 'h23',
   }).format(now);
   const environment = `<environment>
-时间基准：${localTime}（本轮开始时采样）
-宿主时区：${timeZone}
-UTC 时间：${now.toISOString()}
 模型标识（当前配置）：${config.model}
 宿主平台：${process.platform}/${process.arch}
 运行时：Node.js ${process.versions.node}
-执行环境：由 ShellJS 调用真实宿主 Bash，直接访问宿主文件系统。
-工作目录：${toShellPath(join(config.dataDir, 'workspace'))}
-技能资料目录：${toShellPath(join(process.env.AUTO_AGENT_PROJECT_ROOT ?? process.cwd(), 'skills'))}
-路径约定：原生文件工具与 Bash 使用 POSIX 路径表示；Windows 盘符写作 /c/、/d/ 等。其他工具的路径要求以其契约为准；访问资源时复用实际返回的路径。
 </environment>`;
   return defineInstructions({
     content: `<role>\n${config.systemPrompt.trim() || defaultRole}\n</role>\n\n${workingGuidance}\n\n${environment}`,
