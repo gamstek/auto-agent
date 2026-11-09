@@ -1,7 +1,17 @@
 import { test, expect, type Page } from '@playwright/test';
 
-async function nativeDesktop(page: Page, existing = false) {
-  const initialize = (existing: boolean) => {
+async function nativeDesktop(
+  page: Page,
+  existing = false,
+  suggestionMode: 'ready' | 'hold' | 'fail' = 'ready',
+) {
+  const initialize = ({
+    existing,
+    suggestionMode,
+  }: {
+    existing: boolean;
+    suggestionMode: string;
+  }) => {
     (window as any).isTauri = true;
     const callbacks: Record<number, (value: unknown) => void> = {};
     const listeners: Record<number, { event: string; handler: number }> = {};
@@ -31,10 +41,20 @@ async function nativeDesktop(page: Page, existing = false) {
       knowledgeReject: false,
       knowledgeConfigRevision: 'revision',
       pendingSettingsApply: false,
+      suggestionRequests: 0,
+      suggestionFailure: suggestionMode === 'fail',
+      holdSuggestions: suggestionMode === 'hold',
+      suggestions: [
+        '多孔碳材料测试前应如何核对样品条件？',
+        '如何选择适合当前材料的吸附测试模板？',
+        '如何比较已有 SAM 文件的参数差异？',
+        '如何查看材料测试资料的原文来源？',
+      ],
     };
     const heldHistory = new Map<string, () => void>();
     const releaseHistory = new Map<string, () => void>();
     const releaseList: (() => void)[] = [];
+    const releaseSuggestions: (() => void)[] = [];
     let knowledgeOperation: any = null;
     let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
@@ -66,6 +86,10 @@ async function nativeDesktop(page: Page, existing = false) {
       releaseList: () => {
         testState.holdList = false;
         for (const release of releaseList.splice(0)) release();
+      },
+      releaseSuggestions: () => {
+        testState.holdSuggestions = false;
+        for (const release of releaseSuggestions.splice(0)) release();
       },
       finishKnowledge: (state = 'completed', completed = 1) => {
         knowledgeDone = completed;
@@ -199,6 +223,14 @@ async function nativeDesktop(page: Page, existing = false) {
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          if (args.path === '/suggestions') {
+            testState.suggestionRequests++;
+            const questions = [...testState.suggestions];
+            if (testState.holdSuggestions)
+              await new Promise<void>((resolve) => releaseSuggestions.push(resolve));
+            if (testState.suggestionFailure) throw new Error('本地模拟模型不可用');
+            return { source: 'model', questions };
+          }
           const knowledgePage = {
             path: 'concepts/notes.md',
             title: '整理后的笔记',
@@ -431,8 +463,149 @@ async function nativeDesktop(page: Page, existing = false) {
       },
     };
   };
-  await page.addInitScript(initialize, existing);
+  await page.addInitScript(initialize, { existing, suggestionMode });
 }
+
+test('welcome recommendations update silently without blocking input or creating a chat', async ({
+  page,
+}) => {
+  await nativeDesktop(page, false, 'hold');
+  await page.goto('/');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(1);
+  await expect(page.getByRole('heading', { name: '为你推荐' })).toBeVisible();
+  await expect(page.locator('.faq-item')).toHaveCount(0);
+  await expect(page.getByText(/正在根据最近使用情况|暂时无法生成个性化推荐/)).toHaveCount(0);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('尚未发送的草稿');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseSuggestions());
+  await expect(page.getByRole('heading', { name: '为你推荐' })).toBeVisible();
+  const question = page.getByRole('button', { name: '多孔碳材料测试前应如何核对样品条件？' });
+  await expect(question).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter(
+        (path: string) => path === '/session' || path.endsWith('/prompt_async'),
+      ),
+    ),
+  ).toEqual([]);
+  await question.click();
+  await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+});
+
+test('recommendation failure silently retains usable starter questions and does not retry on typing', async ({
+  page,
+}) => {
+  await nativeDesktop(page, false, 'fail');
+  await page.goto('/');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(1);
+  await expect(page.locator('.faq-list')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByRole('heading', { name: '为你推荐' })).toBeVisible();
+  await expect(page.locator('.faq-item')).toHaveCount(4);
+  await expect(page.getByText(/正在根据最近使用情况|无法生成个性化|模型不可用/)).toHaveCount(0);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('保持草稿可编辑');
+  expect(await page.evaluate(() => (window as any).__desktopTest.suggestionRequests)).toBe(1);
+});
+
+test('returning to a new chat refreshes usage-based recommendations and ignores an old page response', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true, 'hold');
+  await page.goto('/');
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(1);
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.suggestions[0] = '如何核对最近讨论的氧化铝材料测试方法？';
+  });
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(2);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseSuggestions());
+  await expect(
+    page.getByRole('button', { name: '如何核对最近讨论的氧化铝材料测试方法？' }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '多孔碳材料测试前应如何核对样品条件？' }),
+  ).toHaveCount(0);
+});
+
+test('new chats reuse recommendations in their first DOM frame and retain them after a failed refresh', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const previous = '多孔碳材料测试前应如何核对样品条件？';
+  await expect(page.getByRole('button', { name: previous })).toBeVisible();
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdSuggestions = true;
+    (window as any).__desktopTest.suggestionFailure = true;
+    const frames: { heading: string; questions: string[] }[] = [];
+    (window as any).__welcomeFrames = frames;
+    const observer = new MutationObserver(() => {
+      const card = document.querySelector('.faq-card');
+      if (card)
+        frames.push({
+          heading: card.querySelector('h2')?.textContent ?? '',
+          questions: [...card.querySelectorAll('.faq-item span')].map(
+            (item) => item.textContent ?? '',
+          ),
+        });
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    (window as any).__welcomeObserver = observer;
+  });
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(page.getByRole('button', { name: previous })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(2);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseSuggestions());
+  await expect(page.locator('.faq-list')).toHaveAttribute('aria-busy', 'false');
+  await expect(page.getByRole('button', { name: previous })).toBeVisible();
+  const frames = await page.evaluate(() => {
+    (window as any).__welcomeObserver.disconnect();
+    return (window as any).__welcomeFrames as { heading: string; questions: string[] }[];
+  });
+  expect(frames.length).toBeGreaterThan(0);
+  for (const frame of frames) {
+    expect(frame.heading).toBe('为你推荐');
+    expect(frame.questions).toHaveLength(4);
+    expect(frame.questions[0]).toBe(previous);
+  }
+});
+
+test('reconnection drops previous recommendation identity before displaying replacement questions', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  const previous = '多孔碳材料测试前应如何核对样品条件？';
+  await expect(page.getByRole('button', { name: previous })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdSuggestions = true;
+    (window as any).__desktopTest.suggestions[0] = '新数据目录中的资料应该如何核对来源？';
+    (window as any).__desktopFixture.emit('backend-stream', 'disconnected');
+  });
+  await expect(page.getByRole('button', { name: previous })).toHaveCount(0);
+  await page.evaluate(() => (window as any).__desktopFixture.emit('backend-stream', 'connected'));
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.suggestionRequests))
+    .toBe(2);
+  await expect(page.getByRole('button', { name: previous })).toHaveCount(0);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseSuggestions());
+  await expect(
+    page.getByRole('button', { name: '新数据目录中的资料应该如何核对来源？' }),
+  ).toBeVisible();
+});
 
 test('native event records project into the conversation without a Node HTTP bridge', async ({
   page,

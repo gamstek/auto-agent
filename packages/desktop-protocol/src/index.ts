@@ -2,6 +2,7 @@
 export const DESKTOP_PROTOCOL_VERSION = 4;
 export * from './chat';
 export type { InstrumentSnapshot } from './instrument';
+export type { QuestionSuggestions } from './suggestions';
 export type {
   KnowledgeReference,
   KnowledgeOperation,

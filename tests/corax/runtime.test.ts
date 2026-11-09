@@ -46,6 +46,7 @@ for (const mode of [
     let checkingMemory = false;
     let recalledMemory = false;
     let knowledgeModelCalls = 0;
+    let suggestionModelCalls = 0;
     let releaseKnowledge!: () => void;
     const knowledgeGate = new Promise<void>((resolve) => {
       releaseKnowledge = resolve;
@@ -152,7 +153,42 @@ for (const mode of [
           max_tokens?: number;
           stream?: boolean;
         };
-        expect(body.max_tokens).toBe(1234);
+        const suggesting = body.messages.some(
+          (message) =>
+            message.role === 'system' && String(message.content).includes('<question_suggestions>'),
+        );
+        expect(body.max_tokens).toBe(suggesting ? 768 : 1234);
+        if (suggesting) {
+          suggestionModelCalls++;
+          expect(body.tools ?? []).toHaveLength(0);
+          const prompt = String(body.messages.find((message) => message.role === 'user')?.content);
+          expect(prompt).not.toContain(env.AUTO_AGENT_TOKEN!);
+          expect(JSON.parse(prompt).recentSessions[0].questions.length).toBeGreaterThan(0);
+          return Response.json({
+            id: 'local-suggestions',
+            object: 'chat.completion',
+            created: 1,
+            model: 'local',
+            choices: [
+              {
+                index: 0,
+                message: {
+                  role: 'assistant',
+                  content: JSON.stringify({
+                    questions: [
+                      '如何核对本次测试资料中的适用条件？',
+                      '如何对比已生成的 SAM 文件参数？',
+                      '如何查看整理后的用户知识及其来源？',
+                      '如何检查 Climber 已返回的测试回执？',
+                    ],
+                  }),
+                },
+                finish_reason: 'stop',
+              },
+            ],
+            usage: { prompt_tokens: 10, completion_tokens: 10, total_tokens: 20 },
+          });
+        }
         if (body.stream !== true) {
           knowledgeModelCalls++;
           await knowledgeGate;
@@ -515,6 +551,25 @@ for (const mode of [
       });
       expect(activity.ok).toBe(true);
       expect((await activity.json()).sessions[0].busy).toBe(false);
+      const suggestionInput = {
+        sessions: [
+          { id: other.session.state.sessionId, title: '隔离测试资料与 SAM', updatedAt: 100 },
+        ],
+      };
+      for (let attempt = 0; attempt < 2; attempt++) {
+        const suggestions = await client.fetch('/desktop/suggestions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(suggestionInput),
+        });
+        expect(suggestions.ok).toBe(true);
+        expect(await suggestions.json()).toMatchObject({ source: 'model' });
+      }
+      expect(suggestionModelCalls).toBe(1);
+      expect(writes).toHaveLength(2);
+      expect(
+        (await fetch(`${host}/desktop/suggestions`, { method: 'POST', body: '{}' })).status,
+      ).toBe(401);
       const devices = await client.fetch('/desktop/devices/climber/refresh', { method: 'POST' });
       expect(devices.ok).toBe(true);
       const device = await devices.json();

@@ -29,6 +29,7 @@ import { NavigationRail } from './components/NavigationRail/NavigationRail';
 import { ChatMessage } from './components/ChatMessage/ChatMessage';
 import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest';
 import { useChat } from './hooks/useChat';
+import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
 import { StartupScreen } from './components/StartupScreen/StartupScreen';
 import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
 import { chatTrace } from './lib/chat-debug';
@@ -124,6 +125,7 @@ export function App() {
     'starting',
   );
   const [initialized, setInitialized] = useState(false);
+  const [recommendationIdentity, setRecommendationIdentity] = useState(0);
   const [booting, setBooting] = useState(true);
   const [bootStage, setBootStage] = useState<'server' | 'workspace'>('server');
   const bootLock = useRef(false);
@@ -207,6 +209,7 @@ export function App() {
     if (bootLock.current) return;
     bootLock.current = true;
     clearHistory();
+    setRecommendationIdentity((value) => value + 1);
     setBooting(true);
     setBootStage('server');
     setConnection('starting');
@@ -252,6 +255,7 @@ export function App() {
       });
       const streams = await listen<string>('backend-stream', ({ payload }) => {
         if (bootLock.current) return;
+        setRecommendationIdentity((value) => value + 1);
         if (payload === 'connected') {
           clearHistory();
           void api<BackendHealth>('/global/health')
@@ -371,6 +375,15 @@ export function App() {
     if (idRef.current === id) await sync();
   }
   const hasConversation = !!sessionId || messages.length > 0 || sending;
+  const recommendations = useQuestionSuggestions(
+    page === 'chat' && !hasConversation,
+    connection === 'connected',
+    sessions
+      .slice(0, 3)
+      .map(({ id, title, updatedAt }) => `${id}:${updatedAt}:${title}`)
+      .join('|'),
+    recommendationIdentity,
+  );
   const composer = (
     <Composer
       input={input}
@@ -567,7 +580,10 @@ export function App() {
             initialTab={settingsTab}
             onSaved={(applied) => {
               if (applied) void boot();
-              else clearHistory();
+              else {
+                clearHistory();
+                setRecommendationIdentity((value) => value + 1);
+              }
             }}
             active={settings}
             instant={instant}
@@ -653,6 +669,9 @@ export function App() {
                   <Welcome
                     composer={composer}
                     disabled={connection !== 'connected' || sending}
+                    connected={connection === 'connected'}
+                    suggestions={recommendations.suggestions}
+                    loading={recommendations.loading}
                     onQuestion={(question) => void send(question)}
                   />
                 )}

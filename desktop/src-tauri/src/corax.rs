@@ -281,27 +281,13 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
 }
 
 pub async fn stop(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
-    stop_if_idle(state, slot, None).await
-}
-
-// Interactive exit has a bounded probe so an unresponsive backend can still
-// lead to an explicit force-close choice. Automatic restarts keep the strict path.
-pub(super) async fn stop_for_exit(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
-    stop_if_idle(state, slot, Some(Duration::from_secs(3))).await
-}
-
-async fn stop_if_idle(state: &Desktop, slot: &mut Option<CoraxRuntime>, check_timeout: Option<Duration>) -> Result<(), String> {
     if let Some(backend) = slot.as_mut() {
         let running = backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none();
-        if !running && (check_timeout.is_some() || backend.in_flight.load(Ordering::SeqCst) > 0 || !backend.pending.lock().unwrap().is_empty()) {
+        if !running && (backend.in_flight.load(Ordering::SeqCst) > 0 || !backend.pending.lock().unwrap().is_empty()) {
             return Err("后台进程已退出，尚无法确认任务和写入的最终状态。".into());
         }
         if running {
-            let checking = has_active_work(state, backend);
-            let busy = if let Some(limit) = check_timeout {
-                tokio::time::timeout(limit, checking).await.map_err(|_| "无法及时确认后台任务状态。")??
-            } else { checking.await? };
-            if busy { return Err("仍有后台任务在执行，或有写入尚待确认。".into()); }
+            if has_active_work(state, backend).await? { return Err("仍有后台任务在执行，或有写入尚待确认。".into()); }
             backend.tree.stop();
             tokio::time::timeout(Duration::from_secs(25), backend.child.wait()).await.map_err(|_| "Corax 正在退出，请稍后重试")?.map_err(|_| "无法等待 Corax 退出")?;
         }
@@ -488,6 +474,7 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "POST" && route == "/session" { return true; }
     if method == "GET" && path == "/devices" { return true; }
     if method == "POST" && path == "/devices/climber/refresh" { return true; }
+    if method == "POST" && path == "/suggestions" { return true; }
     if method == "GET" && ["/knowledge", "/knowledge/operation"].contains(&path) { return true; }
     if method == "GET" && route == "/knowledge/pages" {
         return path == route || path.strip_prefix("/knowledge/pages?offset=").is_some_and(|query| {
@@ -680,6 +667,18 @@ fn capability_catalog(info: &Value, configured: &Value) -> Result<Value, String>
     Ok(json!({"skills":skills,"tools":tools.into_values().collect::<Vec<_>>(),"dynamicProviders":dynamic,"dynamicSkills":dynamic_skills}))
 }
 
+async fn suggestions_request(state: &Desktop, backend: &Connection) -> Result<Value, String> {
+    if state.pending_apply.load(Ordering::SeqCst) { return Err("模型设置正在应用，请稍后查看推荐问题".into()); }
+    let page = request(state, backend, "GET", "/corax/v1/session?limit=3&offset=0", None).await?;
+    let sessions = page["sessions"].as_array().ok_or("Corax 会话目录无效")?.iter().take(3).map(|session| {
+        let id = session["id"].as_str().filter(|id| valid_session_id(id)).ok_or("Corax 会话标识无效")?;
+        let title: String = session["title"].as_str().unwrap_or("").chars().take(100).collect();
+        let updated_at = session["updatedAt"].as_u64().ok_or("Corax 会话时间无效")?;
+        Ok(json!({"id":id,"title":title,"updatedAt":updated_at}))
+    }).collect::<Result<Vec<_>, String>>()?;
+    request(state, backend, "POST", "/desktop/suggestions", Some(json!({"sessions":sessions}))).await
+}
+
 #[tauri::command]
 pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, method: String, path: String, body: Option<Value>, view_id: Option<String>) -> Result<Value, Value> {
     if !allowed_request(&method, &path) { return Err("不支持的桌面接口请求".into()); }
@@ -712,6 +711,9 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     if path == "/devices" || path == "/devices/climber/refresh" {
         return request(&state, &backend, &method, &format!("/desktop{path}"), if method == "POST" { Some(json!({})) } else { None }).await.map_err(Value::from);
     }
+    // Advisory model generation reserves in-flight work, but must never hold
+    // the chat dispatch lock or delay ordinary message admission.
+    if path == "/suggestions" { return suggestions_request(&state, &backend).await.map_err(Value::from); }
     let _serialized = if read_only { None } else { Some(backend.dispatch.lock().await) };
     timing.mark("dispatch-lock", json!({"readOnly":read_only}));
     if path.starts_with("/knowledge") { return knowledge_request(&state, &backend, &method, &path, body).await; }
@@ -1035,6 +1037,22 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(connection_has_active_work(&state(), &connection(url)).await.unwrap());
         assert_eq!(task.await.unwrap(), 1);
     }); }
+    #[test] fn suggestions_use_recent_native_sessions_and_remain_outside_chat_admission() { tauri::async_runtime::block_on(async {
+        assert!(allowed_request("POST", "/suggestions"));
+        for (method, path) in [("GET", "/suggestions"), ("POST", "/suggestions?url=other"), ("POST", "/suggestions/run")] { assert!(!allowed_request(method, path)); }
+        let (url, task) = server(vec![
+            (200, json!({"sessions":[{"id":"wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB","title":"材料测试","updatedAt":100}]})),
+            (200, json!({"source":"model","questions":["推荐问题"]})),
+        ]).await;
+        let connection = connection(url);
+        let result = suggestions_request(&state(), &connection).await.unwrap();
+        assert_eq!(result["source"], "model");
+        assert_eq!(task.await.unwrap(), 2);
+        assert!(connection.pending.lock().unwrap().is_empty());
+        let state = state();
+        state.pending_apply.store(true, Ordering::SeqCst);
+        assert!(suggestions_request(&state, &connection).await.is_err());
+    }); }
     #[test] fn uncertain_knowledge_admission_cannot_be_cleared_by_an_unrelated_completed_operation() { tauri::async_runtime::block_on(async {
         let (url, task) = server(vec![(200, json!({"operation":{"id":"other","state":"completed"}}))]).await;
         let connection = connection(url);
@@ -1237,25 +1255,9 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         std::fs::remove_dir_all(root).unwrap();
     }); }
 
-    #[test] fn exit_probe_timeout_keeps_the_process_available_for_the_users_decision() { tauri::async_runtime::block_on(async {
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let url = format!("http://{}", listener.local_addr().unwrap());
-        let server = tauri::async_runtime::spawn(async move {
-            let (_socket, _) = listener.accept().await.unwrap();
-            std::future::pending::<()>().await;
-        });
-        let (root, mut slot, _) = shutdown_fixture(url).await;
-        let result = stop_if_idle(&state(), &mut slot, Some(Duration::from_millis(50))).await;
-        assert!(result.unwrap_err().contains("无法及时确认"));
-        assert!(slot.as_mut().unwrap().child.try_wait().unwrap().is_none());
-        force_stop(&mut slot).await.unwrap();
-        assert!(slot.is_none());
-        server.abort();
-        std::fs::remove_dir_all(root).unwrap();
-    }); }
-
     #[test] fn confirmed_force_uses_the_owned_handle_even_when_lifecycle_lock_is_busy() { tauri::async_runtime::block_on(async {
-        let (root, slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let (root, slot, connection) = shutdown_fixture(format!("http://{}", listener.local_addr().unwrap())).await;
         let state = state();
         state.exiting.store(true, Ordering::SeqCst);
         *state.owned_tree.lock().unwrap() = Some(Arc::downgrade(&slot.as_ref().unwrap().tree));
@@ -1268,6 +1270,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         drop(held);
         force_exit_with_wait(&state, Duration::from_millis(50)).await.unwrap();
         assert!(state.backend.lock().await.is_none());
+        assert!(tokio::time::timeout(Duration::from_millis(50), listener.accept()).await.is_err(), "confirmed exit must not query health, activity or history");
         assert_eq!(std::fs::read_to_string(root.join("keep.txt")).unwrap(), "host workspace data");
         std::fs::remove_dir_all(root).unwrap();
     }); }
