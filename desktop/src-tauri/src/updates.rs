@@ -38,36 +38,43 @@ pub async fn update_check(app: tauri::AppHandle, updates: State<'_, Updates>) ->
 
 #[tauri::command]
 pub async fn update_install(app: tauri::AppHandle, state: State<'_, Desktop>, updates: State<'_, Updates>) -> Result<(), String> {
+    if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
     let pending = updates.0.try_lock().map_err(|_| "更新操作正在进行")?;
     let update = pending.as_ref().ok_or("请先检查更新")?;
-    {
-        let slot = state.backend.lock().await;
-        if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
-        if let Some(backend) = slot.as_ref() {
-            if has_active_work(&state, backend).await? { return Err("任务仍在执行，请完成后再安装更新".into()); }
-        }
-    }
-    // Download and verify before stopping the backend. No task is interrupted by downloading.
+    // Downloads do not affect local work. Do not scan conversations or hold a
+    // backend lifecycle lock before the download/signature verification begins.
     let mut downloaded = 0usize;
     let bytes = update.download(|chunk, total| {
         downloaded += chunk;
         let _ = app.emit("update-progress", json!({ "downloaded": downloaded, "total": total }));
     }, || {}).await.map_err(|_| "更新下载或签名校验失败，尚未安装")?;
+    let _ = app.emit("update-stage", "checking");
     if state.exiting.swap(true, Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
     let mut slot = state.backend.lock().await;
-    let result = async {
-        if let Some(backend) = slot.as_ref() {
-            if has_active_work(&state, backend).await? { return Err("任务仍在执行，请完成后再安装更新".into()); }
-        }
-        stop(&state, &mut slot).await?;
-        update.install(bytes).map_err(|_| "更新安装启动失败，请重试或手动安装".to_string())?;
-        Ok(())
-    }.await;
+    // One authoritative idle-safe stop, under the lifecycle lock and with new
+    // writes blocked. An unreadable/busy backend never authorizes installation.
+    let result = install_after_safe_stop(
+        || corax::stop_for_update(&state, &mut slot),
+        || {
+            let _ = app.emit("update-stage", "installing");
+            update.install(bytes).map_err(|_| "更新安装启动失败，请重试或手动安装".to_string())
+        },
+    ).await;
     if result.is_err() {
         state.exiting.store(false, Ordering::SeqCst);
         if slot.is_none() { let _ = start(&app, &state, &mut slot).await; }
     }
     result
+}
+
+fn backend_stop_error(reason: String) -> String {
+    format!("安装包已下载并通过签名校验，但无法安全停止后台：{reason}\n尚未启动安装。请在任务结束并恢复后台连接后重试；也可确认关闭应用后手动运行新版安装包。")
+}
+
+async fn install_after_safe_stop<S, F, I>(stop: S, install: I) -> Result<(), String>
+where S: FnOnce() -> F, F: std::future::Future<Output = Result<(), String>>, I: FnOnce() -> Result<(), String> {
+    stop().await.map_err(backend_stop_error)?;
+    install()
 }
 
 #[cfg(test)] mod tests {
@@ -82,4 +89,24 @@ pub async fn update_install(app: tauri::AppHandle, state: State<'_, Desktop>, up
             "https://github.com/gamstek/auto-agent/releases/download/v2/a-setup.exe?token=secret",
         ] { assert!(!trusted_download(&url.parse().unwrap())); }
     }
+    #[test] fn an_unreadable_or_busy_backend_never_starts_the_verified_installer() { tauri::async_runtime::block_on(async {
+        for reason in ["读取 Corax 状态超时", "仍有后台任务在执行，或有写入尚待确认。"] {
+            let message = install_after_safe_stop(
+                || std::future::ready(Err(reason.to_string())),
+                || panic!("failed safety check must not launch an installer"),
+            ).await.unwrap_err();
+            assert!(message.contains("已下载并通过签名校验"));
+            assert!(message.contains(reason));
+            assert!(message.contains("尚未启动安装"));
+            assert!(!message.contains("不要重复提交"));
+        }
+    }); }
+    #[test] fn verified_installer_runs_only_after_one_successful_idle_safe_stop() { tauri::async_runtime::block_on(async {
+        let calls = std::cell::RefCell::new(vec![]);
+        install_after_safe_stop(
+            || { calls.borrow_mut().push("stop"); std::future::ready(Ok(())) },
+            || { calls.borrow_mut().push("install"); Ok(()) },
+        ).await.unwrap();
+        assert_eq!(*calls.borrow(), vec!["stop", "install"]);
+    }); }
 }

@@ -280,6 +280,15 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     Ok(())
 }
 
+pub(super) async fn stop_for_update(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
+    if let Some(backend) = slot.as_mut() {
+        if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_some() {
+            return Err("后台进程已退出，尚无法确认任务和写入的最终状态。".into());
+        }
+    }
+    stop(state, slot).await
+}
+
 pub async fn stop(state: &Desktop, slot: &mut Option<CoraxRuntime>) -> Result<(), String> {
     if let Some(backend) = slot.as_mut() {
         let running = backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_none();
@@ -355,13 +364,19 @@ async fn request(state: &Desktop, backend: &Connection, method: &str, path: &str
     if !status.is_success() { return Err(redact_text(value["error"].as_str().unwrap_or("Corax 拒绝请求"), &backend.secrets)); }
     Ok(value)
 }
+fn transport_error(method: &str, path: &str, timeout: bool) -> &'static str {
+    if method == "GET" || ["/desktop/activity", "/desktop/knowledge/read", "/desktop/devices/climber/refresh"].contains(&path) {
+        if timeout { "读取 Corax 状态超时，尚未取得核验结果，请检查后台连接后重新读取" }
+        else { "无法连接 Corax 读取状态，请检查后台连接后重新读取" }
+    } else { "与 Corax 连接中断，请读取状态确认结果，不要重复提交" }
+}
 async fn request_status(state: &Desktop, backend: &Connection, method: &str, path: &str, body: Option<Value>) -> Result<(reqwest::StatusCode, Value), String> {
     let timing = chat_debug::Span::new(timing_operation(method, path));
     #[cfg(debug_assertions)] let started = std::time::Instant::now();
     let mut request = state.client.request(if method == "GET" { reqwest::Method::GET } else { reqwest::Method::POST }, format!("{}{path}", backend.url)).basic_auth("auto-agent", Some(&backend.token));
     if path == "/desktop/devices/climber/refresh" { request = request.timeout(Duration::from_secs(70)); }
     if let Some(body) = body { request = request.json(&body); }
-    let response = request.send().await.map_err(|_| "与 Corax 连接中断，请读取状态确认结果，不要重复提交")?;
+    let response = request.send().await.map_err(|error| transport_error(method, path, error.is_timeout()))?;
     let status = response.status();
     timing.mark("headers", json!({"status":status.as_u16()}));
     let mut value: Value = response.json().await.map_err(|_| "Corax 返回了无法解析的响应")?;
@@ -973,6 +988,16 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     fn state() -> Desktop {
         Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), owned_tree: SyncMutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
     }
+    #[test] fn read_transport_failures_are_not_reported_as_ambiguous_writes() {
+        for (method, path) in [("GET", "/corax/v1/session?limit=100"), ("POST", "/desktop/activity"), ("POST", "/desktop/knowledge/read"), ("POST", "/desktop/devices/climber/refresh")] {
+            assert!(transport_error(method, path, true).contains("超时"));
+            assert!(!transport_error(method, path, false).contains("不要重复提交"));
+        }
+        for path in ["/corax/v1/session", "/corax/v1/session/fixture", "/desktop/knowledge/ingest"] {
+            assert!(transport_error("POST", path, true).contains("不要重复提交"));
+            assert!(transport_error("POST", path, false).contains("不要重复提交"));
+        }
+    }
     async fn server(responses: Vec<(u16, Value)>) -> (String, tauri::async_runtime::JoinHandle<usize>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
@@ -1285,6 +1310,20 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(slot.is_some());
         force_stop(&mut slot).await.unwrap();
         assert_eq!(connection.pending.lock().unwrap().get("unknown-write"), Some(&PendingAdmission::Cursor(9)));
+        std::fs::remove_dir_all(root).unwrap();
+    }); }
+    #[test] fn an_exited_backend_cannot_bypass_update_safety_checks_or_clear_knowledge_admission() { tauri::async_runtime::block_on(async {
+        let (root, mut slot, connection) = shutdown_fixture("http://127.0.0.1:9".into()).await;
+        let backend = slot.as_mut().unwrap();
+        backend.tree.force_stop();
+        backend.child.wait().await.unwrap();
+        assert!(stop_for_update(&state(), &mut slot).await.unwrap_err().contains("后台进程已退出"));
+        assert!(slot.is_some());
+        *connection.knowledge_pending.lock().unwrap() = Some("unknown-compiler".into());
+        assert!(stop_for_update(&state(), &mut slot).await.is_err());
+        assert_eq!(connection.knowledge_pending.lock().unwrap().as_deref(), Some("unknown-compiler"));
+        force_stop(&mut slot).await.unwrap();
+        assert_eq!(std::fs::read_to_string(root.join("keep.txt")).unwrap(), "host workspace data");
         std::fs::remove_dir_all(root).unwrap();
     }); }
 }

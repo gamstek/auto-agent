@@ -42,6 +42,7 @@ async function nativeDesktop(
       knowledgeConfigRevision: 'revision',
       pendingSettingsApply: false,
       suggestionRequests: 0,
+      updateInstallCalls: 0,
       suggestionFailure: suggestionMode === 'fail',
       holdSuggestions: suggestionMode === 'hold',
       suggestions: [
@@ -55,6 +56,7 @@ async function nativeDesktop(
     const releaseHistory = new Map<string, () => void>();
     const releaseList: (() => void)[] = [];
     const releaseSuggestions: (() => void)[] = [];
+    const releaseUpdate: (() => void)[] = [];
     let knowledgeOperation: any = null;
     let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
@@ -90,6 +92,10 @@ async function nativeDesktop(
       releaseSuggestions: () => {
         testState.holdSuggestions = false;
         for (const release of releaseSuggestions.splice(0)) release();
+      },
+      checkUpdateBackend: () => emit('update-stage', 'checking'),
+      failUpdateBackend: () => {
+        for (const release of releaseUpdate.splice(0)) release();
       },
       finishKnowledge: (state = 'completed', completed = 1) => {
         knowledgeDone = completed;
@@ -146,6 +152,16 @@ async function nativeDesktop(
         if (command === 'frontend_debug') {
           testState.timings.push(args);
           return;
+        }
+        if (command === 'update_check')
+          return { channel: 'beta', version: '2.0.0-beta.3', notes: '隔离更新说明' };
+        if (command === 'update_install') {
+          testState.updateInstallCalls++;
+          emit('update-progress', { downloaded: 1024, total: 2048 });
+          await new Promise<void>((resolve) => releaseUpdate.push(resolve));
+          throw new Error(
+            '安装包已下载并通过签名校验，但无法安全停止后台：读取 Corax 状态超时。尚未启动安装。',
+          );
         }
         if (command === 'plugin:dialog|open') {
           testState.dialogs.push(args.options);
@@ -702,6 +718,29 @@ test('current settings edit one canonical configuration', async ({ page }) => {
   await page.getByRole('button', { name: '用户知识库', exact: true }).click();
   await expect(page.getByText('资料来源', { exact: true })).toBeVisible();
   await expect(page.getByText('SQLite 资料包', { exact: true })).toHaveCount(0);
+});
+
+test('update UI distinguishes download progress from backend verification failure without claiming an ambiguous write', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '关于与诊断', exact: true }).click();
+  await page.getByRole('button', { name: '检查更新', exact: true }).click();
+  const install = page.getByRole('button', { name: '下载并安装 2.0.0-beta.3', exact: true });
+  await install.click();
+  await expect(page.locator('.maintenance-status')).toContainText('正在下载 50%');
+  await expect(install).toBeDisabled();
+  await page.evaluate(() => (window as any).__desktopFixture.checkUpdateBackend());
+  await expect(page.locator('.maintenance-status')).toContainText(
+    '安装包已下载并通过签名校验，正在确认后台任务状态',
+  );
+  await page.evaluate(() => (window as any).__desktopFixture.failUpdateBackend());
+  await expect(page.locator('.maintenance-status')).toContainText('尚未启动安装');
+  await expect(page.locator('.maintenance-status')).not.toContainText('不要重复提交');
+  await expect(install).toBeEnabled();
+  expect(await page.evaluate(() => (window as any).__desktopTest.updateInstallCalls)).toBe(1);
 });
 
 test('settings show discovered skills and tools without built-in disable controls', async ({

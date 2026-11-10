@@ -145,12 +145,6 @@ export function App() {
   const messages = snapshot?.conversation.messages ?? [];
   const busy = chatReady && !!snapshot?.turnActive;
   const backgroundBusy = chatReady && !!snapshot?.busy && !busy;
-  const hasActiveAssistant = messages.some(
-    (message) =>
-      message.role === 'assistant' &&
-      message.metadata?.turnId &&
-      snapshot?.conversation.turns[message.metadata.turnId]?.status === 'active',
-  );
   const streamPaused =
     !chatReady || connection !== 'connected' || !!snapshot?.connectionError || !!chatError;
   const inputs = snapshot?.closed
@@ -696,10 +690,9 @@ export function App() {
                     ))}
                 {(chatLoading
                   ? !snapshot
-                  : sending ||
-                    cancelling ||
+                  : cancelling ||
                     backgroundBusy ||
-                    (busy && (!hasActiveAssistant || snapshot?.waiting || streamPaused))) && (
+                    (busy && (snapshot?.waiting || streamPaused))) && (
                   <div className="chat-activity" role="status">
                     <ProcessingLabel
                       active={busy && !streamPaused && !snapshot?.waiting}
@@ -712,11 +705,7 @@ export function App() {
                               ? '等待恢复事件连接…'
                               : snapshot?.waiting
                                 ? '等待输入或任务完成'
-                                : sending
-                                  ? '正在提交…'
-                                  : backgroundBusy
-                                    ? '后台任务执行中，可继续对话'
-                                    : '正在处理'
+                                : '后台任务执行中，可继续对话'
                       }
                     />
                   </div>

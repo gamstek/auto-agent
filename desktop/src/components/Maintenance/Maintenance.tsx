@@ -12,7 +12,7 @@ export function Maintenance() {
   const [message, setMessage] = useState('');
   useEffect(() => {
     if (!desktop) return;
-    const subscription = listen<{ downloaded: number; total: number | null }>(
+    const progress = listen<{ downloaded: number; total: number | null }>(
       'update-progress',
       ({ payload }) => {
         setMessage(
@@ -22,8 +22,17 @@ export function Maintenance() {
         );
       },
     );
+    const stage = listen<'checking' | 'installing'>('update-stage', ({ payload }) => {
+      setMessage(
+        payload === 'checking'
+          ? '安装包已下载并通过签名校验，正在确认后台任务状态…'
+          : '正在启动安装程序…',
+      );
+    });
     return () => {
-      void subscription.then((off) => off()).catch(() => {});
+      void Promise.all([progress, stage])
+        .then((subscriptions) => subscriptions.forEach((off) => off()))
+        .catch(() => {});
     };
   }, []);
   async function run(action: () => Promise<void>) {

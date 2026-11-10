@@ -70,7 +70,7 @@ Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v
 
 ## 更新
 
-“关于与诊断”提供检查更新、下载与安装、诊断包导出。更新采用 Rust Tauri updater，固定 GitHub stable/Beta feed；先下载并验证签名，再在生命周期锁内复查任务是否空闲并安装。
+“关于与诊断”提供检查更新、下载与安装、诊断包导出。更新采用 Rust Tauri updater，固定 GitHub stable/Beta feed；下载前不查询后台活动或获取生命周期锁，先下载并验证签名，再阻止新写入，在生命周期锁内执行一次空闲保护停止后安装。界面区分下载进度、验签完成后的后台核验和安装启动阶段。后台不可读、忙碌或有未知受理时不安装，明确提示“已下载并通过签名校验，但尚未启动安装”，不把只读核验失败描述成消息写入结果未知。
 
 发布版本需要 `AUTO_AGENT_UPDATER_PUBLIC_KEY` 与 `TAURI_SIGNING_PRIVATE_KEY`，可选私钥密码。`build:release` 生成签名安装包与 latest.json；CI 发布版本 Release 和渠道 feed。开发构建缺少公钥时明确报告不可更新。当前更新包仅支持 Windows x64。
 
