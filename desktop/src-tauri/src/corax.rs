@@ -593,7 +593,7 @@ async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, 
     let mut operation_id = None;
     if start || cancel {
         if payload["generation"].as_str() != Some(backend.generation.as_str()) {
-            return Err(json!({"message":"后端连接已经变化，请刷新用户知识库后操作","admission":"rejected"}));
+            return Err(json!({"message":"后端连接已经变化，请刷新知识库后操作","admission":"rejected"}));
         }
         if start {
             if payload.as_object().is_none_or(|object| object.keys().any(|key| !["generation", "configRevision", "sourceId"].contains(&key.as_str()))) || payload.get("sourceId").is_some_and(|source| !source.is_null() && !source.is_string()) {
@@ -620,7 +620,7 @@ async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, 
     let (status, mut value) = request_status(state, backend, method, &format!("/desktop{path}"), if method == "POST" { Some(payload) } else { None }).await?;
     if !status.is_success() {
         if start && status.is_client_error() { *backend.knowledge_pending.lock().unwrap() = None; }
-        return Err(json!({"message":value["error"].as_str().unwrap_or("用户知识库请求失败"),"admission":if status.is_client_error() {"rejected"} else {"unknown"}}));
+        return Err(json!({"message":value["error"].as_str().unwrap_or("知识库请求失败"),"admission":if status.is_client_error() {"rejected"} else {"unknown"}}));
     }
     if operation_id.as_deref().is_some_and(|id| value["operation"]["id"].as_str() != Some(id)) {
         return Err(json!({"message":"整理受理身份不一致，请刷新核对结果","admission":"unknown"}));

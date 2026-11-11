@@ -1,0 +1,83 @@
+.knowledge-preview {
+  font-size: 14px;
+  line-height: 1.9;
+  overflow-wrap: anywhere;
+}
+.knowledge-preview > h1 {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+  font-weight: 600;
+  margin: 12px 0;
+}
+.knowledge-preview .markdown pre {
+  overflow-x: auto;
+}
+.knowledge-preview > .ui-button {
+  margin-top: 16px;
+}
+.knowledge-reader-related {
+  border-top: 1px solid var(--line);
+  margin-top: 28px;
+  padding-top: 18px;
+}
+.knowledge-reader-related h2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.knowledge-reader-related .ui-button {
+  margin: 0 7px 7px 0;
+}
+.knowledge-reader-reference {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 24px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.knowledge-reader-kind {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.knowledge-reader-evidence {
+  margin: 0 0 24px;
+  padding-bottom: 15px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.knowledge-reader-evidence > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  list-style: none;
+  cursor: pointer;
+}
+.knowledge-reader-evidence > summary::-webkit-details-marker {
+  display: none;
+}
+.knowledge-reader-evidence > summary > svg:last-child {
+  margin-left: auto;
+}
+.knowledge-reader-evidence > div {
+  display: grid;
+  gap: 7px;
+  padding-top: 13px;
+  overflow-wrap: anywhere;
+}
+.knowledge-reader-evidence .knowledge-reader-reference {
+  margin-top: 4px;
+}
+.knowledge-reader-evidence > div > span:first-child {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.knowledge-reader-evidence[open] > summary > svg:last-child {
+  transform: rotate(180deg);
+}

@@ -1,26 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { listen } from '@tauri-apps/api/event';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { History, MessageSquarePlus, RefreshCw, X } from 'lucide-react';
-import type { BackendCapabilities, InputResponse } from '@auto-agent/desktop-protocol';
-import {
-  api,
-  type BackendHealth,
-  assertDesktopProtocol,
-  desktop,
-  errorText,
-  sendErrorText,
-  native,
-  type ServiceEvent,
-  isAgentEvent,
-  type Session,
-} from './bridge';
+import type { BackendCapabilities } from '@auto-agent/desktop-protocol';
+import { desktop, errorText, native } from './bridge';
 import { Settings, SettingsNavigation } from './components/Settings/Settings';
 import { Titlebar } from './components/Titlebar/Titlebar';
 import { Composer } from './components/Composer/Composer';
 import { Button } from './components/Button/Button';
 import { IconButton } from './components/IconButton/IconButton';
 import { SessionList } from './components/SessionList/SessionList';
-import { useSessions } from './hooks/useSessions';
 import { SearchField } from './components/SearchField/SearchField';
 import { Welcome } from './components/Welcome/Welcome';
 import { MessageList } from './components/MessageList/MessageList';
@@ -28,11 +15,12 @@ import { Instruments } from './components/Instruments/Instruments';
 import { NavigationRail } from './components/NavigationRail/NavigationRail';
 import { ChatMessage } from './components/ChatMessage/ChatMessage';
 import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest';
-import { useChat } from './hooks/useChat';
-import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
 import { StartupScreen } from './components/StartupScreen/StartupScreen';
 import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
-import { chatTrace } from './lib/chat-debug';
+import { useSessions } from './hooks/useSessions';
+import { useChatController } from './hooks/useChatController';
+import { useBackendLifecycle, type BackendConnectionState } from './hooks/useBackendLifecycle';
+import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
 import './App.css';
 
 export function App() {
@@ -43,6 +31,8 @@ export function App() {
   const [sessionFilter, setSessionFilter] = useState('');
   const [settingsTab, setSettingsTab] = useState('model');
   const [capabilities, setCapabilities] = useState<BackendCapabilities>({});
+  const [connection, setConnection] = useState<BackendConnectionState>('starting');
+  const [error, setError] = useState('');
   const [maximized, setMaximized] = useState(false),
     [instant, setInstant] = useState(false);
   const mainRef = useRef<HTMLElement>(null),
@@ -82,10 +72,7 @@ export function App() {
       const after = element.getBoundingClientRect();
       layoutAnimation.current = element.animate(
         [
-          {
-            transform: `translateX(${before.left - after.left}px)`,
-            width: `${before.width}px`,
-          },
+          { transform: `translateX(${before.left - after.left}px)`, width: `${before.width}px` },
           { transform: 'translateX(0)', width: `${after.width}px` },
         ],
         { duration: 220, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' },
@@ -111,6 +98,7 @@ export function App() {
     lastPage.current = page;
     return () => pageAnimation.current?.cancel();
   }, [page]);
+
   const {
     sessions,
     loading: sessionsLoading,
@@ -119,57 +107,79 @@ export function App() {
     refreshSessions,
     loadMore: loadMoreSessions,
   } = useSessions();
-  const [sessionId, setSessionId] = useState('');
-  const [input, setInput] = useState('');
-  const [connection, setConnection] = useState<'starting' | 'connected' | 'disconnected'>(
-    'starting',
-  );
-  const [initialized, setInitialized] = useState(false);
-  const [recommendationIdentity, setRecommendationIdentity] = useState(0);
-  const [booting, setBooting] = useState(true);
-  const [bootStage, setBootStage] = useState<'server' | 'workspace'>('server');
-  const bootLock = useRef(false);
-  const [error, setError] = useState(''),
-    [sending, setSending] = useState(false);
-  const [cancelling, setCancelling] = useState(false);
   const [showBottom, setShowBottom] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
-  const {
-    snapshot,
-    loading: chatLoading,
-    error: chatError,
-    refresh: sync,
-    ready: chatReady,
-    clearHistory,
-  } = useChat(sessionId, connection === 'connected');
-  const messages = snapshot?.conversation.messages ?? [];
-  const busy = chatReady && !!snapshot?.turnActive;
-  const backgroundBusy = chatReady && !!snapshot?.busy && !busy;
-  const streamPaused =
-    !chatReady || connection !== 'connected' || !!snapshot?.connectionError || !!chatError;
-  const inputs = snapshot?.closed
-    ? []
-    : Object.values(snapshot?.conversation.inputs ?? {}).filter((value) => value.status === 'open');
-  const older = messages.length > visibleCount;
-  const idRef = useRef(''),
-    scroll = useRef<HTMLDivElement>(null),
+  const scroll = useRef<HTMLDivElement>(null),
     bottom = useRef<HTMLDivElement>(null),
     stick = useRef(true);
-  const requestLock = useRef(false),
-    inputRef = useRef<HTMLTextAreaElement>(null);
-  const navigationEpoch = useRef(0);
-  useEffect(() => {
-    chatTrace('chat-state').mark('state', {
-      sending,
-      loading: chatLoading,
-      busy,
-      connected: connection === 'connected',
-    });
-  }, [sending, chatLoading, busy, connection]);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const resetViewport = useCallback((fresh: boolean) => {
+    setVisibleCount(50);
+    stick.current = true;
+    if (fresh) inputRef.current?.focus();
+  }, []);
+  const beforeSend = useCallback(() => {
+    stick.current = true;
+  }, []);
+  const {
+    sessionId,
+    sessionIdRef,
+    input,
+    setInput,
+    sending,
+    snapshot,
+    messages,
+    inputs,
+    busy,
+    streamPaused,
+    composerConnected,
+    canCancel,
+    canRespond,
+    hasConversation,
+    activity,
+    historyError: chatError,
+    select,
+    newSession,
+    send,
+    cancel,
+    respond,
+    sync,
+    resetHistory,
+  } = useChatController({
+    connected: connection === 'connected',
+    capabilities,
+    refreshSessions,
+    onError: setError,
+    onNavigate: resetViewport,
+    onSend: beforeSend,
+  });
+  const {
+    initialized,
+    identity: recommendationIdentity,
+    booting,
+    bootStage,
+    boot,
+    settingsSaved,
+  } = useBackendLifecycle({
+    currentSessionId: sessionIdRef,
+    selectSession: select,
+    syncSession: sync,
+    resetHistory,
+    refreshSessions,
+    onConnectionChange: setConnection,
+    onCapabilities: setCapabilities,
+    onError: setError,
+  });
+  const recommendations = useQuestionSuggestions(
+    page === 'chat' && !hasConversation,
+    connection === 'connected',
+    sessions,
+    recommendationIdentity,
+  );
+  const older = messages.length > visibleCount;
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
-      if (!initialized) return;
-      if (event.isComposing || event.repeat) return;
+      if (!initialized || event.isComposing || event.repeat) return;
       if (event.ctrlKey || event.metaKey) {
         if (event.key === ',') {
           event.preventDefault();
@@ -188,236 +198,22 @@ export function App() {
     };
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
-  }, [settings, sidebar, initialized]);
-  function select(id: string) {
-    navigationEpoch.current++;
-    setVisibleCount(50);
-    setCancelling(false);
-    idRef.current = id;
-    setSessionId(id);
-    setError('');
-    stick.current = true;
-    localStorage.setItem('last-session', id);
-  }
-  async function boot() {
-    if (bootLock.current) return;
-    bootLock.current = true;
-    clearHistory();
-    setRecommendationIdentity((value) => value + 1);
-    setBooting(true);
-    setBootStage('server');
-    setConnection('starting');
-    setError('');
-    try {
-      await native('backend_start');
-      const health = await api<BackendHealth>('/global/health');
-      assertDesktopProtocol(health);
-      setCapabilities(health.capabilities ?? {});
-      setBootStage('workspace');
-      const list = await refreshSessions();
-      const previous = localStorage.getItem('last-session');
-      if (idRef.current) await sync();
-      else if (previous && list.some((s) => s.id === previous)) select(previous);
-      setConnection('connected');
-      setInitialized(true);
-    } catch (e) {
-      setConnection('disconnected');
-      setError(errorText(e));
-    } finally {
-      bootLock.current = false;
-      setBooting(false);
-    }
-  }
-  useEffect(() => {
-    if (!desktop) {
-      setBooting(false);
-      setConnection('disconnected');
-      setError('请运行 pnpm dev:desktop，通过桌面应用连接本地 Corax 服务。');
-      return;
-    }
-    let disposed = false;
-    const cleanup: (() => void)[] = [];
-    void (async () => {
-      const events = await listen<ServiceEvent>('agent-event', ({ payload: event }) => {
-        if (!isAgentEvent(event)) return;
-        if (event.type === 'session.updated') void refreshSessions().catch(() => {});
-        if (event.sessionId !== idRef.current) return;
-        if (event.type === 'session.error') {
-          setError(String(event.properties.message ?? '请求失败'));
-          void sync().catch(() => {});
-        }
-      });
-      const streams = await listen<string>('backend-stream', ({ payload }) => {
-        if (bootLock.current) return;
-        setRecommendationIdentity((value) => value + 1);
-        if (payload === 'connected') {
-          clearHistory();
-          void api<BackendHealth>('/global/health')
-            .then((health) => {
-              assertDesktopProtocol(health);
-              setCapabilities(health.capabilities ?? {});
-              setConnection('connected');
-              void sync().catch(() => {});
-              void refreshSessions().catch(() => {});
-            })
-            .catch((e) => {
-              setConnection('disconnected');
-              setError(errorText(e));
-            });
-        } else setConnection('disconnected');
-      });
-      if (disposed) {
-        events();
-        streams();
-        return;
-      }
-      cleanup.push(events, streams);
-      await boot();
-    })().catch((e) => {
-      if (!disposed) {
-        setBooting(false);
-        setConnection('disconnected');
-        setError(errorText(e));
-      }
-    });
-    return () => {
-      disposed = true;
-      cleanup.forEach((fn) => fn());
-    };
-  }, []);
-  useEffect(() => {
-    if (!busy) setCancelling(false);
-  }, [busy]);
+  }, [settings, sidebar, initialized, newSession]);
   useEffect(() => {
     if (stick.current) bottom.current?.scrollIntoView({ behavior: 'instant' });
   }, [snapshot?.revision, settings]);
-  async function send(text = input) {
-    if (
-      !text.trim() ||
-      requestLock.current ||
-      busy ||
-      (!!sessionId && !chatReady) ||
-      chatLoading ||
-      chatError ||
-      snapshot?.connectionError ||
-      connection !== 'connected' ||
-      inputs.length ||
-      snapshot?.closed ||
-      capabilities.sessions?.send !== true
-    )
-      return;
-    requestLock.current = true;
-    setSending(true);
-    setError('');
-    stick.current = true;
-    const epoch = navigationEpoch.current;
-    const trace = chatTrace('send', { initial: !idRef.current });
-    try {
-      let id = idRef.current;
-      if (!id) {
-        trace.mark('create');
-        const session = await api<Session>('/session', 'POST', {});
-        trace.mark('created');
-        id = session.id;
-        if (navigationEpoch.current === epoch) {
-          idRef.current = id;
-          setSessionId(id);
-          localStorage.setItem('last-session', id);
-        }
-      }
-      trace.mark('submit');
-      await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
-      trace.mark('accepted');
-      setSending(false);
-      if (navigationEpoch.current === epoch) {
-        setInput('');
-        if (inputRef.current) inputRef.current.style.height = 'auto';
-        trace.mark('sync');
-        await sync();
-        trace.mark('synced');
-      }
-      trace.mark('list');
-      void refreshSessions()
-        .then(() => trace.mark('listed'))
-        .catch(() => {});
-    } catch (e) {
-      trace.mark('error');
-      if (navigationEpoch.current === epoch) setError(sendErrorText(e));
-      await sync().catch(() => {});
-    } finally {
-      requestLock.current = false;
-      setSending(false);
-      trace.mark('end');
-    }
-  }
-  function newSession() {
-    navigationEpoch.current++;
-    setVisibleCount(50);
-    setCancelling(false);
-    idRef.current = '';
-    setSessionId('');
-    setError('');
-    setInput('');
-    localStorage.removeItem('last-session');
-    stick.current = true;
-    inputRef.current?.focus();
-  }
-  async function respond(response: InputResponse) {
-    if (!chatReady || snapshot?.closed || capabilities.interaction?.respond !== true) return;
-    const id = sessionId;
-    await api(`/session/${id}/respond`, 'POST', { responses: [response] });
-    if (idRef.current === id) await sync();
-  }
-  const hasConversation = !!sessionId || messages.length > 0 || sending;
-  const recommendations = useQuestionSuggestions(
-    page === 'chat' && !hasConversation,
-    connection === 'connected',
-    sessions
-      .slice(0, 3)
-      .map(({ id, title, updatedAt }) => `${id}:${updatedAt}:${title}`)
-      .join('|'),
-    recommendationIdentity,
-  );
+
   const composer = (
     <Composer
       input={input}
       onInput={setInput}
       inputRef={inputRef}
       onSend={() => void send()}
-      onCancel={() => {
-        if (!chatReady || cancelling || capabilities.sessions?.cancel !== true) return;
-        const id = sessionId,
-          epoch = navigationEpoch.current;
-        setCancelling(true);
-        void api<{ status: string }>(`/session/${id}/abort`, 'POST', {})
-          .then(async (result) => {
-            if (idRef.current !== id || navigationEpoch.current !== epoch) return;
-            if (result.status === 'no_active_turn') setCancelling(false);
-            await sync();
-          })
-          .catch((e) => {
-            if (idRef.current !== id || navigationEpoch.current !== epoch) return;
-            setCancelling(false);
-            setError(errorText(e));
-          });
-      }}
+      onCancel={() => void cancel()}
       busy={busy}
       sending={sending}
-      canCancel={
-        chatReady &&
-        capabilities.sessions?.cancel === true &&
-        !cancelling &&
-        connection === 'connected'
-      }
-      connected={
-        connection === 'connected' &&
-        (!sessionId || chatReady) &&
-        !chatLoading &&
-        !chatError &&
-        !snapshot?.connectionError &&
-        !snapshot?.closed &&
-        capabilities.sessions?.send === true
-      }
+      canCancel={canCancel}
+      connected={composerConnected}
       waitingForInput={inputs.length > 0}
       showBottom={showBottom && hasConversation}
       onBottom={() => {
@@ -463,7 +259,7 @@ export function App() {
           }
         }}
         onHide={() => {
-          void native('hide_main').catch((e) => setError(errorText(e)));
+          void native('hide_main').catch((error) => setError(errorText(error)));
         }}
       />
       <aside className="session-sidebar" aria-hidden={!sidebar} inert={!sidebar}>
@@ -572,13 +368,7 @@ export function App() {
         <div className="view-host" ref={viewRef}>
           <Settings
             initialTab={settingsTab}
-            onSaved={(applied) => {
-              if (applied) void boot();
-              else {
-                clearHistory();
-                setRecommendationIdentity((value) => value + 1);
-              }
-            }}
+            onSaved={settingsSaved}
             active={settings}
             instant={instant}
           />
@@ -688,39 +478,16 @@ export function App() {
                         paused={streamPaused}
                       />
                     ))}
-                {(chatLoading
-                  ? !snapshot
-                  : cancelling ||
-                    backgroundBusy ||
-                    (busy && (snapshot?.waiting || streamPaused))) && (
+                {activity && (
                   <div className="chat-activity" role="status">
-                    <ProcessingLabel
-                      active={busy && !streamPaused && !snapshot?.waiting}
-                      text={
-                        chatLoading
-                          ? '正在读取会话…'
-                          : cancelling
-                            ? '正在取消，等待后端确认…'
-                            : streamPaused
-                              ? '等待恢复事件连接…'
-                              : snapshot?.waiting
-                                ? '等待输入或任务完成'
-                                : '后台任务执行中，可继续对话'
-                      }
-                    />
+                    <ProcessingLabel active={activity.active} text={activity.text} />
                   </div>
                 )}
-                {inputs.map((input) => (
+                {inputs.map((entry) => (
                   <ChatInputRequest
-                    key={`${sessionId}:${input.request.requestId}`}
-                    input={input}
-                    disabled={
-                      !chatReady ||
-                      connection !== 'connected' ||
-                      !!chatError ||
-                      !!snapshot?.connectionError ||
-                      capabilities.interaction?.respond !== true
-                    }
+                    key={`${sessionId}:${entry.request.requestId}`}
+                    input={entry}
+                    disabled={!canRespond}
                     onRespond={respond}
                   />
                 ))}

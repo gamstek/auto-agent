@@ -40,7 +40,7 @@ export default defineChannel({
         });
       } catch {
         return Response.json(
-          { error: '无法读取用户知识库，请核对已发布内容和目录权限' },
+          { error: '无法读取知识库，请核对已发布内容和目录权限' },
           { status: 503 },
         );
       }

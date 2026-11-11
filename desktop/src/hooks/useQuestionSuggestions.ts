@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { QuestionSuggestions } from '@auto-agent/desktop-protocol';
-import { api } from '../bridge';
+import { api, type Session } from '../bridge';
 
 interface CachedSuggestions {
   identity: number;
@@ -11,9 +11,13 @@ interface CachedSuggestions {
 export function useQuestionSuggestions(
   active: boolean,
   connected: boolean,
-  usageRevision: string,
+  sessions: readonly Session[],
   identity: number,
 ) {
+  const usageRevision = sessions
+    .slice(0, 3)
+    .map(({ id, title, updatedAt }) => `${id}:${updatedAt}:${title}`)
+    .join('|');
   const [result, setResult] = useState<CachedSuggestions | null>(null);
   const [loading, setLoading] = useState(false);
   const cache = useRef<CachedSuggestions | null>(null);

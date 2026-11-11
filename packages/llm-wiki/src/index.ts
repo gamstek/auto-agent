@@ -25,6 +25,11 @@ interface CatalogPage {
   type: string;
   summary: string;
   reference: PageReference;
+  related: string[];
+  relatedCount: number;
+  relatedTruncated: boolean;
+  sourceCount: number;
+  updatedAt: string;
 }
 interface CatalogSource {
   name: string;
@@ -169,12 +174,25 @@ export class LlmWiki {
     let count = 0;
     for (const path of paths.slice(offset, offset + limit)) {
       const page = manifest.pages[path];
+      const related: string[] = [];
+      let relatedBytes = 2;
+      for (const target of page.related) {
+        const size = Buffer.byteLength(JSON.stringify(target)) + 1;
+        if (relatedBytes + size > 8192) break;
+        related.push(target);
+        relatedBytes += size;
+      }
       const entry = {
         path,
         title: page.title,
         type: page.type,
         summary: page.summary,
         reference: this.reference(manifest, path),
+        related,
+        relatedCount: page.related.length,
+        relatedTruncated: related.length !== page.related.length,
+        sourceCount: page.sources.length,
+        updatedAt: page.updatedAt,
       };
       const source = sourceList[offset + count];
       const sourceEntry = source

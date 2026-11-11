@@ -36,7 +36,7 @@ lib/config 统一管理 schema、路径、IO、进程内快照与数据目录占
 
 lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI 使用固定 tsx loader；工具 schema/说明从 @auto-agent/climber-mcp/contracts 导入，经 tools/climber.ts 动态适配。sam_file 离线可用，climber.enabled 后提供四项设备能力。当前 Corax 原生 MCP connection 只接受 HTTP/SSE，所以这里采用公开工具接口适配，不创建私有 Corax 连接实现。channels/instruments 只提供认证的桌面只读投影。
 
-模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。桌面用户知识库通过 channels/knowledge 的固定认证路由复用同一编译引擎和只读页面接口；不提供领域专用资料 Tool 或数据库导入。
+模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。桌面知识库通过 channels/knowledge 的固定认证路由复用同一编译引擎和只读页面接口；不提供领域专用资料 Tool 或数据库导入。
 
 sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 ShellJS 实现宿主进程/文件 I/O；不替换 Corax 原生工具。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 需可发现的 Git Bash，继承宿主环境而非虚拟解释器。
 

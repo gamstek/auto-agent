@@ -66,7 +66,7 @@ const categories = [
   },
   {
     id: 'knowledge',
-    label: '用户知识库',
+    label: '知识库',
     description: '资料 来源 Markdown TXT 知识 整理 LLM Wiki',
     icon: BookOpen,
     group: '工作空间',
@@ -440,6 +440,7 @@ export function Settings({
   return (
     <form
       className="settings-page settings-form"
+      data-section={initialTab}
       hidden={!active}
       onBlur={() => {
         delay.current = 0;
@@ -613,13 +614,6 @@ export function Settings({
                     refreshKey={capabilityRevision}
                     active={active}
                   />
-                  <Group title="内置参考资料">
-                    <Row
-                      label="device-automation"
-                      description="人工规则属于技能指导，历史参考由 Wiki 只读集合提供；不进入用户摄入流程。"
-                      control={<span className="setting-value">只读内置资料</span>}
-                    />
-                  </Group>
                 </>
               )}
               {initialTab === 'advanced' && (

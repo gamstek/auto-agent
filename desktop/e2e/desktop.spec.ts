@@ -21,6 +21,7 @@ async function nativeDesktop(
     const histories: Record<string, any[]> = { [sessionId]: records };
     const testState = {
       requests: [] as string[],
+      backendStarts: 0,
       rejectSend: false,
       dialogs: [] as any[],
       saves: [] as any[],
@@ -37,6 +38,8 @@ async function nativeDesktop(
       holdList: false,
       knowledgeStarts: [] as any[],
       knowledgePageRequests: [] as string[],
+      knowledgeReads: [] as any[],
+      holdKnowledgeReadFor: '',
       knowledgeUncertain: false,
       knowledgeReject: false,
       knowledgeConfigRevision: 'revision',
@@ -57,6 +60,7 @@ async function nativeDesktop(
     const releaseList: (() => void)[] = [];
     const releaseSuggestions: (() => void)[] = [];
     const releaseUpdate: (() => void)[] = [];
+    const releaseKnowledgeReads: (() => void)[] = [];
     let knowledgeOperation: any = null;
     let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
@@ -96,6 +100,13 @@ async function nativeDesktop(
       checkUpdateBackend: () => emit('update-stage', 'checking'),
       failUpdateBackend: () => {
         for (const release of releaseUpdate.splice(0)) release();
+      },
+      publishKnowledge: () => {
+        knowledgeDone = 1;
+      },
+      releaseKnowledgeReads: () => {
+        testState.holdKnowledgeReadFor = '';
+        for (const release of releaseKnowledgeReads.splice(0)) release();
       },
       finishKnowledge: (state = 'completed', completed = 1) => {
         knowledgeDone = completed;
@@ -176,7 +187,10 @@ async function nativeDesktop(
           delete listeners[args.eventId];
           return;
         }
-        if (command === 'backend_start') return { ready: true };
+        if (command === 'backend_start') {
+          testState.backendStarts++;
+          return { ready: true };
+        }
         if (command === 'backend_chat_open') {
           testState.viewCalls.push({ command, ...args });
           testState.activeView = args.viewId;
@@ -252,6 +266,9 @@ async function nativeDesktop(
             title: '整理后的笔记',
             type: 'concept',
             summary: '保留来源的知识页',
+            related: ['concepts/extra.md'],
+            sourceCount: 1,
+            updatedAt: '2026-11-09T08:00:00.000Z',
             reference: {
               generation: '00000000-0000-4000-8000-000000000099',
               path: 'concepts/notes.md',
@@ -296,6 +313,7 @@ async function nativeDesktop(
                   ...knowledgePage,
                   path: 'concepts/extra.md',
                   title: '额外知识页',
+                  related: ['concepts/notes.md'],
                   reference: { ...knowledgePage.reference, path: 'concepts/extra.md' },
                 },
               ],
@@ -325,10 +343,16 @@ async function nativeDesktop(
             knowledgeOperation = { ...knowledgeOperation, state: 'cancelling' };
             return knowledgeState();
           }
-          if (args.path === '/knowledge/read')
+          if (args.path === '/knowledge/read') {
+            testState.knowledgeReads.push(structuredClone(args.body.reference));
+            if (testState.holdKnowledgeReadFor === args.body.reference.path)
+              await new Promise<void>((resolve) => releaseKnowledgeReads.push(resolve));
             return {
-              reference: knowledgePage.reference,
-              title: knowledgePage.title,
+              reference: args.body.reference,
+              title:
+                args.body.reference.path === 'concepts/extra.md'
+                  ? '额外知识页'
+                  : knowledgePage.title,
               text: args.body.offset
                 ? '后续内容也保留来源。'
                 : '# 整理后的笔记\n这是有来源的知识正文。',
@@ -336,6 +360,7 @@ async function nativeDesktop(
               endLine: args.body.offset ? 62 : 60,
               nextOffset: args.body.offset ? null : 60,
             };
+          }
           if (args.path === '/capabilities')
             return {
               skills: [
@@ -482,6 +507,24 @@ async function nativeDesktop(
   await page.addInitScript(initialize, { existing, suggestionMode });
 }
 
+async function openKnowledgeSources(page: Page) {
+  const back = page.getByRole('button', { name: '返回知识浏览', exact: true });
+  if (await back.isVisible()) await back.click();
+  await page.getByRole('tab', { name: '资料', exact: true }).click();
+  const sources = page.getByRole('tabpanel', { name: '资料', exact: true });
+  await expect(sources).toBeVisible();
+  return sources;
+}
+
+async function openKnowledgeDirectory(page: Page) {
+  const back = page.getByRole('button', { name: '返回知识浏览', exact: true });
+  if (await back.isVisible()) await back.click();
+  await page.getByRole('tab', { name: '目录', exact: true }).click();
+  const directory = page.getByRole('tabpanel', { name: '目录', exact: true });
+  await expect(directory).toBeVisible();
+  return directory;
+}
+
 test('welcome recommendations update silently without blocking input or creating a chat', async ({
   page,
 }) => {
@@ -623,6 +666,65 @@ test('reconnection drops previous recommendation identity before displaying repl
   ).toBeVisible();
 });
 
+test('first-message initialization is silent until the native assistant message arrives', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'connected');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const statuses: string[] = [];
+    (window as any).__beforeAssistantStatuses = statuses;
+    const observer = new MutationObserver(() => {
+      if (document.querySelector('.message.assistant')) return;
+      for (const status of document.querySelectorAll('.chat-activity'))
+        statuses.push(status.textContent ?? '');
+    });
+    observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    (window as any).__firstMessageObserver = observer;
+  });
+  await page.getByRole('textbox', { name: '输入消息' }).fill('验证首次提交不闪现过渡文字');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.requests.some(
+          (path: string) => path.startsWith('/session/') && path.split('?')[0].endsWith('/events'),
+        ),
+      ),
+    )
+    .toBe(true);
+  try {
+    await expect(page.locator('.message.assistant')).toHaveCount(0);
+    await expect(page.locator('.chat-activity')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  } finally {
+    await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  }
+  await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+  const statuses = await page.evaluate(() => {
+    (window as any).__firstMessageObserver.disconnect();
+    return (window as any).__beforeAssistantStatuses as string[];
+  });
+  expect(statuses).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__desktopTest.backendStarts)).toBe(1);
+});
+
+test('opening an existing uncached conversation retains explicit history-loading feedback', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.locator('.chat-activity')).toContainText('正在读取会话');
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+});
+
 test('native event records project into the conversation without a Node HTTP bridge', async ({
   page,
 }) => {
@@ -715,7 +817,8 @@ test('current settings edit one canonical configuration', async ({ page }) => {
   await expect
     .poll(() => page.evaluate(() => (window as any).__desktopTest.saves.at(-1)?.climber))
     .toEqual({ enabled: true, serviceURL: 'http://127.0.0.1:18080/api/v1', timeoutMs: 5000 });
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await expect(page.getByText('资料来源', { exact: true })).toBeVisible();
   await expect(page.getByText('SQLite 资料包', { exact: true })).toHaveCount(0);
 });
@@ -769,7 +872,8 @@ test('Wiki sources accept both text files and directories through the native pic
   await nativeDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await page.getByRole('button', { name: '添加文件', exact: true }).click();
   await expect(page.getByText('C:\\fixtures\\notes.md', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '添加文件夹', exact: true }).click();
@@ -786,6 +890,7 @@ test('Wiki sources accept both text files and directories through the native pic
       (window as any).__desktopTest.dialogs.map((options: any) => options.directory),
     ),
   ).toEqual([false, true]);
+  await page.getByRole('tab', { name: '图谱', exact: true }).click();
   await page
     .locator('.settings-menu')
     .getByRole('button', { name: '关于与诊断', exact: true })
@@ -818,7 +923,8 @@ test('adding a source does not compile until explicitly requested and generated 
   await nativeDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await page.getByRole('button', { name: '添加文件', exact: true }).click();
   const start = page.getByRole('button', { name: '开始整理', exact: true });
   await expect(start).toBeEnabled();
@@ -826,12 +932,15 @@ test('adding a source does not compile until explicitly requested and generated 
   await expect(page.getByText('待整理', { exact: true })).toBeVisible();
   await start.click();
   await expect(page.getByText('分析资料', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '图谱', exact: true }).click();
   await page.locator('.settings-menu').getByRole('button', { name: '模型', exact: true }).click();
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await expect(page.getByText('分析资料', { exact: true })).toBeVisible();
   await page.evaluate(() => (window as any).__desktopFixture.finishKnowledge('completed', 1));
   await expect(page.getByText('整理完成', { exact: true })).toBeVisible();
   await expect(page.getByText('已整理', { exact: true })).toBeVisible();
+  await openKnowledgeDirectory(page);
   await page.getByRole('button', { name: '显示更多知识页', exact: true }).click();
   await expect(page.getByRole('button', { name: /^额外知识页/ })).toBeVisible();
   expect(
@@ -845,7 +954,10 @@ test('adding a source does not compile until explicitly requested and generated 
   await expect(page.getByText('这是有来源的知识正文。', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: '继续阅读', exact: true }).click();
   await expect(page.getByText('后续内容也保留来源。', { exact: false })).toBeVisible();
+  await page.getByRole('button', { name: '关闭知识页内容', exact: true }).click();
+  await openKnowledgeSources(page);
   await page.getByRole('button', { name: '移除 C:\\fixtures\\notes.md', exact: true }).click();
+  await openKnowledgeDirectory(page);
   await expect(page.getByRole('button', { name: /^整理后的笔记/ })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
 });
@@ -856,7 +968,8 @@ test('cancelling knowledge compilation waits for a terminal result and reports c
   await nativeDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await page.getByRole('button', { name: '添加文件', exact: true }).click();
   await expect(page.getByRole('button', { name: '开始整理', exact: true })).toBeEnabled();
   await page.getByRole('button', { name: '添加文件夹', exact: true }).click();
@@ -869,6 +982,7 @@ test('cancelling knowledge compilation waits for a terminal result and reports c
   await page.evaluate(() => (window as any).__desktopFixture.finishKnowledge('cancelled', 1));
   await expect(page.getByText('整理已取消', { exact: true })).toBeVisible();
   await expect(page.getByLabel('整理结果')).toContainText('已完成 1/2 份资料');
+  await openKnowledgeDirectory(page);
   await expect(page.getByRole('button', { name: /^整理后的笔记/ })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
 });
@@ -879,7 +993,8 @@ test('knowledge compilation waits for applied settings and never replays an unce
   await nativeDesktop(page);
   await page.goto('/');
   await page.getByRole('button', { name: '设置', exact: true }).click();
-  await page.getByRole('button', { name: '用户知识库', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeSources(page);
   await page.evaluate(() => {
     (window as any).__desktopTest.pendingSettingsApply = true;
   });
@@ -904,15 +1019,290 @@ test('knowledge compilation waits for applied settings and never replays an unce
   await page.evaluate(() => {
     (window as any).__desktopTest.knowledgeConfigRevision = 'revision';
   });
-  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await page.getByRole('button', { name: '刷新资料状态', exact: true }).click();
   await expect(start).toBeEnabled();
   await start.click();
   await expect(
     page.getByText('整理请求结果尚未确认，未自动重试。请刷新并核对已发布内容。', { exact: true }),
   ).toBeVisible();
   await expect(start).toBeDisabled();
-  await page.getByRole('button', { name: '刷新状态', exact: true }).click();
+  await page.getByRole('button', { name: '刷新资料状态', exact: true }).click();
   expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
+});
+
+test('knowledge workspace uses wide columns and real published links for keyboard-accessible reading', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.evaluate(() => (window as any).__desktopFixture.publishKnowledge());
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await expect(page.locator('.knowledge-sidebar')).toBeVisible();
+  await expect(page.locator('.settings-menu')).toBeVisible();
+  const graphBounds = await page.locator('.knowledge-main').boundingBox();
+  const readerBounds = await page.locator('.knowledge-reader-panel').boundingBox();
+  expect(readerBounds!.x).toBeGreaterThanOrEqual(graphBounds!.x + graphBounds!.width - 1);
+  expect(Math.abs(readerBounds!.y - graphBounds!.y)).toBeLessThan(2);
+  expect(graphBounds!.height).toBeGreaterThan(500);
+  await expect(page.getByRole('tab', { name: '资料', exact: true })).toBeVisible();
+  await expect(page.locator('.knowledge-graph-node')).toHaveCount(1);
+  await expect(page.locator('.knowledge-graph-edge')).toHaveCount(0);
+  await openKnowledgeDirectory(page);
+  await page.getByRole('button', { name: '显示更多知识页', exact: true }).click();
+  await expect(page.locator('.knowledge-graph-node')).toHaveCount(2);
+  await expect(page.locator('.knowledge-graph-edge')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('knowledge-catalog.png') });
+  await page.getByRole('tab', { name: '图谱', exact: true }).click();
+  const node = page.getByRole('button', { name: '查看知识页：整理后的笔记', exact: true });
+  await node.focus();
+  await page.keyboard.press('Enter');
+  const reader = page.getByRole('region', { name: '知识页内容', exact: true });
+  await expect(reader.getByText('这是有来源的知识正文。', { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('knowledge-wide.png') });
+  await page.getByRole('button', { name: '专注图谱', exact: true }).click();
+  await expect(reader).not.toBeVisible();
+  await expect(page.locator('.settings-menu')).toBeVisible();
+  expect((await page.locator('.knowledge-main').boundingBox())!.width).toBeGreaterThan(
+    graphBounds!.width + 100,
+  );
+  await page.getByRole('button', { name: '退出图谱专注', exact: true }).click();
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: '额外知识页', exact: true }).click();
+  await expect(reader.getByRole('heading', { name: '额外知识页', exact: true })).toBeVisible();
+  await reader.getByRole('button', { name: '关闭知识页内容', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '知识库', exact: true })).toBeVisible();
+  await openKnowledgeDirectory(page);
+  await page.getByRole('searchbox', { name: '搜索已加载知识页', exact: true }).fill('额外');
+  await expect(page.locator('.knowledge-page-link')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts)).toEqual([]);
+  const references = await page.evaluate(() => (window as any).__desktopTest.knowledgeReads);
+  expect(references.map((reference: any) => reference.path)).toEqual([
+    'concepts/notes.md',
+    'concepts/extra.md',
+  ]);
+  expect(
+    references.every(
+      (reference: any) => reference.generation === '00000000-0000-4000-8000-000000000099',
+    ),
+  ).toBe(true);
+});
+
+test('knowledge tabs animate pointer changes, respect immediate navigation and keep readable text contrast', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '知识库', exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__knowledgeMotion = [];
+    document.querySelector('.knowledge-base')!.addEventListener('transitionrun', (event) => {
+      const transition = event as TransitionEvent;
+      if (
+        (transition.propertyName === 'transform' || transition.propertyName === 'opacity') &&
+        (transition.target as Element).matches('.knowledge-view-tabs, .knowledge-view')
+      )
+        (window as any).__knowledgeMotion.push(transition.propertyName);
+    });
+  });
+  const waitForMotion = () =>
+    expect
+      .poll(() =>
+        page
+          .locator('.knowledge-base')
+          .evaluate(
+            (element) =>
+              element
+                .getAnimations({ subtree: true })
+                .filter((animation) => animation.playState === 'running').length,
+          ),
+      )
+      .toBe(0);
+  const nextFrames = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  const checkContrast = async (selectors: string) => {
+    const values = await page.locator('.knowledge-base').evaluate((root, selectors) => {
+      const rgb = (color: string) => color.match(/[\d.]+/g)!.map(Number);
+      const luminance = (color: string) => {
+        const [r, g, b] = rgb(color)
+          .slice(0, 3)
+          .map((value) => {
+            const channel = value / 255;
+            return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+          });
+        return r! * 0.2126 + g! * 0.7152 + b! * 0.0722;
+      };
+      return [...root.querySelectorAll(selectors)].map((element) => {
+        let parent: Element | null = element;
+        let background = 'rgb(255, 255, 255)';
+        while (parent) {
+          const color = getComputedStyle(parent).backgroundColor;
+          if ((rgb(color)[3] ?? 1) === 1) {
+            background = color;
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        const a = luminance(getComputedStyle(element).color),
+          b = luminance(background);
+        return {
+          label: element.textContent,
+          ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05),
+        };
+      });
+    }, selectors);
+    expect(values.length).toBeGreaterThan(0);
+    for (const value of values)
+      expect(value.ratio, value.label ?? selectors).toBeGreaterThanOrEqual(4.5);
+  };
+  await page.getByRole('tab', { name: '目录', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__knowledgeMotion))
+    .toEqual(expect.arrayContaining(['transform', 'opacity']));
+  await waitForMotion();
+  await checkContrast('.knowledge-view-tabs .ui-button, .knowledge-catalog-tools > span');
+  await page.getByRole('tab', { name: '资料', exact: true }).click();
+  await waitForMotion();
+  await checkContrast(
+    '.knowledge-source-help, .knowledge-source-footnote, .knowledge-source-header-actions > span',
+  );
+  await page.evaluate(() => {
+    (window as any).__knowledgeMotion = [];
+  });
+  await page.getByRole('tab', { name: '资料', exact: true }).focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByRole('tab', { name: '目录', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await nextFrames();
+  expect(await page.evaluate(() => (window as any).__knowledgeMotion)).toEqual([]);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.getByRole('tab', { name: '图谱', exact: true }).click();
+  await nextFrames();
+  expect(await page.evaluate(() => (window as any).__knowledgeMotion)).toEqual([]);
+});
+
+test('knowledge view tabs switch in place without cancelling work or changing the settings sidebar', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 900, height: 860 });
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await expect(page.locator('.knowledge-sidebar')).not.toBeVisible();
+  const initialBounds = await page.locator('.knowledge-main').boundingBox();
+  const settingsWidth = (await page.locator('.session-sidebar').boundingBox())!.width;
+  const emptyIconWidth = await page
+    .locator('.knowledge-graph-empty svg')
+    .evaluate((element) => element.getBoundingClientRect().width);
+  expect(emptyIconWidth).toBeGreaterThan(0);
+  expect(emptyIconWidth).toBeLessThan(80);
+  await page.getByRole('tab', { name: '图谱', exact: true }).focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.getByRole('tab', { name: '目录', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  await page.keyboard.press('End');
+  await expect(page.getByRole('tab', { name: '资料', exact: true })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  );
+  const drawer = await openKnowledgeSources(page);
+  await expect(drawer).toBeVisible();
+  await expect(drawer.getByText('内置参考资料', { exact: true })).toHaveCount(0);
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  await expect(page.locator('.settings-menu')).toBeVisible();
+  expect((await page.locator('.knowledge-main').boundingBox())!.width).toBe(initialBounds!.width);
+  expect((await page.locator('.session-sidebar').boundingBox())!.width).toBe(settingsWidth);
+  await expect(page.locator('.knowledge-navigation')).toHaveCount(0);
+  await page.keyboard.press('Tab');
+  expect(await page.evaluate(() => !!document.activeElement?.closest('dialog'))).toBe(false);
+  await drawer.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(drawer.getByRole('button', { name: '开始整理', exact: true })).toBeEnabled();
+  await page.screenshot({ path: testInfo.outputPath('knowledge-narrow.png') });
+  await page.setViewportSize({ width: 640, height: 860 });
+  await expect(page.getByRole('heading', { name: '知识库', exact: true })).toBeVisible();
+  const heading = await page.locator('.knowledge-view-heading').boundingBox();
+  const tabs = await page.getByRole('tablist', { name: '知识库视图' }).boundingBox();
+  const title = await page.getByRole('heading', { name: '知识库', exact: true }).boundingBox();
+  expect(tabs!.y).toBeGreaterThan(title!.y + title!.height);
+  expect(tabs!.x).toBeGreaterThanOrEqual(heading!.x);
+  expect(tabs!.x + tabs!.width).toBeLessThanOrEqual(heading!.x + heading!.width);
+  expect(
+    await page
+      .locator('.knowledge-base')
+      .evaluate((element) => element.scrollWidth <= element.clientWidth),
+  ).toBe(true);
+  await expect(drawer.getByRole('button', { name: '添加文件夹', exact: true })).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath('knowledge-compact.png') });
+  await page.setViewportSize({ width: 900, height: 860 });
+  await drawer.getByRole('button', { name: '开始整理', exact: true }).click();
+  await expect(drawer.getByText('分析资料', { exact: true })).toBeVisible();
+  await page.getByRole('tab', { name: '图谱', exact: true }).click();
+  await expect(drawer).not.toBeVisible();
+  await expect(page.locator('.knowledge-workspace-status')).toContainText('资料整理进行中');
+  await openKnowledgeSources(page);
+  await drawer.getByRole('button', { name: '取消整理', exact: true }).click();
+  await page.evaluate(() => (window as any).__desktopFixture.finishKnowledge('cancelled', 1));
+  await expect(drawer.getByText('整理已取消', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await expect(drawer).toBeVisible();
+  await expect(page.locator('.knowledge-sidebar')).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('knowledge-sources-wide.png') });
+  await openKnowledgeDirectory(page);
+  await page.getByRole('button', { name: /^整理后的笔记/ }).click();
+  await expect(
+    page
+      .getByRole('region', { name: '知识页内容' })
+      .getByText('这是有来源的知识正文。', { exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 900, height: 860 });
+  const readerDrawer = page.getByRole('region', { name: '知识页内容', exact: true });
+  await expect(readerDrawer.getByText('这是有来源的知识正文。', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await expect(readerDrawer).toBeVisible();
+  await expect(page.locator('dialog[open]')).toHaveCount(0);
+  await expect(
+    page
+      .getByRole('region', { name: '知识页内容' })
+      .getByText('这是有来源的知识正文。', { exact: true }),
+  ).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.knowledgeStarts.length)).toBe(1);
+});
+
+test('late knowledge preview responses cannot overwrite a more recently selected fixed reference', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopFixture.publishKnowledge();
+    (window as any).__desktopTest.holdKnowledgeReadFor = 'concepts/notes.md';
+  });
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  await page.getByRole('button', { name: '知识库', exact: true }).click();
+  await openKnowledgeDirectory(page);
+  await page.getByRole('button', { name: '显示更多知识页', exact: true }).click();
+  await page.getByRole('button', { name: /^整理后的笔记/ }).click();
+  const reader = page.getByRole('region', { name: '知识页内容', exact: true });
+  await expect(reader.getByText('正在读取知识页…', { exact: true })).toBeVisible();
+  await reader.getByRole('button', { name: '额外知识页', exact: true }).click();
+  await expect(reader.getByRole('heading', { name: '额外知识页', exact: true })).toBeVisible();
+  await expect(reader.getByText('这是有来源的知识正文。', { exact: true })).toBeVisible();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseKnowledgeReads());
+  await expect(reader.getByRole('heading', { name: '额外知识页', exact: true })).toBeVisible();
+  await expect(reader.locator('.knowledge-reader-reference')).toContainText('concepts/extra.md');
 });
 
 test('refreshing the selected conversation requests an unread suffix rather than replaying history', async ({

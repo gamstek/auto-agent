@@ -66,6 +66,22 @@
   max-width: 760px;
   margin: 0 auto;
 }
+.settings-page[data-section='knowledge'] .settings-scroll {
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+.settings-page[data-section='knowledge'] .settings-body {
+  max-width: none;
+  margin: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.settings-page[data-section='knowledge'] .settings-page-title {
+  display: none;
+}
 .settings-page-title {
   display: flex;
   align-items: center;

@@ -9,7 +9,7 @@ const defaultQuestions = [
   'BET 比表面积和 BJH 孔径分析有什么区别？',
   '准备 SAM 文件前，需要确认哪些样品和测试信息？',
   '如何根据材料与测试目标选择合适的测试模板？',
-  '如何查询用户知识库并核对资料来源？',
+  '如何查询知识库并核对资料来源？',
 ];
 export function Welcome({
   composer,

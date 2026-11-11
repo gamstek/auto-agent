@@ -38,6 +38,12 @@ export interface KnowledgePageEntry {
   type: string;
   summary: string;
   reference: KnowledgeReference;
+  /** Explicit published links, not inferred semantic similarities. */
+  related?: string[];
+  relatedCount?: number;
+  relatedTruncated?: boolean;
+  sourceCount?: number;
+  updatedAt?: string;
 }
 export interface KnowledgeSnapshot extends KnowledgeOperationState {
   published: boolean;

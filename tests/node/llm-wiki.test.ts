@@ -97,6 +97,15 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
     assert.equal(calls, 0);
     await wiki.ingest(documents[0], model, signal);
     assert.equal(calls, 2);
+    const publishedCatalog = await wiki.catalog();
+    const concept = publishedCatalog.pages.find((page) => page.type === 'concept')!;
+    const source = publishedCatalog.pages.find((page) => page.type === 'source')!;
+    assert.deepEqual(concept.related, [source.path]);
+    assert.deepEqual(source.related, ['concepts/石墨.md']);
+    assert.equal(concept.sourceCount, 1);
+    assert.equal(Number.isFinite(Date.parse(concept.updatedAt)), true);
+    assert.equal(concept.reference.generation, publishedCatalog.generation);
+    assert.equal(calls, 2, 'graph metadata inspection must not call the model');
     assert.equal((await wiki.inspectSources(documents, model.identity)).sources[0].status, 'ready');
     assert.equal(
       (await wiki.inspectSources(documents, 'changed-model')).sources[0].status,
@@ -140,6 +149,68 @@ test('LLM ingest persists knowledge pages, reuses complete results and preserves
       '# 外部修改',
     );
     assert.equal((await wiki.inspectSources(documents, model.identity)).sources[0].status, 'error');
+    assert.equal(calls, 2);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('long published relation lists remain byte-bounded without stalling catalog pagination', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent-wiki-relations-'));
+  const path = join(root, 'source.md');
+  try {
+    await writeFile(path, '# Graph metadata fixture');
+    const signal = new AbortController().signal;
+    const { documents } = await discoverText([{ id: 'fixture', type: 'file', path }], signal);
+    const wiki = new LlmWiki(join(root, 'knowledge'));
+    const target = `concepts/${'知'.repeat(70)}.md`;
+    const related = Array.from({ length: 50 }, () => target);
+    let calls = 0;
+    await wiki.ingest(
+      documents[0],
+      {
+        identity: 'relation-budget-fixture',
+        maxPromptBytes: 100000,
+        async complete(request) {
+          calls++;
+          if (request.stage === 'analysis') return 'Only test bounded published relation metadata.';
+          const input = JSON.parse(request.prompt.split('\n\n')[0]);
+          return JSON.stringify({
+            pages: [
+              {
+                path: input.source.summaryPath,
+                title: 'Graph metadata',
+                type: 'source',
+                summary: 'Bounded catalog',
+                body: '# Graph metadata',
+                sources: [input.source.reference],
+                related,
+              },
+              {
+                path: target,
+                title: 'Long link target',
+                type: 'concept',
+                summary: 'Existing published relation target',
+                body: '# Long link target',
+                sources: [input.source.reference],
+                related: [],
+              },
+            ],
+            issues: [],
+          });
+        },
+      },
+      signal,
+    );
+    const catalog = await wiki.catalog(0, 100);
+    const source = catalog.pages.find((page) => page.type === 'source')!;
+    assert.ok(source);
+    assert.equal(source.relatedCount, 50);
+    assert.equal(source.relatedTruncated, true);
+    assert.ok(source.related.length > 0 && source.related.length < 50);
+    assert.deepEqual(source.related, related.slice(0, source.related.length));
+    assert.ok(Buffer.byteLength(JSON.stringify(source.related)) <= 8192);
+    assert.equal(catalog.nextOffset, null);
     assert.equal(calls, 2);
   } finally {
     await rm(root, { recursive: true, force: true });

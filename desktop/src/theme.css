@@ -3,7 +3,7 @@
   --accent-hover: #1976d2;
   --accent-soft: #f1f8ff;
   --accent-selected: #e8f3ff;
-  --accent-selected-text: #1688df;
+  --accent-selected-text: #0969b4;
   --accent-border: #cfe5fa;
   --focus-ring: #2196f340;
   --shell-bg: #edf5fd;
@@ -13,8 +13,8 @@
   --control-bg: #f6f8fb;
   --control-border: #e5eaf1;
   --text-primary: #354052;
-  --text-secondary: #697789;
-  --text-muted: #98a3b2;
+  --text-secondary: #536579;
+  --text-muted: #607085;
   --blue: var(--accent);
   --blue-dark: var(--accent-hover);
   --pale: var(--accent-selected);
