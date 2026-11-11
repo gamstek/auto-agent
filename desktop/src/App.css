@@ -110,7 +110,26 @@
   min-width: 0;
   overflow: hidden;
 }
+.chat-workspace {
+  position: relative;
+  isolation: isolate;
+  overflow: clip;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.chat-thread {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
 .content-toolbar {
+  z-index: 4;
+  height: 66px;
   min-height: 66px;
   display: flex;
   align-items: center;
@@ -118,6 +137,7 @@
   padding: 0 25px;
   position: relative;
   flex-shrink: 0;
+  background: white;
 }
 .content-caption {
   font-size: 12px;
@@ -128,6 +148,8 @@
   white-space: nowrap;
 }
 .toolbar-actions {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 8px;

@@ -5,12 +5,18 @@ import type { InstrumentSnapshot } from '../types/instrument';
 
 type Mode = 'refresh' | 'snapshot';
 
-export function useInstruments() {
+export function useInstruments(active = true) {
   const [devices, setDevices] = useState<InstrumentSnapshot[]>([]);
   const [error, setError] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(active);
   const refresh = useRef<() => void>(() => {});
   useEffect(() => {
+    if (!active) {
+      refresh.current = () => {};
+      setLoading(false);
+      setDevices((previous) => previous.map((device) => ({ ...device, stale: true })));
+      return;
+    }
     let disposed = false,
       inFlight = false,
       failures = 0;
@@ -116,6 +122,6 @@ export function useInstruments() {
       listeners.forEach((off) => off());
       document.removeEventListener('visibilitychange', visibility);
     };
-  }, []);
+  }, [active]);
   return { devices, error, loading, refresh: () => refresh.current() };
 }

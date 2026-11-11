@@ -12,6 +12,8 @@ import { SearchField } from './components/SearchField/SearchField';
 import { Welcome } from './components/Welcome/Welcome';
 import { MessageList } from './components/MessageList/MessageList';
 import { Instruments } from './components/Instruments/Instruments';
+import { InstrumentMonitor } from './components/InstrumentMonitor/InstrumentMonitor';
+import { InstrumentIcon } from './components/InstrumentIcon/InstrumentIcon';
 import { NavigationRail } from './components/NavigationRail/NavigationRail';
 import { ChatMessage } from './components/ChatMessage/ChatMessage';
 import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest';
@@ -21,6 +23,7 @@ import { useSessions } from './hooks/useSessions';
 import { useChatController } from './hooks/useChatController';
 import { useBackendLifecycle, type BackendConnectionState } from './hooks/useBackendLifecycle';
 import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
+import { useInstrumentMonitor } from './hooks/useInstrumentMonitor';
 import './App.css';
 
 export function App() {
@@ -110,7 +113,6 @@ export function App() {
   const [showBottom, setShowBottom] = useState(false);
   const [visibleCount, setVisibleCount] = useState(50);
   const scroll = useRef<HTMLDivElement>(null),
-    bottom = useRef<HTMLDivElement>(null),
     stick = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resetViewport = useCallback((fresh: boolean) => {
@@ -155,7 +157,7 @@ export function App() {
   });
   const {
     initialized,
-    identity: recommendationIdentity,
+    identity: backendIdentity,
     booting,
     bootStage,
     boot,
@@ -174,8 +176,9 @@ export function App() {
     page === 'chat' && !hasConversation,
     connection === 'connected',
     sessions,
-    recommendationIdentity,
+    backendIdentity,
   );
+  const monitor = useInstrumentMonitor(mainRef, initialized && capabilities.devices?.list === true);
   const older = messages.length > visibleCount;
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
@@ -200,7 +203,7 @@ export function App() {
     return () => window.removeEventListener('keydown', shortcut);
   }, [settings, sidebar, initialized, newSession]);
   useEffect(() => {
-    if (stick.current) bottom.current?.scrollIntoView({ behavior: 'instant' });
+    if (stick.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
   }, [snapshot?.revision, settings]);
 
   const composer = (
@@ -218,7 +221,7 @@ export function App() {
       showBottom={showBottom && hasConversation}
       onBottom={() => {
         stick.current = true;
-        bottom.current?.scrollIntoView();
+        if (scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
       }}
     />
   );
@@ -318,6 +321,17 @@ export function App() {
       <main
         ref={mainRef}
         className={`main-area ${!hasConversation && page === 'chat' ? 'is-empty' : ''} ${settings ? 'settings-view' : ''}`}
+        onKeyDown={(event) => {
+          if (
+            page === 'chat' &&
+            event.key === 'Escape' &&
+            !event.nativeEvent.isComposing &&
+            monitor.open
+          ) {
+            event.stopPropagation();
+            monitor.close(false);
+          }
+        }}
       >
         {page === 'chat' && (
           <div className="content-toolbar">
@@ -351,6 +365,18 @@ export function App() {
               </button>
             </div>
             <div className="toolbar-actions">
+              {capabilities.devices?.list === true && (
+                <IconButton
+                  ref={monitor.trigger}
+                  label="仪器状态"
+                  selected={monitor.open}
+                  aria-expanded={monitor.open}
+                  aria-controls={monitor.open ? monitor.id : undefined}
+                  onClick={(event) => monitor.toggle(motionIntent(event.detail > 0))}
+                >
+                  <InstrumentIcon size={18} />
+                </IconButton>
+              )}
               <IconButton
                 className="toolbar-new"
                 label="开启新对话"
@@ -374,132 +400,149 @@ export function App() {
           />
           {page === 'instruments' && <Instruments onConfigure={() => showSettings('device')} />}
           {page === 'chat' && (
-            <>
-              {error && (
-                <div className="chat-notice" role="alert">
-                  <span>{error}</span>
-                  <IconButton label="关闭提示" onClick={() => setError('')}>
-                    <X size={16} />
-                  </IconButton>
-                </div>
-              )}
-              {connection !== 'connected' && (
-                <div className="connection-banner">
-                  <span>
-                    {connection === 'starting'
-                      ? '正在准备你的本地工作空间…'
-                      : '连接中断。恢复连接后将读取已有任务状态，不会自动重发请求。'}
-                  </span>
-                  <Button
-                    disabled={connection === 'starting' || !desktop}
-                    onClick={() => void boot()}
-                  >
-                    <RefreshCw size={15} />
-                    重新连接
-                  </Button>
-                </div>
-              )}
-              {(chatError || snapshot?.connectionError || snapshot?.error) && (
-                <div className="chat-notice" role="alert">
-                  <span>{chatError || snapshot?.connectionError || snapshot?.error}</span>
-                  <Button variant="ghost" onClick={() => void sync()}>
-                    刷新会话状态
-                  </Button>
-                </div>
-              )}
-              {snapshot?.closed && (
-                <div className="chat-notice" role="status">
-                  此会话已结束，历史记录仍可查看。
-                  <Button
-                    onClick={() => {
-                      const draft = input;
-                      newSession();
-                      setInput(draft);
-                    }}
-                  >
-                    新建会话
-                  </Button>
-                </div>
-              )}
-              <MessageList
-                ref={scroll}
-                onScroll={() => {
-                  const element = scroll.current!;
-                  stick.current =
-                    element.scrollHeight - element.scrollTop - element.clientHeight < 100;
-                  setShowBottom(!stick.current);
-                }}
-              >
-                {older && (
-                  <Button
-                    variant="ghost"
-                    className="older-button"
-                    onClick={() => {
-                      const element = scroll.current;
-                      const anchor = element?.querySelector<HTMLElement>('[data-message-id]');
-                      const position = anchor?.getBoundingClientRect().top;
-                      stick.current = false;
-                      setVisibleCount((value) => value + 50);
-                      requestAnimationFrame(() => {
-                        if (element && anchor?.isConnected && position !== undefined)
-                          element.scrollTop += anchor.getBoundingClientRect().top - position;
-                      });
-                    }}
-                  >
-                    加载更早的消息
-                  </Button>
-                )}
-                {!hasConversation && (
-                  <Welcome
-                    composer={composer}
-                    disabled={connection !== 'connected' || sending}
-                    connected={connection === 'connected'}
-                    suggestions={recommendations.suggestions}
-                    loading={recommendations.loading}
-                    onQuestion={(question) => void send(question)}
-                  />
-                )}
-                {snapshot &&
-                  messages
-                    .slice(-visibleCount)
-                    .map((message) => (
-                      <ChatMessage
-                        key={`${sessionId}:${message.id}`}
-                        sessionId={sessionId}
-                        message={message}
-                        conversation={snapshot.conversation}
-                        callStates={snapshot.calls}
-                        details={
-                          message.metadata?.turnId
-                            ? snapshot.turnDetails[message.metadata.turnId]
-                            : undefined
-                        }
-                        stopped={snapshot.closed}
-                        paused={streamPaused}
-                      />
-                    ))}
-                {activity && (
-                  <div className="chat-activity" role="status">
-                    <ProcessingLabel active={activity.active} text={activity.text} />
+            <div className="chat-workspace" data-monitor-open={monitor.open}>
+              <div className="chat-thread">
+                {error && (
+                  <div className="chat-notice" role="alert">
+                    <span>{error}</span>
+                    <IconButton label="关闭提示" onClick={() => setError('')}>
+                      <X size={16} />
+                    </IconButton>
                   </div>
                 )}
-                {inputs.map((entry) => (
-                  <ChatInputRequest
-                    key={`${sessionId}:${entry.request.requestId}`}
-                    input={entry}
-                    disabled={!canRespond}
-                    onRespond={respond}
-                  />
-                ))}
-                {snapshot &&
-                  !busy &&
-                  Object.values(snapshot.conversation.turns).at(-1)?.status === 'cancelled' && (
-                    <p role="status">本轮已取消。</p>
+                {connection !== 'connected' && (
+                  <div className="connection-banner">
+                    <span>
+                      {connection === 'starting'
+                        ? '正在准备你的本地工作空间…'
+                        : '连接中断。恢复连接后将读取已有任务状态，不会自动重发请求。'}
+                    </span>
+                    <Button
+                      disabled={connection === 'starting' || !desktop}
+                      onClick={() => void boot()}
+                    >
+                      <RefreshCw size={15} />
+                      重新连接
+                    </Button>
+                  </div>
+                )}
+                {(chatError || snapshot?.connectionError || snapshot?.error) && (
+                  <div className="chat-notice" role="alert">
+                    <span>{chatError || snapshot?.connectionError || snapshot?.error}</span>
+                    <Button variant="ghost" onClick={() => void sync()}>
+                      刷新会话状态
+                    </Button>
+                  </div>
+                )}
+                {snapshot?.closed && (
+                  <div className="chat-notice" role="status">
+                    此会话已结束，历史记录仍可查看。
+                    <Button
+                      onClick={() => {
+                        const draft = input;
+                        newSession();
+                        setInput(draft);
+                      }}
+                    >
+                      新建会话
+                    </Button>
+                  </div>
+                )}
+                <MessageList
+                  ref={scroll}
+                  onScroll={() => {
+                    const element = scroll.current!;
+                    stick.current =
+                      element.scrollHeight - element.scrollTop - element.clientHeight < 100;
+                    setShowBottom(!stick.current);
+                  }}
+                >
+                  {older && (
+                    <Button
+                      variant="ghost"
+                      className="older-button"
+                      onClick={() => {
+                        const element = scroll.current;
+                        const anchor = element?.querySelector<HTMLElement>('[data-message-id]');
+                        const position = anchor?.getBoundingClientRect().top;
+                        stick.current = false;
+                        setVisibleCount((value) => value + 50);
+                        requestAnimationFrame(() => {
+                          if (element && anchor?.isConnected && position !== undefined)
+                            element.scrollTop += anchor.getBoundingClientRect().top - position;
+                        });
+                      }}
+                    >
+                      加载更早的消息
+                    </Button>
                   )}
-                <div ref={bottom} />
-              </MessageList>
-              {hasConversation && composer}
-            </>
+                  {!hasConversation && (
+                    <Welcome
+                      composer={composer}
+                      disabled={connection !== 'connected' || sending}
+                      connected={connection === 'connected'}
+                      suggestions={recommendations.suggestions}
+                      loading={recommendations.loading}
+                      onQuestion={(question) => void send(question)}
+                    />
+                  )}
+                  {snapshot &&
+                    messages
+                      .slice(-visibleCount)
+                      .map((message) => (
+                        <ChatMessage
+                          key={`${sessionId}:${message.id}`}
+                          sessionId={sessionId}
+                          message={message}
+                          conversation={snapshot.conversation}
+                          callStates={snapshot.calls}
+                          details={
+                            message.metadata?.turnId
+                              ? snapshot.turnDetails[message.metadata.turnId]
+                              : undefined
+                          }
+                          stopped={snapshot.closed}
+                          paused={streamPaused}
+                        />
+                      ))}
+                  {activity && (
+                    <div className="chat-activity" role="status">
+                      <ProcessingLabel active={activity.active} text={activity.text} />
+                    </div>
+                  )}
+                  {inputs.map((entry) => (
+                    <ChatInputRequest
+                      key={`${sessionId}:${entry.request.requestId}`}
+                      input={entry}
+                      disabled={!canRespond}
+                      onRespond={respond}
+                    />
+                  ))}
+                  {snapshot &&
+                    !busy &&
+                    Object.values(snapshot.conversation.turns).at(-1)?.status === 'cancelled' && (
+                      <p role="status">本轮已取消。</p>
+                    )}
+                </MessageList>
+                {hasConversation && composer}
+              </div>
+              {monitor.present && (
+                <InstrumentMonitor
+                  key={backendIdentity}
+                  id={monitor.id}
+                  connected={connection === 'connected'}
+                  open={monitor.open}
+                  instant={monitor.instant || instant}
+                  onClose={(animate) => monitor.close(motionIntent(animate))}
+                  onClosed={monitor.finishExit}
+                  onInspect={(animate) => {
+                    motionIntent(animate);
+                    setPage('instruments');
+                  }}
+                  onConfigure={(animate) => showSettings('device', animate)}
+                />
+              )}
+            </div>
           )}
         </div>
       </main>

@@ -4,13 +4,16 @@ async function nativeDesktop(
   page: Page,
   existing = false,
   suggestionMode: 'ready' | 'hold' | 'fail' = 'ready',
+  deviceMode: 'unsupported' | 'empty' | 'configured' = 'unsupported',
 ) {
   const initialize = ({
     existing,
     suggestionMode,
+    deviceMode,
   }: {
     existing: boolean;
     suggestionMode: string;
+    deviceMode: string;
   }) => {
     (window as any).isTauri = true;
     const callbacks: Record<number, (value: unknown) => void> = {};
@@ -48,6 +51,34 @@ async function nativeDesktop(
       updateInstallCalls: 0,
       suggestionFailure: suggestionMode === 'fail',
       holdSuggestions: suggestionMode === 'hold',
+      deviceCapability: deviceMode !== 'unsupported',
+      failDeviceRefresh: false,
+      holdDeviceRefresh: false,
+      devices:
+        deviceMode === 'configured'
+          ? [
+              {
+                deviceId: 'climber',
+                name: 'Climber',
+                source: 'climber-mcp',
+                transport: 'connected',
+                vendorReachability: 'reachable',
+                health: { softwareReady: true, deviceConnected: true, deviceBusy: true },
+                task: {
+                  batchId: 'batch-fixture',
+                  state: 'running',
+                  experiments: [
+                    { experimentId: 'experiment-fixture', analysisPort: 3, state: 'running' },
+                  ],
+                },
+                taskKnown: true,
+                observedAt: 1800000000000,
+                revision: 1,
+                stale: false,
+                error: null,
+              },
+            ]
+          : [],
       suggestions: [
         '多孔碳材料测试前应如何核对样品条件？',
         '如何选择适合当前材料的吸附测试模板？',
@@ -61,6 +92,7 @@ async function nativeDesktop(
     const releaseSuggestions: (() => void)[] = [];
     const releaseUpdate: (() => void)[] = [];
     const releaseKnowledgeReads: (() => void)[] = [];
+    const releaseDeviceReads: (() => void)[] = [];
     let knowledgeOperation: any = null;
     let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
@@ -107,6 +139,10 @@ async function nativeDesktop(
       releaseKnowledgeReads: () => {
         testState.holdKnowledgeReadFor = '';
         for (const release of releaseKnowledgeReads.splice(0)) release();
+      },
+      releaseDeviceReads: () => {
+        testState.holdDeviceRefresh = false;
+        for (const release of releaseDeviceReads.splice(0)) release();
       },
       finishKnowledge: (state = 'completed', completed = 1) => {
         knowledgeDone = completed;
@@ -253,6 +289,14 @@ async function nativeDesktop(
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          if (args.path === '/devices') return structuredClone(testState.devices);
+          if (args.path === '/devices/climber/refresh') {
+            const snapshot = structuredClone(testState.devices[0]);
+            if (testState.holdDeviceRefresh)
+              await new Promise<void>((resolve) => releaseDeviceReads.push(resolve));
+            if (testState.failDeviceRefresh) throw new Error('模拟厂家接口暂不可访问');
+            return snapshot;
+          }
           if (args.path === '/suggestions') {
             testState.suggestionRequests++;
             const questions = [...testState.suggestions];
@@ -405,6 +449,7 @@ async function nativeDesktop(
                 },
                 messages: { text: true, reasoning: true },
                 interaction: { respond: true },
+                devices: { list: testState.deviceCapability },
               },
             };
           if (args.path.startsWith('/session?')) {
@@ -504,7 +549,7 @@ async function nativeDesktop(
       },
     };
   };
-  await page.addInitScript(initialize, { existing, suggestionMode });
+  await page.addInitScript(initialize, { existing, suggestionMode, deviceMode });
 }
 
 async function openKnowledgeSources(page: Page) {
@@ -524,6 +569,346 @@ async function openKnowledgeDirectory(page: Page) {
   await expect(directory).toBeVisible();
   return directory;
 }
+
+test('instrument monitor opens selected on wide screens without moving chat content and floats over narrow chats', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await nativeDesktop(page, true, 'ready', 'configured');
+  await page.goto('/');
+  await page.evaluate(() => {
+    const history = (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'];
+    history.find((event: any) => event.type === 'message.completed').data.message =
+      '会话一的回复\n\n' +
+      Array.from(
+        { length: 40 },
+        (_, index) => `第 ${index + 1} 条测量记录：这是用于检查长对话滚动布局的隔离内容。`,
+      ).join('\n\n');
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const panel = page.getByRole('complementary', { name: '仪器实时状态' });
+  const toggle = page.getByRole('button', { name: '仪器状态', exact: true });
+  const refresh = panel.getByRole('button', { name: '刷新仪器状态', exact: true });
+  await expect(panel).toBeVisible();
+  await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect(refresh).toBeEnabled();
+  await expect(panel.getByText('批次：batch-fixture', { exact: true })).toBeVisible();
+  await expect
+    .poll(() =>
+      panel.evaluate(
+        (element) =>
+          element.getAnimations().filter((animation) => animation.playState === 'running').length,
+      ),
+    )
+    .toBe(0);
+  const content = await page.locator('.conversation-inner').boundingBox();
+  const composerBefore = await page.locator('.composer-region').boundingBox();
+  const scrollBefore = await page.locator('.conversation').evaluate((element) => element.scrollTop);
+  const docked = await panel.boundingBox();
+  const conversation = await page.locator('.conversation').boundingBox();
+  expect(conversation!.x + conversation!.width).toBeGreaterThan(docked!.x + docked!.width + 8);
+  expect(
+    await page
+      .locator('.conversation')
+      .evaluate((element) => element.scrollHeight > element.clientHeight),
+  ).toBe(true);
+  expect(await page.locator('.main-area').evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await page.locator('.view-host').evaluate((element) => element.scrollTop)).toBe(0);
+  await toggle.click();
+  await expect(page.locator('.instrument-monitor')).toHaveCount(0);
+  expect(await page.locator('.conversation-inner').boundingBox()).toEqual(content);
+  expect(await page.locator('.composer-region').boundingBox()).toEqual(composerBefore);
+  expect(await page.locator('.conversation').evaluate((element) => element.scrollTop)).toBe(
+    scrollBefore,
+  );
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await expect(refresh).toBeEnabled();
+  await expect
+    .poll(() =>
+      panel.evaluate(
+        (element) =>
+          element.getAnimations().filter((animation) => animation.playState === 'running').length,
+      ),
+    )
+    .toBe(0);
+  expect(await page.locator('.conversation-inner').boundingBox()).toEqual(content);
+  expect(await page.locator('.composer-region').boundingBox()).toEqual(composerBefore);
+  const toolbar = await page.locator('.content-toolbar').boundingBox();
+  expect(docked!.y).toBeGreaterThanOrEqual(toolbar!.y + toolbar!.height + 8);
+  expect(await panel.evaluate((element) => getComputedStyle(element).boxShadow)).not.toBe('none');
+  expect(
+    await page.locator('.content-toolbar').evaluate((element) =>
+      [...element.querySelectorAll('button')].every((button) => {
+        const bounds = button.getBoundingClientRect();
+        return (
+          document
+            .elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2)
+            ?.closest('button') === button
+        );
+      }),
+    ),
+  ).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath('instrument-monitor-wide.png') });
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await toggle.click();
+  await expect(page.locator('.instrument-monitor')).toHaveCount(0);
+  await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  const before = await page.locator('.chat-thread').boundingBox();
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await expect(refresh).toBeEnabled();
+  await expect
+    .poll(() =>
+      panel.evaluate(
+        (element) =>
+          element.getAnimations().filter((animation) => animation.playState === 'running').length,
+      ),
+    )
+    .toBe(0);
+  const after = await page.locator('.chat-thread').boundingBox();
+  expect(after!.width).toBe(before!.width);
+  const floating = await panel.boundingBox();
+  const composer = await page.locator('.composer-region').boundingBox();
+  const narrowToolbar = await page.locator('.content-toolbar').boundingBox();
+  expect(floating!.y).toBeGreaterThanOrEqual(narrowToolbar!.y + narrowToolbar!.height + 8);
+  expect(await page.locator('.main-area').evaluate((element) => element.scrollTop)).toBe(0);
+  expect(floating!.y + floating!.height).toBeLessThan(composer!.y);
+  await page.getByRole('textbox', { name: '输入消息' }).click();
+  await page.getByRole('textbox', { name: '输入消息' }).fill('边查看仪器状态边继续对话');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByRole('textbox', { name: '输入消息' })).toHaveValue('');
+  await expect(panel).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('instrument-monitor-narrow.png') });
+  await refresh.focus();
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await expect(toggle).toBeFocused();
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: '开启新对话', exact: true }).click();
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await page.getByRole('textbox', { name: '输入消息' }).click();
+  await page.getByRole('textbox', { name: '输入消息' }).fill('在欢迎页也能边看边输入');
+  await expect(page.getByRole('textbox', { name: '输入消息' })).toHaveValue(
+    '在欢迎页也能边看边输入',
+  );
+});
+
+test('instrument monitor slides in and retracts to the right with interruptible pointer motion and immediate accessible navigation', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await nativeDesktop(page, false, 'ready', 'configured');
+  await page.addInitScript(() => {
+    (window as any).__monitorMotion = [];
+    document.addEventListener('transitionrun', (event) => {
+      if (
+        !(event.target as Element).matches('.instrument-monitor') ||
+        event.propertyName !== 'transform'
+      )
+        return;
+      const matrix = new DOMMatrix(getComputedStyle(event.target as Element).transform);
+      const panel = event.target as HTMLElement;
+      (window as any).__monitorMotion.push({
+        x: matrix.m41,
+        y: matrix.m42,
+        closing: panel.dataset.open === 'false',
+        inert: panel.inert,
+      });
+    });
+  });
+  await page.goto('/');
+  const panel = page.getByRole('complementary', { name: '仪器实时状态' });
+  const toggle = page.getByRole('button', { name: '仪器状态', exact: true });
+  const motion = () => page.evaluate(() => (window as any).__monitorMotion);
+  const nextFrames = () =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+  await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+  await expect
+    .poll(motion)
+    .toEqual(expect.arrayContaining([expect.objectContaining({ x: expect.any(Number), y: 0 })]));
+  expect((await motion())[0].x).toBeGreaterThan(0);
+  await page.setViewportSize({ width: 1280, height: 860 });
+  await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  await page.evaluate(() => {
+    (window as any).__monitorMotion = [];
+  });
+  await toggle.click();
+  await expect.poll(motion).toHaveLength(1);
+  expect((await motion())[0].x).toBeGreaterThan(0);
+  expect((await motion())[0].y).toBe(0);
+  await panel.getByRole('button', { name: '收起仪器状态', exact: true }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__monitorMotion.some(
+          (entry: any) => entry.closing && entry.inert && entry.y === 0,
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect(page.locator('.instrument-monitor')).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).__monitorMotion = [];
+  });
+  await toggle.press('Enter');
+  await expect(panel).toBeVisible();
+  await nextFrames();
+  expect(await motion()).toEqual([]);
+  await page.keyboard.press('Escape');
+  await expect(panel).toHaveCount(0);
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await expect
+    .poll(() =>
+      panel.evaluate(
+        (element) =>
+          element.getAnimations().filter((animation) => animation.playState === 'running').length,
+      ),
+    )
+    .toBe(0);
+  await panel.evaluate((element) => {
+    (element as HTMLElement).dataset.presenceFixture = 'retained';
+  });
+  await panel.getByRole('button', { name: '收起仪器状态', exact: true }).click();
+  await toggle.click();
+  await expect(panel).toHaveAttribute('data-presence-fixture', 'retained');
+  await page.waitForTimeout(300);
+  await expect(panel).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.instrument-monitor')).toHaveCount(0);
+  await page.evaluate(() => {
+    (window as any).__monitorMotion = [];
+  });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await toggle.click();
+  await expect(panel).toBeVisible();
+  await nextFrames();
+  expect(await motion()).toEqual([]);
+});
+
+test('instrument monitor reads only while visible and retains stale facts on read failure', async ({
+  page,
+}) => {
+  await page.clock.install();
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await nativeDesktop(page, false, 'ready', 'configured');
+  await page.goto('/');
+  const panel = page.getByRole('complementary', { name: '仪器实时状态' });
+  const refresh = panel.getByRole('button', { name: '刷新仪器状态', exact: true });
+  await expect(refresh).toBeEnabled();
+  const reads = () =>
+    page.evaluate(
+      () =>
+        (window as any).__desktopTest.requests.filter((path: string) => path.startsWith('/devices'))
+          .length,
+    );
+  const initial = await reads();
+  await page.clock.runFor(3100);
+  await expect.poll(reads).toBeGreaterThan(initial);
+  await expect(refresh).toBeEnabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.failDeviceRefresh = true;
+  });
+  await refresh.click();
+  await expect(panel.getByText('最后已知状态', { exact: true })).toBeVisible();
+  await expect(panel.getByText('最后已知任务', { exact: true })).toBeVisible();
+  await expect(panel.getByText('模拟厂家接口暂不可访问', { exact: true })).toBeVisible();
+  await panel.getByRole('button', { name: '收起仪器状态', exact: true }).click();
+  const closed = await reads();
+  await page.clock.runFor(15000);
+  expect(await reads()).toBe(closed);
+  await page.getByRole('button', { name: '仪器状态', exact: true }).click();
+  await expect(refresh).toBeEnabled();
+  await page.getByRole('button', { name: '设置', exact: true }).click();
+  const left = await reads();
+  await page.clock.runFor(15000);
+  expect(await reads()).toBe(left);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter(
+        (path: string) =>
+          path.startsWith('/devices') && path !== '/devices' && path !== '/devices/climber/refresh',
+      ),
+    ),
+  ).toEqual([]);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter((path: string) =>
+        path.endsWith('/prompt_async'),
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test('instrument monitor discards late reads at a backend identity change and represents unknown device facts explicitly', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1600, height: 1000 });
+  await nativeDesktop(page, false, 'ready', 'configured');
+  await page.goto('/');
+  const panel = page.getByRole('complementary', { name: '仪器实时状态' });
+  const refresh = panel.getByRole('button', { name: '刷新仪器状态', exact: true });
+  await expect(refresh).toBeEnabled();
+  await page.evaluate(() => {
+    const device = (window as any).__desktopTest.devices[0];
+    device.health = { softwareReady: null, deviceConnected: null, deviceBusy: null };
+    device.task = null;
+    device.taskKnown = false;
+  });
+  await refresh.click();
+  await expect(panel.getByText('未能确认', { exact: true })).toHaveCount(3);
+  await expect(panel.getByText('尚未取得任务状态', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdDeviceRefresh = true;
+  });
+  await refresh.click();
+  await expect(refresh).toBeDisabled();
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.devices = [];
+    state.generation = '00000000-0000-4000-8000-000000000002';
+    (window as any).__desktopFixture.emit('backend-stream', 'connected');
+  });
+  await expect(panel.getByText('尚未配置仪器', { exact: true })).toBeVisible();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseDeviceReads());
+  await expect(panel.getByRole('article', { name: 'Climber', exact: true })).toHaveCount(0);
+  await expect(panel.getByText('尚未配置仪器', { exact: true })).toBeVisible();
+});
+
+for (const mode of ['unsupported', 'empty'] as const)
+  test(`instrument monitor does not invent a device when capability or configuration is ${mode}`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1600, height: 1000 });
+    await nativeDesktop(page, false, 'ready', mode);
+    await page.goto('/');
+    await expect(page.locator('.app')).toHaveAttribute('data-backend-state', 'connected');
+    if (mode === 'unsupported') {
+      await expect(page.getByRole('button', { name: '仪器状态', exact: true })).toHaveCount(0);
+      expect(
+        await page.evaluate(() =>
+          (window as any).__desktopTest.requests.filter((path: string) =>
+            path.startsWith('/devices'),
+          ),
+        ),
+      ).toEqual([]);
+    } else {
+      const panel = page.getByRole('complementary', { name: '仪器实时状态' });
+      await expect(panel.getByText('尚未配置仪器', { exact: true })).toBeVisible();
+      await expect(panel.locator('.instrument-monitor-device')).toHaveCount(0);
+      await panel.getByRole('button', { name: '配置仪器', exact: true }).click();
+      await expect(page.getByRole('heading', { name: '仪器', exact: true })).toBeVisible();
+    }
+  });
 
 test('welcome recommendations update silently without blocking input or creating a chat', async ({
   page,
