@@ -4,6 +4,7 @@ import { api, errorText, sendErrorText, type Session } from '../bridge';
 import { chatTrace } from '../lib/chat-debug';
 import { chatPresentation } from '../lib/chat-presentation';
 import { useChat } from './useChat';
+import { useApprovalPolicy } from './useApprovalPolicy';
 
 type SelectedView = { id: string; origin: 'history' | 'first-submission' };
 
@@ -31,6 +32,7 @@ export function useChatController({
   const navigationEpoch = useRef(0);
   const requestLock = useRef(false);
   const history = useChat(view.id, connected, view.origin !== 'first-submission');
+  const approval = useApprovalPolicy(connected);
   const state = chatPresentation({
     sessionId: view.id,
     snapshot: history.snapshot,
@@ -105,17 +107,19 @@ export function useChatController({
   }, [onError, onNavigate]);
   const resetHistory = useCallback(() => {
     history.clearHistory();
+    approval.invalidate();
     settleFirstSubmission();
-  }, [history.clearHistory, settleFirstSubmission]);
+  }, [history.clearHistory, settleFirstSubmission, approval.invalidate]);
 
   async function send(text = input) {
-    if (!text.trim() || requestLock.current || !state.canSubmit) return;
+    if (!text.trim() || requestLock.current || !state.canSubmit || !approval.ready) return;
     requestLock.current = true;
     setSending(true);
     onError('');
     onSend();
     const epoch = navigationEpoch.current;
     const trace = chatTrace('send', { initial: !sessionIdRef.current });
+    let dispatched = false;
     try {
       let id = sessionIdRef.current;
       if (!id) {
@@ -130,6 +134,7 @@ export function useChatController({
         }
       }
       trace.mark('submit');
+      dispatched = true;
       await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
       trace.mark('accepted');
       setSending(false);
@@ -147,7 +152,7 @@ export function useChatController({
       trace.mark('error');
       if (navigationEpoch.current === epoch) {
         settleFirstSubmission();
-        onError(sendErrorText(error));
+        onError(dispatched ? sendErrorText(error) : errorText(error));
       }
       await history.refresh().catch(() => {});
     } finally {
@@ -172,14 +177,20 @@ export function useChatController({
       onError(errorText(error));
     }
   }
-  async function respond(response: InputResponse) {
-    if (!state.canRespond) return;
-    const id = sessionIdRef.current;
-    await api(`/session/${id}/respond`, 'POST', { responses: [response] });
-    if (sessionIdRef.current === id) await history.refresh();
-  }
+  const respond = useCallback(
+    async (response: InputResponse) => {
+      if (!state.canRespond)
+        throw { message: '会话状态尚未确认，本次响应未提交。', admission: 'rejected' };
+      const id = sessionIdRef.current;
+      await api(`/session/${id}/respond`, 'POST', { responses: [response] });
+      if (sessionIdRef.current === id) await history.refresh();
+    },
+    [state.canRespond, history.refresh],
+  );
   return {
     ...state,
+    composerConnected: state.composerConnected && approval.ready,
+    approval,
     sessionId: view.id,
     sessionIdRef,
     input,

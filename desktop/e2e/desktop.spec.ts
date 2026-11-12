@@ -26,6 +26,10 @@ async function nativeDesktop(
       requests: [] as string[],
       backendStarts: 0,
       rejectSend: false,
+      approvalChanges: [] as any[],
+      approvalPolicy: { mode: 'always', revision: 0 },
+      responses: [] as any[],
+      responseFailure: '' as '' | 'rejected' | 'unknown',
       dialogs: [] as any[],
       saves: [] as any[],
       timings: [] as any[],
@@ -122,6 +126,70 @@ async function nativeDesktop(
     (window as any).__desktopFixture = {
       histories,
       emit,
+      requestInput: (kind: 'tool-approval' | 'question' = 'tool-approval') => {
+        const startIndex = records.length;
+        const coordinates = { turnId: 'interactive-turn', sequence: 1, stepIndex: 0 };
+        const toolName = kind === 'tool-approval' ? 'bash' : 'ask_question';
+        const input =
+          kind === 'tool-approval'
+            ? { command: 'printf approval-fixture' }
+            : {
+                question: '请选择输出格式',
+                options: [
+                  { label: 'Markdown', description: '保留格式与链接' },
+                  { label: 'TXT', description: '使用纯文本内容' },
+                ],
+              };
+        const add = (type: string, data: unknown) =>
+          records.push({
+            type,
+            data,
+            meta: { id: `interactive-${records.length}`, at: '2026-11-12T08:00:00Z' },
+          });
+        add('turn.started', coordinates);
+        add('message.received', { ...coordinates, message: '请按已确认内容继续处理' });
+        add('message.completed', {
+          ...coordinates,
+          message: '我已准备好下一步，等待你的确认。',
+          finishReason: 'tool-calls',
+        });
+        add('actions.requested', {
+          ...coordinates,
+          actions: [{ callId: 'interactive-call', kind: 'tool-call', toolName, input }],
+        });
+        add('input.requested', {
+          ...coordinates,
+          requests: [
+            {
+              requestId: 'interactive-request',
+              kind,
+              prompt:
+                kind === 'tool-approval'
+                  ? '即将运行一条宿主命令，请确认本次调用。'
+                  : '请选择输出格式',
+              action: { callId: 'interactive-call', kind: 'tool-call', toolName, input },
+              allowFreeform: kind === 'question',
+              options:
+                kind === 'tool-approval'
+                  ? [
+                      { id: 'approve', label: 'Approve', style: 'primary' },
+                      { id: 'cancel', label: 'Cancel' },
+                    ]
+                  : [
+                      { id: 'Markdown', label: 'Markdown', description: '保留格式与链接' },
+                      { id: 'TXT', label: 'TXT', description: '使用纯文本内容' },
+                    ],
+            },
+          ],
+        });
+        emit('corax-events', {
+          sessionId,
+          generation: testState.generation,
+          watchId,
+          startIndex,
+          events: structuredClone(records.slice(startIndex)),
+        });
+      },
       releaseHistory: () => {
         testState.holdHistoryFor = '';
         for (const release of releaseHistory.values()) release();
@@ -298,6 +366,78 @@ async function nativeDesktop(
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          if (args.path === '/approval') {
+            if (args.method === 'GET')
+              return { generation: testState.generation, ...testState.approvalPolicy };
+            testState.approvalChanges.push(args.body);
+            if (args.body.generation !== testState.generation)
+              throw new Error('审批策略的后端身份已经变化');
+            const previous = testState.approvalPolicy;
+            if (previous.revision !== args.body.revision) throw new Error('审批策略已经变化');
+            const value = { mode: args.body.mode, revision: previous.revision + 1 };
+            testState.approvalPolicy = value;
+            return { generation: testState.generation, ...value };
+          }
+          if (args.path.endsWith('/respond')) {
+            testState.responses.push(args.body.responses);
+            if (testState.responseFailure)
+              throw { message: '隔离审批响应失败', admission: testState.responseFailure };
+            const startIndex = records.length;
+            const request = [...records]
+              .reverse()
+              .find((event) => event.type === 'input.requested')!.data.requests[0];
+            const response = args.body.responses[0];
+            const approved = response.optionId === 'approve';
+            const coordinates = { turnId: 'interactive-turn', sequence: 1, stepIndex: 0 };
+            const add = (type: string, data: unknown) =>
+              records.push({
+                type,
+                data,
+                meta: { id: `interactive-${records.length}`, at: '2026-11-12T08:00:01Z' },
+              });
+            add('input.resolved', {
+              ...coordinates,
+              resolutions: [
+                {
+                  kind: request.kind,
+                  requestId: request.requestId,
+                  outcome:
+                    request.kind === 'question' ? 'answered' : approved ? 'approved' : 'denied',
+                  response,
+                },
+              ],
+            });
+            add('action.result', {
+              ...coordinates,
+              status: request.kind === 'question' || approved ? 'completed' : 'rejected',
+              result: {
+                kind: 'tool-result',
+                callId: 'interactive-call',
+                toolName: request.action.toolName,
+                output:
+                  request.kind === 'question'
+                    ? { answer: response.text ?? response.optionId, status: 'answered' }
+                    : approved
+                      ? 'approval-fixture'
+                      : 'Tool execution was denied.',
+              },
+            });
+            add('message.completed', {
+              ...coordinates,
+              stepIndex: 1,
+              message: '已按你的选择继续。',
+              finishReason: 'stop',
+            });
+            add('turn.completed', coordinates);
+            emit('corax-events', {
+              sessionId,
+              generation: testState.generation,
+              watchId,
+              startIndex,
+              events: structuredClone(records.slice(startIndex)),
+            });
+            return { ok: true };
+          }
           if (args.path === '/devices') return structuredClone(testState.devices);
           if (args.path === '/devices/climber/refresh') {
             const snapshot = structuredClone(testState.devices[0]);
@@ -597,6 +737,210 @@ async function openKnowledgeDirectory(page: Page) {
   await expect(directory).toBeVisible();
   return directory;
 }
+
+test('pending approvals sit above the full-width composer without duplicate history cards', async ({
+  page,
+}, testInfo) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  const original = await page.locator('.conversation-inner').boundingBox();
+  await page.evaluate(() => (window as any).__desktopFixture.requestInput());
+  // Sections without an accessible heading still carry their explicit label.
+  const pending = page.locator('.chat-input-dock .chat-input-request');
+  await expect(pending.getByRole('button', { name: '批准本次', exact: true })).toBeVisible();
+  expect((await pending.boundingBox())!.height).toBeLessThan(190);
+  expect((await page.locator('.conversation-inner').boundingBox())!.width).toBe(original!.width);
+  const lastMessage = page.locator('.corax-message').last();
+  const bounds = await lastMessage.boundingBox();
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual((await pending.boundingBox())!.y + 2);
+  const composer = await page.locator('.composer').boundingBox();
+  expect(composer!.height).toBeGreaterThanOrEqual(96);
+  expect(composer!.height).toBeLessThanOrEqual(130);
+  await page.screenshot({ path: testInfo.outputPath('approval-pending.png') });
+  await pending.getByRole('button', { name: '批准本次', exact: true }).click();
+  await expect(page.locator('.chat-input-dock')).toHaveCount(0);
+  await expect(page.locator('.conversation .chat-input-request, .chat-input-record')).toHaveCount(
+    0,
+  );
+  await expect(page.locator('.chat-tool[data-call-id="interactive-call"]')).toHaveCount(1);
+  expect(await page.evaluate(() => (window as any).__desktopTest.responses)).toEqual([
+    [{ requestId: 'interactive-request', optionId: 'approve' }],
+  ]);
+  await page.screenshot({ path: testInfo.outputPath('approval-record.png') });
+});
+
+test('composer policy is global, switches without history reads and never submits approval responses', async ({
+  page,
+}, testInfo) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const trigger = page.getByRole('button', { name: '审批策略', exact: true });
+  await expect(trigger).toContainText('每次批准');
+  const historyReads = await page.evaluate(
+    () =>
+      (window as any).__desktopTest.requests.filter((path: string) =>
+        path.split('?')[0].endsWith('/events'),
+      ).length,
+  );
+  await trigger.click();
+  await expect(page.getByRole('menu', { name: '选择审批策略' })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath('approval-policy-popup.png') });
+  await page.getByRole('menuitemradio', { name: /无需批准/ }).click();
+  await expect(trigger).toContainText('无需批准');
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__desktopTest.requests.filter((path: string) =>
+          path.split('?')[0].endsWith('/events'),
+        ).length,
+    ),
+  ).toBe(historyReads);
+  const policyReads = await page.evaluate(
+    () =>
+      (window as any).__desktopTest.requests.filter((path: string) => path === '/approval').length,
+  );
+  expect(await page.evaluate(() => (window as any).__desktopTest.approvalChanges.at(-1).mode)).toBe(
+    'never',
+  );
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(trigger).toContainText('无需批准');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(trigger).toContainText('无需批准');
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__desktopTest.requests.filter((path: string) => path === '/approval')
+          .length,
+    ),
+  ).toBe(policyReads);
+  await trigger.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitemradio', { name: /每次批准/ })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  await expect(trigger).toContainText('每会话首次批准');
+  await page.evaluate(() => (window as any).__desktopFixture.requestInput());
+  await expect(page.locator('.chat-input-dock')).toBeVisible();
+  await trigger.click();
+  await expect(page.getByRole('menuitemradio', { name: /无需批准/ })).toHaveAttribute(
+    'aria-disabled',
+    'false',
+  );
+  await page.getByRole('menuitemradio', { name: /无需批准/ }).dispatchEvent('click');
+  await expect(trigger).toContainText('无需批准');
+  expect(await page.evaluate(() => (window as any).__desktopTest.approvalChanges.length)).toBe(3);
+  await page.keyboard.press('Escape');
+  await expect(page.locator('.chat-input-dock .chat-input-request')).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.responses)).toEqual([]);
+});
+
+test('native ask_question uses compact single-choice rows and the composer submit button without hiding messages', async ({
+  page,
+}, testInfo) => {
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await page.evaluate(() => (window as any).__desktopFixture.requestInput('question'));
+  const dock = page.locator('.chat-input-dock');
+  await expect(dock.getByRole('radio', { name: /Markdown/ })).toBeVisible();
+  const submit = page.getByRole('button', { name: '提交回答', exact: true });
+  await expect(submit).toBeDisabled();
+  await dock.getByRole('radio', { name: /TXT/ }).check();
+  await expect(submit).toBeEnabled();
+  expect(
+    await dock
+      .locator('.chat-input-content')
+      .evaluate((element) => element.scrollHeight <= element.clientHeight + 1),
+  ).toBe(true);
+  const composer = await page.locator('.composer').boundingBox();
+  const card = await dock.boundingBox();
+  expect(Math.abs(composer!.width - card!.width)).toBeLessThan(2);
+  expect(Math.abs(composer!.x - card!.x)).toBeLessThan(2);
+  const message = await page.locator('.corax-message').last().boundingBox();
+  expect(message!.y + message!.height).toBeLessThanOrEqual(card!.y + 2);
+  await page.screenshot({ path: testInfo.outputPath('question-composer.png') });
+  await submit.click();
+  await expect(dock).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__desktopTest.responses)).toEqual([
+    [{ requestId: 'interactive-request', optionId: 'TXT' }],
+  ]);
+  await expect(page.locator('.conversation .chat-input-request, .chat-input-record')).toHaveCount(
+    0,
+  );
+  await expect(page.locator('.chat-tool[data-call-id="interactive-call"]')).toHaveCount(1);
+  await page.screenshot({ path: testInfo.outputPath('question-history-record.png') });
+});
+
+test('an ambiguous approval response locks the card and never automatically resubmits', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.responseFailure = 'unknown';
+    (window as any).__desktopFixture.requestInput();
+  });
+  const button = page
+    .locator('.chat-input-dock')
+    .getByRole('button', { name: '批准本次', exact: true });
+  await button.click();
+  await expect(button).toBeDisabled();
+  await expect(page.locator('.chat-input-dock')).toContainText('不会自动重复提交');
+  expect(await page.evaluate(() => (window as any).__desktopTest.responses.length)).toBe(1);
+});
+
+test('a new conversation applies its selected policy before message admission', async ({
+  page,
+}) => {
+  await nativeDesktop(page);
+  await page.goto('/');
+  const trigger = page.getByRole('button', { name: '审批策略', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitemradio', { name: /无需批准/ }).click();
+  await expect(trigger).toContainText('无需批准');
+  await page
+    .getByRole('textbox', { name: '输入消息', exact: true })
+    .fill('用选中的策略开始本次会话');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+  const state = await page.evaluate(() => (window as any).__desktopTest);
+  expect(state.approvalChanges[0].mode).toBe('never');
+  expect(state.requests.indexOf('/approval')).toBeLessThan(
+    state.requests.findIndex((path: string) => path.endsWith('/prompt_async')),
+  );
+});
+
+test('native custom answers use the same submit action and survive an explicit rejection', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.responseFailure = 'rejected';
+    (window as any).__desktopFixture.requestInput('question');
+  });
+  const dock = page.locator('.chat-input-dock');
+  const answer = dock.getByRole('textbox', { name: '回答内容' });
+  await answer.fill('保留完整自定义回答');
+  await answer.press('Control+Enter');
+  await expect(dock).toContainText('隔离审批响应失败');
+  await expect(answer).toHaveValue('保留完整自定义回答');
+  await expect(page.getByRole('button', { name: '提交回答', exact: true })).toBeEnabled();
+  await page.evaluate(() => {
+    (window as any).__desktopTest.responseFailure = '';
+  });
+  await page.getByRole('button', { name: '提交回答', exact: true }).click();
+  await expect(dock).toHaveCount(0);
+  expect(await page.evaluate(() => (window as any).__desktopTest.responses.at(-1))).toEqual([
+    { requestId: 'interactive-request', text: '保留完整自定义回答' },
+  ]);
+});
 
 test('instrument monitor opens selected on wide screens without moving chat content and floats over narrow chats', async ({
   page,

@@ -10,6 +10,7 @@ import {
   referenceInput,
 } from '../lib/wiki/reference';
 import { getRuntimeConfig } from '../lib/config';
+import { requestApproval } from '../lib/approval';
 
 const [catalog, search, read, source, resolve] = llmWikiInput.options;
 const collection = z.enum(['knowledge', 'reference']).default('knowledge');
@@ -35,6 +36,16 @@ export default defineTool({
   ]),
   label: {
     start: (input) => (input.action === 'ingest' ? '整理知识库' : '查阅资料'),
+  },
+  approval: {
+    request: (context) =>
+      context.toolInput?.action === 'ingest' || context.toolInput?.action === 'resolve'
+        ? requestApproval(context)
+        : 'not-applicable',
+    prompt: ({ input }) =>
+      input.action === 'ingest'
+        ? '即将调用模型整理配置资料并发布知识内容。请核对本次整理范围。'
+        : '即将按提供的说明关闭知识库待确认项。请核对条目和结论。',
   },
   async execute(input, context) {
     if (input.action === 'collections')

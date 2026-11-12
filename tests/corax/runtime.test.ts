@@ -3,12 +3,20 @@ import { mkdtemp, mkdir, cp, rm, symlink, realpath, writeFile, lstat } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
-import { Client, ClientError, conversationReducer, type ClientSession } from '@coraxjs/core/client';
+import {
+  Client,
+  ClientError,
+  conversationReducer,
+  parseInputResponses,
+  type ClientSession,
+  type MessageResponse,
+  type InputRequest,
+} from '@coraxjs/core/client';
 
 // Prewarmed sessions can still be initializing after create() returns. Only
 // this explicit no-admission response may be retried; ambiguous sends propagate.
 async function sendWhenReady(session: ClientSession, message: string) {
-  const deadline = Date.now() + 10000;
+  const deadline = Date.now() + 20000;
   for (;;) {
     try {
       return await session.send(message);
@@ -23,6 +31,28 @@ async function sendWhenReady(session: ClientSession, message: string) {
       await Bun.sleep(100);
     }
   }
+}
+
+async function completeApproved(
+  session: ClientSession,
+  response: MessageResponse,
+  inspect?: (request: InputRequest) => Promise<void> | void,
+) {
+  for (let round = 0; round < 20; round++) {
+    const result = await response.result();
+    const approvals = result.inputRequests.filter((request) => request.kind === 'tool-approval');
+    if (!approvals.length) return result;
+    for (const request of approvals) {
+      expect(request.options?.some((option) => option.id === 'approve')).toBe(true);
+      await inspect?.(request);
+    }
+    response = await session.respond(
+      parseInputResponses(
+        approvals.map((request) => ({ requestId: request.requestId, optionId: 'approve' })),
+      ),
+    );
+  }
+  throw new Error('Isolated approval fixture exceeded its expected calls');
 }
 
 for (const mode of [
@@ -457,9 +487,13 @@ for (const mode of [
       await client.health();
       const information = await client.info();
       expect(information.sandbox.provider).toBe('host');
-      for (const name of ['bash', 'read_file', 'write_file', 'web_fetch'])
+      for (const name of ['read_file', 'web_fetch'])
         expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
           'framework',
+        );
+      for (const name of ['bash', 'write_file'])
+        expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
+          'application',
         );
       expect(information.skills.static.map((skill) => skill.name)).toContain('device-automation');
       expect(information.skills.static.map((skill) => skill.name)).toContain('knowledge-base');
@@ -504,7 +538,27 @@ for (const mode of [
         session,
         `本地模拟验证：查询 Wiki，检查 SAM 配置，并登记、启动 LOCAL-BATCH 测试批次。请记住我的长期偏好：${memoryFact}`,
       );
-      const result = await response.result();
+      const approved: string[] = [];
+      const result = await completeApproved(session, response, async (request) => {
+        approved.push(request.action.toolName);
+        if (request.action.toolName === 'bash') expect(usedHost).toBe(false);
+        if (
+          request.action.toolName === 'write_file' &&
+          approved.filter((name) => name === 'write_file').length === 1
+        )
+          expect(await Bun.file(join(temporary, 'workspace/host-fixture.txt')).exists()).toBe(
+            false,
+          );
+        if (request.action.toolName === 'climber_register_batch') expect(writes).toHaveLength(0);
+        if (request.action.toolName === 'climber_start_batch') expect(writes).toHaveLength(1);
+      });
+      expect(approved).toEqual([
+        'bash',
+        'write_file',
+        'write_file',
+        'climber_register_batch',
+        'climber_start_batch',
+      ]);
       expect(result.message).toContain('Wiki 已连接');
       expect(usedWiki).toBe(true);
       expect(usedHost).toBe(true);
@@ -601,12 +655,19 @@ for (const mode of [
         );
       }
       if (mode === 'start' || mode === 'development') {
-        await stop();
         nextCall = calls.length;
         calls.push({
           name: 'bash',
           arguments: { command: 'cat host-fixture.txt; printf RESUMED-HOST' },
         });
+        const pendingTurn = await sendWhenReady(session, '准备只读核对，但在审批后才执行。');
+        const pendingResult = await pendingTurn.result();
+        const pendingApproval = pendingResult.inputRequests.find(
+          (request) => request.kind === 'tool-approval',
+        );
+        expect(pendingApproval?.action.toolName).toBe('bash');
+        expect(usedResumedHost).toBe(false);
+        await stop();
         const restartedToken = crypto.randomUUID();
         env.AUTO_AGENT_TOKEN = restartedToken;
         child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
@@ -618,11 +679,24 @@ for (const mode of [
         });
         activeClient = resumed;
         await resumed.health();
-        const turn = await sendWhenReady(
-          resumed.sessions.attach(session.state.sessionId),
-          '重启后只读核对会话，不再登记或启动。',
+        const resumedSession = resumed.sessions.attach(session.state.sessionId, {
+          streamIndex: session.state.streamIndex,
+        });
+        const pendingSnapshot = await resumedSession.snapshot();
+        expect(
+          pendingSnapshot.events.some(
+            (event) =>
+              event.type === 'input.requested' &&
+              event.data.requests.some(
+                (request) => request.requestId === pendingApproval!.requestId,
+              ),
+          ),
+        ).toBe(true);
+        expect(usedResumedHost).toBe(false);
+        const turn = await resumedSession.respond(
+          parseInputResponses([{ requestId: pendingApproval!.requestId, optionId: 'approve' }]),
         );
-        expect((await turn.result()).message).toContain('Wiki 已连接');
+        expect((await completeApproved(resumedSession, turn)).message).toContain('Wiki 已连接');
         expect(usedResumedHost).toBe(true);
         expect(writes).toHaveLength(2);
         checkingMemory = true;
@@ -633,6 +707,149 @@ for (const mode of [
         await afterRestart.response.result();
         expect(recalledMemory).toBe(true);
         checkingMemory = false;
+      }
+      nextCall = calls.length;
+      calls.push({
+        name: 'write_file',
+        arguments: { filePath: '/workspace/denied-fixture.txt', content: 'MUST-NOT-BE-WRITTEN' },
+      });
+      const denied = await activeClient.sessions.create({ message: '只用于隔离审批拒绝测试。' });
+      const pendingDenied = await denied.response.result();
+      const requestToDeny = pendingDenied.inputRequests.find(
+        (request) => request.kind === 'tool-approval',
+      );
+      expect(requestToDeny?.action.toolName).toBe('write_file');
+      const changePending = await activeClient.fetch('/desktop/approval', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'always',
+          revision: 0,
+        }),
+      });
+      expect(changePending.status).toBe(200);
+      expect(await Bun.file(join(temporary, 'workspace/denied-fixture.txt')).exists()).toBe(false);
+      await (
+        await denied.session.respond(
+          parseInputResponses([{ requestId: requestToDeny!.requestId, optionId: 'cancel' }]),
+        )
+      ).result();
+      expect(await Bun.file(join(temporary, 'workspace/denied-fixture.txt')).exists()).toBe(false);
+      expect(
+        (await denied.session.snapshot()).events.some(
+          (event) => event.type === 'action.result' && event.data.status === 'rejected',
+        ),
+      ).toBe(true);
+      expect(writes).toHaveLength(2);
+
+      const policySession = await activeClient.sessions.create();
+      const policyRead = await activeClient.fetch('/desktop/approval');
+      expect(policyRead.status).toBe(200);
+      expect((await fetch(policyRead.url)).status).toBe(401);
+      const previousPolicy = await policyRead.json();
+      const policyResponse = await activeClient.fetch('/desktop/approval', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'never', revision: previousPolicy.revision }),
+      });
+      expect(policyResponse.status).toBe(200);
+      const appliedPolicy = await policyResponse.json();
+      expect(appliedPolicy).toMatchObject({ mode: 'never', revision: previousPolicy.revision + 1 });
+      nextCall = calls.length;
+      calls.push({
+        name: 'write_file',
+        arguments: { filePath: '/workspace/policy-fixture.txt', content: 'NATIVE-NEVER-POLICY' },
+      });
+      const direct = await sendWhenReady(policySession.session, '用当前原生策略生成隔离测试文件。');
+      const directResult = await direct.result();
+      expect(
+        directResult.inputRequests.filter((request) => request.kind === 'tool-approval'),
+      ).toHaveLength(0);
+      expect(await Bun.file(join(temporary, 'workspace/policy-fixture.txt')).text()).toBe(
+        'NATIVE-NEVER-POLICY',
+      );
+      nextCall = calls.length;
+      calls.push({
+        name: 'write_file',
+        arguments: {
+          filePath: '/workspace/global-policy-fixture.txt',
+          content: 'GLOBAL-NATIVE-POLICY',
+        },
+      });
+      const anotherPolicySession = await activeClient.sessions.create({
+        message: '另一个会话也使用全局审批策略。',
+      });
+      expect(
+        (await anotherPolicySession.response.result()).inputRequests.filter(
+          (request) => request.kind === 'tool-approval',
+        ),
+      ).toHaveLength(0);
+      expect(await Bun.file(join(temporary, 'workspace/global-policy-fixture.txt')).text()).toBe(
+        'GLOBAL-NATIVE-POLICY',
+      );
+      const stalePolicy = await activeClient.fetch('/desktop/approval', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'always', revision: previousPolicy.revision }),
+      });
+      expect(stalePolicy.status).toBe(409);
+
+      const oncePolicy = await activeClient.fetch('/desktop/approval', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ mode: 'once', revision: appliedPolicy.revision }),
+      });
+      expect(oncePolicy.status).toBe(200);
+      nextCall = calls.length;
+      calls.push(
+        { name: 'bash', arguments: { command: 'printf FIRST-APPROVAL' } },
+        { name: 'bash', arguments: { command: 'printf SECOND-SAME-TOOL' } },
+      );
+      const onceTurn = await sendWhenReady(
+        policySession.session,
+        '验证同会话同名工具的首次批准策略。',
+      );
+      let approvedOnce = 0;
+      await completeApproved(policySession.session, onceTurn, () => {
+        approvedOnce++;
+      });
+      expect(approvedOnce).toBe(1);
+
+      for (const freeform of [false, true]) {
+        nextCall = calls.length;
+        calls.push({
+          name: 'ask_question',
+          arguments: {
+            question: '隔离选择测试：选择输出格式',
+            options: [
+              { label: 'Markdown', description: '文本格式' },
+              { label: 'TXT', description: '纯文本' },
+            ],
+          },
+        });
+        const asking = await activeClient.sessions.create({
+          message: '通过原生工具询问输出格式。',
+        });
+        const waiting = await asking.response.result();
+        const question = waiting.inputRequests.find((request) => request.kind === 'question');
+        expect(question?.prompt).toContain('选择输出格式');
+        expect(question?.allowFreeform).toBe(true);
+        expect(question?.options?.map((option) => option.label)).toEqual(['Markdown', 'TXT']);
+        const answer = freeform
+          ? { requestId: question!.requestId, text: '自行填写的格式' }
+          : { requestId: question!.requestId, optionId: question!.options![0]!.id };
+        await (await asking.session.respond(parseInputResponses([answer]))).result();
+        const answered = await asking.session.snapshot();
+        expect(
+          answered.events.some(
+            (event) =>
+              event.type === 'input.resolved' &&
+              event.data.resolutions.some(
+                (resolution) =>
+                  resolution.requestId === question!.requestId && resolution.outcome === 'answered',
+              ),
+          ),
+        ).toBe(true);
       }
       nextCall = calls.length;
       calls.push({ name: 'memory__remove_memory', arguments: { index: 0 } });

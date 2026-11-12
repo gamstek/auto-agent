@@ -470,6 +470,7 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "GET" && path == "/devices" { return true; }
     if method == "POST" && path == "/devices/climber/refresh" { return true; }
     if method == "POST" && path == "/suggestions" { return true; }
+    if ["GET", "POST"].contains(&method) && path == "/approval" { return true; }
     if method == "GET" && ["/knowledge", "/knowledge/operation"].contains(&path) { return true; }
     if method == "GET" && route == "/knowledge/pages" {
         return path == route || path.strip_prefix("/knowledge/pages?offset=").is_some_and(|query| {
@@ -695,6 +696,21 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     // Advisory model generation reserves in-flight work, but must never hold
     // the chat dispatch lock or delay ordinary message admission.
     if path == "/suggestions" { return suggestions_request(&state, &backend).await.map_err(Value::from); }
+    if path == "/approval" {
+        if method == "GET" {
+            let mut value = request(&state, &backend, "GET", "/desktop/approval", None).await?;
+            value["generation"] = json!(backend.generation);
+            return Ok(value);
+        }
+        let payload = body.unwrap_or(json!({}));
+        if payload["generation"].as_str() != Some(&backend.generation) || payload.as_object().is_none_or(|object| object.keys().any(|key| !["generation", "mode", "revision"].contains(&key.as_str()))) { return Err("审批策略的后端身份已经变化，请重新读取。".into()); }
+        // Global policy updates do not read history or wait for chat admission.
+        // Node applies the revisioned choice atomically; this does not answer pending inputs.
+        let value = request(&state, &backend, "POST", "/desktop/approval", Some(json!({"mode":payload["mode"],"revision":payload["revision"]}))).await?;
+        let mut value = value;
+        value["generation"] = json!(backend.generation);
+        return Ok(value);
+    }
     let _serialized = if read_only { None } else { Some(backend.dispatch.lock().await) };
     timing.mark("dispatch-lock", json!({"readOnly":read_only}));
     if path.starts_with("/knowledge") { return knowledge_request(&state, &backend, &method, &path, body).await; }
@@ -1000,6 +1016,10 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(!admitted(&connection, "session", &[json!({"type":"message.received"})], 10));
         drop(guard);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 0);
+    }
+    #[test] fn approval_strategy_has_one_global_endpoint_not_session_routes() {
+        for method in ["GET", "POST"] { assert!(allowed_request(method, "/approval")); }
+        for (method, path) in [("DELETE", "/approval"), ("GET", "/approval?sessionId=other"), ("POST", "/approval/never"), ("GET", "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/approval")] { assert!(!allowed_request(method, path)); }
     }
     #[test] fn tail_previews_have_a_separate_bounded_read_contract() {
         let path = "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events";

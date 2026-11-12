@@ -85,6 +85,16 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 隔离假模型的事件密度不能代表实际历史：真实诊断中，13 轮会话有 26,243 个事件，末尾 2,048 个仍没有 turn.started；旧的 128/512/2048 顺序寻找起点会使预览失效并退回全量读取。去掉诊断 IPC 拦截、清空进程内展示缓存后，修正前端的四个会话首屏分别约 0.53/3.67/0.38/0.78 s；最重会话的完整状态同步仍约 13.9 s。单独尾部读取也存在数秒延迟，因此不能把 UI 优化宣传成已经消除 Corax 存储读取成本。这些只记录匿名标签、耗时与规模的结果不是性能保证，不保存会话正文、标题、身份或凭据。
 
+### 工具审批与原生提问
+
+`tools/bash.ts`、`tools/write_file.ts` 只组合官方导出的工具定义与原生审批 callback，schema/execute 保持原引用。Climber 动态工具通过 `defineDurableCallback` 绑定操作身份，只读 SAM 与设备查询不要求批准，SAM 写入及设备登记/启动调用统一审批策略；Wiki 的 ingest/resolve 同样接入。`tools/ask_question.ts` 直接导出原生 `askQuestion()`，不增加多选参数或自定义答案协议。
+
+`lib/approval.ts` 保存一个进程内全局 `mode/revision`，使用 Symbol carrier 在编译/注册模块间共享选择，调用原生 always/once/never helper；没有会话设置表或自建授权记录。原生 once 的已批准工具集合仍由 Corax 拥有。`channels/approval.ts` 的固定认证 GET/POST 只读写这个全局值，不附带 sessionId、不遍历历史、不执行工具或响应待处理请求。Rust 在生命周期锁外转发并绑定 backend generation，更新预留 in-flight 但不持有聊天 dispatch 锁，revision 拒绝过期覆盖；策略更新不解除任何 pending 写入记录。完整后端重启后默认 always，不向模型开放策略修改工具。
+
+`useApprovalPolicy` 独立于当前会话，连接/配置身份改变时重新读取，普通切会话不请求策略；切换不乐观显示更宽权限，收到后端确认后更新，结果不明只允许重新读取而非自动重发。菜单的 never 指原生免询问，不代表科学条件已确认。已有输入请求仍由原生状态驱动，修改策略本身不会提交 approve/cancel 响应；后续原生评估和 recheck 按当前原生策略执行。
+
+`ChatInputDock` 位于 Composer 上方，ResizeObserver 的高度反馈只增加消息容器底部留白，防止覆盖最后一条内容。`ChatInputRequest` 只处理待交互请求，单选/自由回答 form 与 Composer 的提交按钮通过原生 form ID 关联。普通发送、回答、停止共用 32px 圆形按钮位置，不混淆批准动作。审批有独立批准/拒绝按钮与可展开的实际参数。历史直接使用已有 ChatTool，不增设已批准/已回答记录块；未知响应不自动重放。
+
 ## 构建、安装与验证脚本
 
 - `desktop/scripts/prepare-runtime.ts`：构建与部署 `desktop/src-tauri/runtime` 资源，不执行用户目录清理。

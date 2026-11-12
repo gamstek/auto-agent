@@ -1,6 +1,14 @@
-import { useCallback, useId, useLayoutEffect, useRef, useState, type RefObject } from 'react';
-import { ChevronsDown, LoaderCircle, Square } from 'lucide-react';
-import { SendIcon } from '../SendIcon/SendIcon';
+import {
+  useCallback,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject,
+  type ReactNode,
+} from 'react';
+import { ArrowUp, ChevronsDown, LoaderCircle, Square } from 'lucide-react';
+import type { ChatInputAction } from '../../lib/chat-inputs';
 import './Composer.css';
 
 export function Composer({
@@ -16,6 +24,8 @@ export function Composer({
   canCancel = true,
   showBottom,
   onBottom,
+  renderRequestCard,
+  approvalControl,
 }: {
   input: string;
   onInput: (text: string) => void;
@@ -29,11 +39,14 @@ export function Composer({
   canCancel?: boolean;
   showBottom: boolean;
   onBottom: () => void;
+  renderRequestCard?: (onSubmitState: (action: ChatInputAction | null) => void) => ReactNode;
+  approvalControl?: ReactNode;
 }) {
   const textareaId = useId();
+  const [requestAction, setRequestAction] = useState<ChatInputAction | null>(null);
+  const questionAction = waitingForInput && renderRequestCard ? requestAction : null;
   const track = useRef<HTMLDivElement>(null);
   const drag = useRef<{ y: number; scroll: number } | null>(null);
-  const [expanded, setExpanded] = useState(false);
   const [scrollbar, setScrollbar] = useState({
     visible: false,
     height: 0,
@@ -67,18 +80,6 @@ export function Composer({
     const previousScroll = area.scrollTop;
     area.style.height = 'auto';
     area.style.height = `${Math.max(48, Math.min(area.scrollHeight, 144))}px`;
-    const form = area.closest('.composer');
-    const context = document.createElement('canvas').getContext('2d');
-    if (form && context) {
-      const style = getComputedStyle(area);
-      context.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-      const reserve =
-        parseFloat(getComputedStyle(form).getPropertyValue('--composer-inline-reserve')) || 105;
-      setExpanded(
-        area.value.includes('\n') ||
-          context.measureText(area.value).width > Math.max(1, form.clientWidth - reserve),
-      );
-    }
     area.scrollTop = previousScroll;
     syncScroll();
   }, [inputRef, syncScroll]);
@@ -106,7 +107,8 @@ export function Composer({
     }
   };
   return (
-    <div className="composer-region">
+    <div className="composer-region" data-request-open={!!renderRequestCard}>
+      {renderRequestCard?.(setRequestAction)}
       {showBottom && (
         <button className="back-to-bottom" onClick={onBottom}>
           <ChevronsDown size={16} />
@@ -114,7 +116,7 @@ export function Composer({
         </button>
       )}
       <form
-        className={`composer ${expanded ? 'is-expanded' : ''}`}
+        className="composer"
         onSubmit={(event) => {
           event.preventDefault();
           onSend();
@@ -128,7 +130,7 @@ export function Composer({
             value={input}
             disabled={waitingForInput}
             placeholder={
-              waitingForInput ? '请先回答上方问题或确认调用' : '询问量仔，或描述你的测样需求…'
+              waitingForInput ? '请在上方卡片中回答或批准调用' : '询问量仔，或描述你的测样需求…'
             }
             aria-label="输入消息"
             onChange={(event) => onInput(event.target.value)}
@@ -214,27 +216,49 @@ export function Composer({
             </div>
           )}
         </div>
-        <div className="composer-actions">
-          {busy ? (
-            <button
-              type="button"
-              className="send-button stop"
-              title="取消本次回复，不代表仪器停止"
-              aria-label="取消本次回复"
-              disabled={!canCancel}
-              onClick={onCancel}
-            >
-              <Square size={16} fill="currentColor" />
-            </button>
-          ) : (
-            <button
-              className="send-button"
-              aria-label="发送消息"
-              disabled={!input.trim() || sending || !connected || waitingForInput}
-            >
-              {sending ? <LoaderCircle className="spin" size={19} /> : <SendIcon />}
-            </button>
-          )}
+        <div className="composer-footer">
+          <div className="composer-policy">{approvalControl}</div>
+          <div className="composer-actions">
+            {questionAction ? (
+              <button
+                type="submit"
+                form={questionAction.formId}
+                className="send-button"
+                aria-label="提交回答"
+                title="提交回答"
+                disabled={questionAction.disabled}
+              >
+                {questionAction.submitting ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <ArrowUp size={19} strokeWidth={2.3} />
+                )}
+              </button>
+            ) : busy ? (
+              <button
+                type="button"
+                className="send-button stop"
+                title="取消本次回复，不代表仪器停止"
+                aria-label="取消本次回复"
+                disabled={!canCancel}
+                onClick={onCancel}
+              >
+                <Square size={12} fill="currentColor" strokeWidth={1.5} />
+              </button>
+            ) : (
+              <button
+                className="send-button"
+                aria-label="发送消息"
+                disabled={!input.trim() || sending || !connected || waitingForInput}
+              >
+                {sending ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <ArrowUp size={19} strokeWidth={2.3} />
+                )}
+              </button>
+            )}
+          </div>
         </div>
       </form>
     </div>

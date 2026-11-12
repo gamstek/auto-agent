@@ -1,24 +1,177 @@
 .chat-input-request {
-  padding: 14px 16px;
-  border: 1px solid var(--accent-border);
-  border-radius: 12px;
-  margin: 12px 0;
-  background: var(--accent-soft);
+  width: 100%;
+  min-width: 0;
+  margin: 14px 0;
+  border: 1px solid var(--control-border);
+  border-radius: var(--panel-radius);
+  background: white;
+  overflow: hidden;
 }
-.chat-input-request p {
+.chat-input-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px;
+  background: var(--control-bg);
+  border-bottom: 1px solid var(--line);
+}
+.chat-input-icon {
+  display: flex;
+  color: var(--accent-selected-text);
+}
+.chat-input-heading strong {
+  font-size: 13px;
+  font-weight: 600;
+}
+.chat-input-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.chat-input-content {
+  display: grid;
+  gap: 9px;
+  padding: 10px 12px;
+}
+.chat-input-prompt {
+  font-size: 12px;
+  line-height: 1.7;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.chat-input-options {
+.chat-input-request[data-kind='tool-approval'] .ui-button {
+  min-height: 28px;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+.chat-input-request[data-kind='tool-approval'] .chat-input-heading {
+  background: white;
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.chat-input-request[data-kind='tool-approval'] .chat-input-heading strong {
+  font-weight: 500;
+  font-size: 12px;
+}
+.chat-approval-details {
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.chat-approval-details summary {
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.chat-approval-details pre {
+  margin: 10px 0 0;
+  padding: 12px;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  overscroll-behavior: contain;
+  background: var(--control-bg);
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 1.7;
+}
+.chat-input-options,
+.chat-input-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  justify-content: flex-end;
 }
-.chat-input-request form {
+.chat-input-content form {
+  display: grid;
+  gap: 10px;
+}
+.chat-question-options {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.chat-question-options legend {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.chat-question-option {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.chat-question-option[data-selected='true'] {
+  border-color: var(--accent-border);
+  background: var(--accent-soft);
+}
+.chat-question-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.chat-question-option:has(input:focus-visible) {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.chat-option-number {
+  flex: none;
+  width: 14px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 20px;
+}
+.chat-question-option > svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent-selected-text);
+}
+.chat-question-option .chat-option-copy {
+  flex: 1;
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.chat-question-option strong {
+  font-size: 13px;
+  font-weight: 500;
+}
+.chat-question-option small {
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.4;
+}
+.chat-question-options:disabled .chat-question-option {
+  cursor: default;
+}
+.chat-question-freeform {
   display: grid;
   gap: 8px;
-  margin-top: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
-.chat-input-request form button {
-  justify-self: end;
+.chat-input-error {
+  color: #a64632;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+@media (hover: hover) and (pointer: fine) {
+  .chat-question-options:not(:disabled) .chat-question-option:hover {
+    border-color: var(--accent-border);
+    background: var(--accent-soft);
+  }
 }

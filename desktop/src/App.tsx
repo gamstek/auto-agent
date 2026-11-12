@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 import { History, MessageSquarePlus, RefreshCw, X } from 'lucide-react';
 import type { BackendCapabilities } from '@auto-agent/desktop-protocol';
 import { desktop, errorText, native } from './bridge';
@@ -16,7 +23,8 @@ import { InstrumentMonitor } from './components/InstrumentMonitor/InstrumentMoni
 import { InstrumentIcon } from './components/InstrumentIcon/InstrumentIcon';
 import { NavigationRail } from './components/NavigationRail/NavigationRail';
 import { ChatMessage } from './components/ChatMessage/ChatMessage';
-import { ChatInputRequest } from './components/ChatInputRequest/ChatInputRequest';
+import { ChatInputDock } from './components/ChatInputDock/ChatInputDock';
+import { ApprovalPolicy } from './components/ApprovalPolicy/ApprovalPolicy';
 import { StartupScreen } from './components/StartupScreen/StartupScreen';
 import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
 import { useSessions } from './hooks/useSessions';
@@ -112,6 +120,7 @@ export function App() {
     loadMore: loadMoreSessions,
   } = useSessions();
   const [showBottom, setShowBottom] = useState(false);
+  const [requestHeight, setRequestHeight] = useState(0);
   const scroll = useRef<HTMLDivElement>(null),
     stick = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -128,6 +137,7 @@ export function App() {
     input,
     setInput,
     sending,
+    approval,
     snapshot,
     messages,
     inputs,
@@ -211,7 +221,7 @@ export function App() {
   }, [settings, sidebar, initialized, newSession]);
   useEffect(() => {
     if (stick.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [sessionId, snapshot?.revision, settings]);
+  }, [sessionId, snapshot?.revision, settings, requestHeight]);
 
   const composer = (
     <Composer
@@ -225,6 +235,30 @@ export function App() {
       canCancel={canCancel}
       connected={composerConnected}
       waitingForInput={inputs.length > 0}
+      approvalControl={
+        <ApprovalPolicy
+          mode={approval.mode}
+          loading={approval.loading}
+          error={approval.error}
+          disabled={connection !== 'connected' || approval.updating}
+          onChange={approval.change}
+          onRefresh={approval.refresh}
+        />
+      }
+      renderRequestCard={
+        inputs.length > 0
+          ? (onSubmitState) => (
+              <ChatInputDock
+                key={`${backendIdentity}:${sessionId}`}
+                inputs={inputs}
+                disabled={!canRespond}
+                onRespond={respond}
+                onSubmitState={onSubmitState}
+                onHeightChange={setRequestHeight}
+              />
+            )
+          : undefined
+      }
       showBottom={showBottom && hasConversation}
       onBottom={() => {
         stick.current = true;
@@ -408,7 +442,10 @@ export function App() {
           {page === 'instruments' && <Instruments onConfigure={() => showSettings('device')} />}
           {page === 'chat' && (
             <div className="chat-workspace" data-monitor-open={monitor.open}>
-              <div className="chat-thread">
+              <div
+                className="chat-thread"
+                style={{ '--chat-input-clearance': `${requestHeight}px` } as CSSProperties}
+              >
                 {error && (
                   <div className="chat-notice" role="alert">
                     <span>{error}</span>
@@ -513,14 +550,6 @@ export function App() {
                       <ProcessingLabel active={activity.active} text={activity.text} />
                     </div>
                   )}
-                  {inputs.map((entry) => (
-                    <ChatInputRequest
-                      key={`${sessionId}:${entry.request.requestId}`}
-                      input={entry}
-                      disabled={!canRespond}
-                      onRespond={respond}
-                    />
-                  ))}
                   {snapshot &&
                     !busy &&
                     Object.values(snapshot.conversation.turns).at(-1)?.status === 'cancelled' && (

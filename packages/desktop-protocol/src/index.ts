@@ -1,6 +1,7 @@
 /** Version of the application bridge, independent of Corax's release/stream version. */
 export const DESKTOP_PROTOCOL_VERSION = 4;
 export * from './chat';
+export type { ApprovalMode, ApprovalSetting, DesktopApprovalSetting } from './approval';
 export type { InstrumentSnapshot } from './instrument';
 export type { QuestionSuggestions } from './suggestions';
 export type {
