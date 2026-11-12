@@ -2,6 +2,8 @@ use super::*;
 use std::collections::{HashMap, VecDeque};
 use std::io::Write;
 use std::sync::{Arc, Mutex as SyncMutex};
+mod history;
+use history::HistoryQuery;
 
 const PROTOCOL_VERSION: u64 = 4;
 
@@ -386,28 +388,6 @@ async fn request_status(state: &Desktop, backend: &Connection, method: &str, pat
     Ok((status, value))
 }
 
-async fn snapshot(state: &Desktop, backend: &Connection, id: &str, start_index: usize) -> Result<Vec<Value>, String> {
-    let timing = chat_debug::Span::new("history-http");
-    timing.mark("cursor", json!({"cursor":start_index}));
-    for attempt in 0..25 {
-        #[cfg(debug_assertions)] let started = std::time::Instant::now();
-        let response = state.client.get(format!("{}/corax/v1/session/{id}/stream?startIndex={start_index}&follow=false", backend.url)).basic_auth("auto-agent", Some(&backend.token))
-             .send().await.map_err(|_| "无法读取 Corax 会话状态")?;
-        timing.mark("headers", json!({"attempt":attempt,"status":response.status().as_u16()}));
-        if response.status().is_success() {
-            #[cfg(debug_assertions)] let headers_ms = started.elapsed().as_millis();
-            let text = response.text().await.map_err(|_| "Corax 会话记录读取中断")?;
-            timing.mark("body", json!({"bytes":text.len()}));
-            #[cfg(debug_assertions)] if started.elapsed() > Duration::from_millis(250) { eprintln!("[desktop-history] headers_ms={headers_ms} total_ms={} bytes={}", started.elapsed().as_millis(), text.len()); }
-            let result: Result<Vec<Value>, String> = text.lines().filter(|line| !line.trim().is_empty()).map(|line| serde_json::from_str(line).map_err(|_| "Corax 事件格式无效".into())).collect();
-            timing.mark("parsed", json!({"success":result.is_ok(),"count":result.as_ref().map(Vec::len).unwrap_or(0)}));
-            return result;
-        }
-        if ![404, 409, 425, 503].contains(&response.status().as_u16()) || attempt == 24 { break; }
-        tokio::time::sleep(Duration::from_millis(200)).await;
-    }
-    Err("Corax 会话记录暂不可读".into())
-}
 fn admitted(backend: &Connection, id: &str, events: &[Value], start_index: usize) -> bool {
     let mut pending = backend.pending.lock().unwrap();
     let Some(entry) = pending.get_mut(id) else { return false; };
@@ -500,23 +480,9 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "POST" && ["/knowledge/ingest", "/knowledge/cancel", "/knowledge/read"].contains(&path) { return true; }
     let parts: Vec<_> = route.trim_start_matches('/').split('/').collect();
     parts.len() == 3 && parts[0] == "session" && valid_session_id(parts[1]) &&
-        ((method == "GET" && parts[2] == "events" && event_cursor(path).is_ok()) || (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
+        ((method == "GET" && parts[2] == "events" && HistoryQuery::parse(path).is_ok()) || (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
 }
 fn valid_session_id(id: &str) -> bool { id.strip_prefix("wrun_").is_some_and(|id| id.len() == 26 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())) }
-
-fn event_cursor(path: &str) -> Result<(usize, Option<String>), String> {
-    let Some((_, query)) = path.split_once('?') else { return Ok((0, None)); };
-    let mut start = None; let mut generation = None;
-    for part in query.split('&') {
-        let (key, value) = part.split_once('=').ok_or("事件游标无效")?;
-        match key {
-            "startIndex" if start.is_none() && !value.is_empty() && value.bytes().all(|c| c.is_ascii_digit()) => start = Some(value.parse::<usize>().map_err(|_| "事件游标无效")?),
-            "generation" if generation.is_none() && uuid::Uuid::parse_str(value).is_ok() => generation = Some(value.to_string()),
-            _ => return Err("事件游标无效".into()),
-        }
-    }
-    Ok((start.unwrap_or(0), generation))
-}
 
 // Match the official client's only safe send retry: an explicit pre-admission rejection.
 fn session_not_ready(status: reqwest::StatusCode, value: &Value) -> bool {
@@ -742,20 +708,17 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     let parts: Vec<_> = route.trim_start_matches('/').split('/').collect();
     let (id, action) = (parts[1], parts[2]);
     if action == "events" {
-        let (cursor, generation) = event_cursor(&path)?;
-        let start_index = if generation.as_deref() == Some(backend.generation.as_str()) { cursor } else { 0 };
-        let reading = snapshot(&state, &backend, id, start_index);
-        let mut events = if let Some(view) = view {
+        let reading = history::read(&state.client, &backend, id, HistoryQuery::parse(&path)?);
+        let mut page = if let Some(view) = view {
             let result = view.read(reading).await;
             if *view.closed.borrow() { timing.mark("cancelled", json!({})); }
             result?
         } else { reading.await? };
-        timing.mark("history", json!({"count":events.len(),"cursor":start_index}));
-        let revision = start_index + events.len();
-        let admitted = admitted(&backend, id, &events, start_index);
-        for event in &mut events { redact(event, &backend.secrets); }
-        timing.mark("redacted", json!({"count":events.len()}));
-        return Ok(json!({"sessionId":id,"generation":backend.generation,"startIndex":start_index,"revision":revision,"admitted":admitted,"events":events}));
+        timing.mark("history", json!({"count":page.events.len(),"cursor":page.start}));
+        let admitted = page.authoritative() && admitted(&backend, id, &page.events, page.start);
+        for event in &mut page.events { redact(event, &backend.secrets); }
+        timing.mark("redacted", json!({"count":page.events.len()}));
+        return Ok(page.into_response(id, &backend.generation, admitted));
     }
     let mut payload = body.unwrap_or(json!({}));
     if action == "prompt_async" {
@@ -1028,8 +991,8 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     }); }
     #[test] fn delta_cursors_and_admission_guards_are_scoped() {
         let generation = uuid::Uuid::new_v4().to_string();
-        assert_eq!(event_cursor(&format!("/events?startIndex=42&generation={generation}")).unwrap(), (42, Some(generation)));
-        for query in ["startIndex=-1", "startIndex=1&startIndex=2", "url=https://example.com", "generation=invalid"] { assert!(event_cursor(&format!("/events?{query}")).is_err()); }
+        assert_eq!(HistoryQuery::parse(&format!("/events?startIndex=42&generation={generation}")).unwrap(), HistoryQuery::From { start: 42, generation: Some(generation) });
+        for query in ["startIndex=-1", "startIndex=1&startIndex=2", "url=https://example.com", "generation=invalid"] { assert!(HistoryQuery::parse(&format!("/events?{query}")).is_err()); }
         let connection = connection("http://127.0.0.1".into());
         let guard = DispatchGuard::reserve(&connection);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 1);
@@ -1038,6 +1001,87 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         drop(guard);
         assert_eq!(connection.in_flight.load(Ordering::SeqCst), 0);
     }
+    #[test] fn tail_previews_have_a_separate_bounded_read_contract() {
+        let path = "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events";
+        for count in [1, 128, 512, 2048] { assert!(allowed_request("GET", &format!("{path}?tail={count}"))); }
+        for query in ["tail=0", "tail=2049", "tail=-128", "tail=128&tail=512", "tail=128&startIndex=0", "tail=128&url=private"] { assert!(!allowed_request("GET", &format!("{path}?{query}"))); }
+        assert!(!allowed_request("POST", &format!("{path}?tail=128")));
+    }
+    #[test] fn tail_previews_preserve_global_offsets_and_never_release_pending_admission() { tauri::async_runtime::block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = vec![0; 8192];
+            let length = socket.read(&mut bytes).await.unwrap();
+            assert!(String::from_utf8_lossy(&bytes[..length]).starts_with("GET /corax/v1/session/fixture/stream?startIndex=-2&follow=false&includeTailIndex=1 "));
+            let body = "{\"type\":\"message.received\",\"data\":{}}\n{\"type\":\"turn.completed\",\"data\":{}}\n";
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nx-corax-stream-tail-index: 329\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        let connection = connection(url);
+        connection.pending.lock().unwrap().insert("fixture".into(), PendingAdmission::Cursor(0));
+        let page = history::read(&state().client, &connection, "fixture", HistoryQuery::Tail { count: 2 }).await.unwrap();
+        assert_eq!((page.start, page.revision, page.events.len()), (328, 330, 2));
+        assert!(!page.authoritative());
+        assert!(connection.pending.lock().unwrap().contains_key("fixture"));
+        task.await.unwrap();
+    }); }
+    #[test] fn finite_history_streaming_uses_current_generation_and_returns_the_current_response_contract() { tauri::async_runtime::block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            for expected in [2, 0] {
+                let (mut socket, _) = listener.accept().await.unwrap();
+                let mut bytes = vec![0; 8192];
+                let length = socket.read(&mut bytes).await.unwrap();
+                assert!(String::from_utf8_lossy(&bytes[..length]).starts_with(&format!("GET /corax/v1/session/fixture/stream?startIndex={expected}&follow=false ")));
+                let body = "{\"type\":\"message.completed\",\"data\":{\"message\":\"中文\"}}\r\n{\"type\":\"turn.completed\"}";
+                socket.write_all(format!("HTTP/1.1 200 OK\r\ncontent-length: {}\r\nconnection: close\r\n\r\n", body.len()).as_bytes()).await.unwrap();
+                for chunk in body.as_bytes().chunks(7) { socket.write_all(chunk).await.unwrap(); }
+            }
+        });
+        let connection = connection(url);
+        for (generation, expected_start) in [(connection.generation.clone(), 2), (uuid::Uuid::new_v4().to_string(), 0)] {
+            let page = history::read(&state().client, &connection, "fixture", HistoryQuery::From { start: 2, generation: Some(generation) }).await.unwrap();
+            assert!(page.authoritative());
+            let value = page.into_response("fixture", &connection.generation, true);
+            assert_eq!(value["startIndex"], expected_start);
+            assert_eq!(value["revision"], expected_start + 2);
+            assert_eq!(value["admitted"], true);
+            assert_eq!(value["events"][0]["data"]["message"], "中文");
+            assert_eq!(value["generation"], connection.generation);
+        }
+        task.await.unwrap();
+    }); }
+    #[test] fn truncated_tail_cannot_be_treated_as_a_complete_history_page() { tauri::async_runtime::block_on(async {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = vec![0; 8192];
+            socket.read(&mut bytes).await.unwrap();
+            let body = "{\"type\":\"session.started\"}\n";
+            socket.write_all(format!("HTTP/1.1 200 OK\r\nx-corax-stream-tail-index: 9\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await.unwrap();
+        });
+        let result = history::read(&state().client, &connection(url), "fixture", HistoryQuery::Tail { count: 128 }).await;
+        assert!(result.unwrap_err().contains("游标不一致"));
+        task.await.unwrap();
+    }); }
+    #[test] fn oversized_tail_reads_fail_instead_of_returning_truncated_preview_events() { tauri::async_runtime::block_on(async {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut bytes = vec![0; 8192];
+            let _ = socket.read(&mut bytes).await.unwrap();
+            let body = "x".repeat(2 * 1024 * 1024 + 1);
+            let _ = socket.write_all(format!("HTTP/1.1 200 OK\r\nx-corax-stream-tail-index: 99\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()).as_bytes()).await;
+        });
+        assert!(history::read(&state().client, &connection(url), "fixture", HistoryQuery::Tail { count: 128 }).await.err().unwrap().contains("预算"));
+        task.await.unwrap();
+    }); }
     #[test] fn knowledge_routes_and_operation_admission_are_scoped() {
         for (method, path) in [("GET", "/knowledge"), ("GET", "/knowledge/operation"), ("GET", "/knowledge/pages?offset=20"), ("POST", "/knowledge/read"), ("POST", "/knowledge/ingest"), ("POST", "/knowledge/cancel")] {
             assert!(allowed_request(method, path));
@@ -1234,7 +1278,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let read_connection = Arc::clone(&connection);
         let reader = tauri::async_runtime::spawn(async move {
             let state = state();
-            view.read(snapshot(&state, &read_connection, "first", 0)).await
+            view.read(history::read(&state.client, &read_connection, "first", HistoryQuery::From { start: 0, generation: None })).await
         });
         headers_received.await.unwrap();
         views.close("view");

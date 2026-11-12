@@ -50,6 +50,8 @@ for (const path of [
   'node_modules/@auto-agent/climber-mcp/src/sam/sam-generate.js',
   'node_modules/@auto-agent/climber-mcp/src/sam/sam-profiles.json',
   'node_modules/@coraxjs/core/bin/corax.js',
+  'node_modules/@coraxjs/core/dist/src/compiled/@workflow/world-local/stream-info-batched.js',
+  'node_modules/@coraxjs/core/dist/src/execution/history-read-scope.js',
   'node_modules/tsx/package.json',
   'node_modules/shelljs/package.json',
   'sandbox.ts',

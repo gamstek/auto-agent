@@ -24,6 +24,7 @@ import { useChatController } from './hooks/useChatController';
 import { useBackendLifecycle, type BackendConnectionState } from './hooks/useBackendLifecycle';
 import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
 import { useInstrumentMonitor } from './hooks/useInstrumentMonitor';
+import { useMessageWindow } from './hooks/useMessageWindow';
 import './App.css';
 
 export function App() {
@@ -111,12 +112,10 @@ export function App() {
     loadMore: loadMoreSessions,
   } = useSessions();
   const [showBottom, setShowBottom] = useState(false);
-  const [visibleCount, setVisibleCount] = useState(50);
   const scroll = useRef<HTMLDivElement>(null),
     stick = useRef(true);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const resetViewport = useCallback((fresh: boolean) => {
-    setVisibleCount(50);
     stick.current = true;
     if (fresh) inputRef.current?.focus();
   }, []);
@@ -140,6 +139,8 @@ export function App() {
     hasConversation,
     activity,
     historyError: chatError,
+    previewingOlder,
+    replyPreview,
     select,
     newSession,
     send,
@@ -179,7 +180,13 @@ export function App() {
     backendIdentity,
   );
   const monitor = useInstrumentMonitor(mainRef, initialized && capabilities.devices?.list === true);
-  const older = messages.length > visibleCount;
+  const messageWindow = useMessageWindow(
+    `${backendIdentity}:${sessionId}`,
+    messages,
+    scroll,
+    stick,
+    page === 'chat',
+  );
   useEffect(() => {
     const shortcut = (event: KeyboardEvent) => {
       if (!initialized || event.isComposing || event.repeat) return;
@@ -204,7 +211,7 @@ export function App() {
   }, [settings, sidebar, initialized, newSession]);
   useEffect(() => {
     if (stick.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [snapshot?.revision, settings]);
+  }, [sessionId, snapshot?.revision, settings]);
 
   const composer = (
     <Composer
@@ -455,26 +462,24 @@ export function App() {
                     stick.current =
                       element.scrollHeight - element.scrollTop - element.clientHeight < 100;
                     setShowBottom(!stick.current);
+                    if (!stick.current) messageWindow.pin();
                   }}
                 >
-                  {older && (
+                  {(messageWindow.hasMore || previewingOlder) && (
                     <Button
                       variant="ghost"
                       className="older-button"
-                      onClick={() => {
-                        const element = scroll.current;
-                        const anchor = element?.querySelector<HTMLElement>('[data-message-id]');
-                        const position = anchor?.getBoundingClientRect().top;
-                        stick.current = false;
-                        setVisibleCount((value) => value + 50);
-                        requestAnimationFrame(() => {
-                          if (element && anchor?.isConnected && position !== undefined)
-                            element.scrollTop += anchor.getBoundingClientRect().top - position;
-                        });
-                      }}
+                      ref={messageWindow.trigger}
+                      disabled={previewingOlder}
+                      onClick={messageWindow.loadMore}
                     >
-                      加载更早的消息
+                      {previewingOlder ? '正在同步更早的消息…' : '加载更早的消息'}
                     </Button>
+                  )}
+                  {replyPreview && (
+                    <p className="history-preview-status" role="status">
+                      最近回复预览 · {chatError ? '上下文尚未同步' : '正在补齐上下文与过程'}
+                    </p>
                   )}
                   {!hasConversation && (
                     <Welcome
@@ -487,24 +492,22 @@ export function App() {
                     />
                   )}
                   {snapshot &&
-                    messages
-                      .slice(-visibleCount)
-                      .map((message) => (
-                        <ChatMessage
-                          key={`${sessionId}:${message.id}`}
-                          sessionId={sessionId}
-                          message={message}
-                          conversation={snapshot.conversation}
-                          callStates={snapshot.calls}
-                          details={
-                            message.metadata?.turnId
-                              ? snapshot.turnDetails[message.metadata.turnId]
-                              : undefined
-                          }
-                          stopped={snapshot.closed}
-                          paused={streamPaused}
-                        />
-                      ))}
+                    messageWindow.messages.map((message) => (
+                      <ChatMessage
+                        key={`${sessionId}:${message.id}`}
+                        sessionId={sessionId}
+                        message={message}
+                        conversation={snapshot.conversation}
+                        callStates={snapshot.calls}
+                        details={
+                          message.metadata?.turnId
+                            ? snapshot.turnDetails[message.metadata.turnId]
+                            : undefined
+                        }
+                        stopped={snapshot.closed}
+                        paused={streamPaused}
+                      />
+                    ))}
                   {activity && (
                     <div className="chat-activity" role="status">
                       <ProcessingLabel active={activity.active} text={activity.text} />

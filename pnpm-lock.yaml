@@ -20,6 +20,11 @@ catalogs:
       specifier: 4.6.5
       version: 4.6.5
 
+patchedDependencies:
+  '@coraxjs/core@0.1.0':
+    hash: a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5
+    path: patches/@coraxjs__core@0.1.0.patch
+
 importers:
 
   .:
@@ -38,7 +43,7 @@ importers:
         version: link:packages/llm-wiki
       '@coraxjs/core':
         specifier: 0.1.0
-        version: 0.1.0(ai@7.0.137(zod@4.6.5))
+        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -92,7 +97,7 @@ importers:
         version: link:../packages/llm-wiki
       '@coraxjs/core':
         specifier: 0.1.0
-        version: 0.1.0(ai@7.0.137(zod@4.6.5))
+        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -126,7 +131,7 @@ importers:
         version: link:../packages/desktop-protocol
       '@coraxjs/core':
         specifier: 0.1.0
-        version: 0.1.0(ai@7.0.137(zod@4.6.5))
+        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
       '@tauri-apps/api':
         specifier: ^2.0.0
         version: 2.12.4
@@ -203,7 +208,7 @@ importers:
     dependencies:
       '@coraxjs/core':
         specifier: 0.1.0
-        version: 0.1.0(ai@7.0.137(zod@4.6.5))
+        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -2690,7 +2695,7 @@ snapshots:
   '@cfworker/json-schema@4.1.4':
     optional: true
 
-  '@coraxjs/core@0.1.0(ai@7.0.137(zod@4.6.5))':
+  '@coraxjs/core@0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))':
     dependencies:
       ai: 7.0.137(zod@4.6.5)
       just-bash: 3.1.0

@@ -1,5 +1,6 @@
 import { conversationReducer, toolCallState, type MessageStreamEvent } from '@coraxjs/core/client';
 import type { ChatSnapshot, ChatCallState, ChatTurnDetails } from '@auto-agent/desktop-protocol';
+import { yieldToHost } from './yield-to-host';
 
 /** In-memory UI projection of native events. No transport, credentials or history storage. */
 export class CoraxProjection {
@@ -22,6 +23,13 @@ export class CoraxProjection {
   }
 
   reload(events: readonly MessageStreamEvent[], admitted: boolean) {
+    this.reset(admitted);
+    this.append(0, events);
+    // Admission may be newer than all recorded events in this snapshot.
+    this.admitted = admitted;
+  }
+
+  private reset(admitted: boolean) {
     this.state = conversationReducer.initial();
     this.revision = 0;
     this.closed = false;
@@ -29,9 +37,42 @@ export class CoraxProjection {
     this.connectionError = undefined;
     this.turnDetails = Object.create(null);
     this.admitted = admitted;
-    this.append(0, events);
-    // Admission may be newer than all recorded events in this snapshot.
-    this.admitted = admitted;
+  }
+
+  /** Fold only ordered native events, yielding so long histories cannot monopolize the UI. */
+  async catchUp(
+    startIndex: number,
+    events: readonly MessageStreamEvent[],
+    admitted: boolean,
+    current: () => boolean,
+    yieldControl: () => Promise<void> = yieldToHost,
+  ): Promise<boolean> {
+    if (!current()) return false;
+    if (startIndex === 0) this.reset(admitted);
+    if (startIndex > this.revision) throw new Error('Corax 事件游标不连续，正在重新读取会话。');
+    let offset = Math.max(0, this.revision - startIndex);
+    while (offset < events.length) {
+      const deadline = performance.now() + 8;
+      let count = 0;
+      while (
+        offset < events.length &&
+        count < 128 &&
+        (count === 0 || performance.now() < deadline)
+      ) {
+        this.apply(events[offset]!);
+        this.revision++;
+        offset++;
+        count++;
+      }
+      if (offset < events.length) {
+        await yieldControl();
+        if (!current()) return false;
+        offset = Math.max(offset, this.revision - startIndex);
+      }
+    }
+    this.connectionError = undefined;
+    this.admission(admitted, startIndex + events.length);
+    return true;
   }
 
   append(startIndex: number, events: readonly MessageStreamEvent[]) {

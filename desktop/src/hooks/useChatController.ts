@@ -30,7 +30,7 @@ export function useChatController({
   const sessionIdRef = useRef('');
   const navigationEpoch = useRef(0);
   const requestLock = useRef(false);
-  const history = useChat(view.id, connected);
+  const history = useChat(view.id, connected, view.origin !== 'first-submission');
   const state = chatPresentation({
     sessionId: view.id,
     snapshot: history.snapshot,
@@ -187,6 +187,8 @@ export function useChatController({
     sending,
     snapshot: history.snapshot,
     historyError: history.error,
+    previewingOlder: history.previewingOlder,
+    replyPreview: history.replyPreview,
     sync: history.refresh,
     resetHistory,
     select,

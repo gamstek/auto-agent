@@ -38,6 +38,10 @@ async function nativeDesktop(
       generation: '00000000-0000-4000-8000-000000000001',
       corruptSuffix: false,
       failHistory: false,
+      failPreview: false,
+      // Older protocol-v4 backends cannot certify a tail as a complete prefix.
+      confirmCompleteTail: false,
+      holdPreviewFor: '',
       holdList: false,
       knowledgeStarts: [] as any[],
       knowledgePageRequests: [] as string[],
@@ -93,6 +97,7 @@ async function nativeDesktop(
     const releaseUpdate: (() => void)[] = [];
     const releaseKnowledgeReads: (() => void)[] = [];
     const releaseDeviceReads: (() => void)[] = [];
+    const releasePreviewReads: (() => void)[] = [];
     let knowledgeOperation: any = null;
     let knowledgeDone = 0;
     (window as any).__desktopTest = testState;
@@ -143,6 +148,10 @@ async function nativeDesktop(
       releaseDeviceReads: () => {
         testState.holdDeviceRefresh = false;
         for (const release of releaseDeviceReads.splice(0)) release();
+      },
+      releasePreviewReads: () => {
+        testState.holdPreviewFor = '';
+        for (const release of releasePreviewReads.splice(0)) release();
       },
       finishKnowledge: (state = 'completed', completed = 1) => {
         knowledgeDone = completed;
@@ -475,6 +484,25 @@ async function nativeDesktop(
             const target = args.path.split('/')[2];
             if (args.viewId !== testState.activeView) throw new Error('会话视图已切换');
             if (testState.failHistory) throw new Error('测试历史读取失败');
+            if (params.has('tail')) {
+              if (testState.failPreview) throw new Error('测试尾部预览不可读');
+              const count = Number(params.get('tail'));
+              const generation = testState.generation;
+              const history = structuredClone(histories[target] ?? []);
+              const startIndex = Math.max(0, history.length - count);
+              if (testState.holdPreviewFor === target)
+                await new Promise<void>((resolve) => releasePreviewReads.push(resolve));
+              return {
+                sessionId: target,
+                generation,
+                startIndex,
+                revision: history.length,
+                admitted: false,
+                preview: !(testState.confirmCompleteTail && startIndex === 0),
+                complete: testState.confirmCompleteTail && startIndex === 0,
+                events: history.slice(startIndex),
+              };
+            }
             if (testState.holdHistoryFor === target)
               await new Promise<void>((resolve, reject) => {
                 releaseHistory.set(args.viewId, () => {
@@ -910,6 +938,130 @@ for (const mode of ['unsupported', 'empty'] as const)
     }
   });
 
+test('long conversations render a recent page and load earlier messages on upward scrolling without moving the reading anchor', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const events: any[] = [{ type: 'session.started', data: {} }];
+    for (let sequence = 0; sequence < 80; sequence++) {
+      const turnId = `paged-turn-${sequence}`;
+      events.push(
+        { type: 'turn.started', data: { turnId, sequence } },
+        { type: 'message.received', data: { turnId, sequence, message: `历史问题 ${sequence}` } },
+        {
+          type: 'message.completed',
+          data: {
+            turnId,
+            sequence,
+            stepIndex: 0,
+            message: `历史回答 ${sequence}`,
+            finishReason: 'stop',
+          },
+        },
+        { type: 'turn.completed', data: { turnId, sequence } },
+      );
+    }
+    (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'] = events.map(
+      (event, index) => ({
+        ...event,
+        meta: { id: `paged-event-${index}`, at: '2026-11-11T00:00:00Z' },
+      }),
+    );
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('历史回答 79', { exact: true })).toBeVisible();
+  await expect(page.locator('.corax-message')).toHaveCount(20);
+  await expect(page.getByText('历史问题 0', { exact: true })).toHaveCount(0);
+  const first = page.locator('.corax-message').first();
+  const anchor = await first.getAttribute('data-message-id');
+  await page.evaluate(() => {
+    const scroll = document.querySelector('.conversation')!;
+    scroll.scrollTop = 0;
+    (window as any).__readingAnchorTop = document
+      .querySelector('[data-message-id]')!
+      .getBoundingClientRect().top;
+  });
+  await expect(page.locator('.corax-message')).toHaveCount(40);
+  const top = await page
+    .locator('[data-message-id]')
+    .evaluateAll(
+      (elements, id) =>
+        elements
+          .find((element) => element.getAttribute('data-message-id') === id)!
+          .getBoundingClientRect().top,
+      anchor,
+    );
+  expect(
+    Math.abs(top - (await page.evaluate(() => (window as any).__readingAnchorTop))),
+  ).toBeLessThan(2);
+  await expect(page.getByText('历史问题 60', { exact: true })).toBeVisible();
+  await expect(page.getByText('历史问题 0', { exact: true })).toHaveCount(0);
+  expect(await page.locator('.main-area').evaluate((element) => element.scrollTop)).toBe(0);
+  const readingScroll = await page
+    .locator('.conversation')
+    .evaluate((element) => element.scrollTop);
+  await page.evaluate(() => {
+    const fixture = (window as any).__desktopFixture;
+    const state = (window as any).__desktopTest;
+    const id = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const events = [
+      { type: 'turn.started', data: { turnId: 'paged-turn-80', sequence: 80 } },
+      {
+        type: 'message.received',
+        data: { turnId: 'paged-turn-80', sequence: 80, message: '历史问题 80' },
+      },
+      {
+        type: 'message.completed',
+        data: {
+          turnId: 'paged-turn-80',
+          sequence: 80,
+          stepIndex: 0,
+          message: '历史回答 80',
+          finishReason: 'stop',
+        },
+      },
+      { type: 'turn.completed', data: { turnId: 'paged-turn-80', sequence: 80 } },
+    ].map((event, index) => ({
+      ...event,
+      meta: { id: `new-page-event-${index}`, at: '2026-11-11T00:00:01Z' },
+    }));
+    const startIndex = fixture.histories[id].length;
+    fixture.histories[id].push(...events);
+    fixture.emit('corax-events', {
+      sessionId: id,
+      watchId: state.watchRequests.at(-1).watchId,
+      generation: state.generation,
+      startIndex,
+      events,
+    });
+  });
+  await expect(page.locator('.corax-message')).toHaveCount(42);
+  expect(await page.locator('.conversation').evaluate((element) => element.scrollTop)).toBe(
+    readingScroll,
+  );
+  expect(
+    Math.abs(
+      (await page
+        .locator('[data-message-id]')
+        .evaluateAll(
+          (elements, id) =>
+            elements
+              .find((element) => element.getAttribute('data-message-id') === id)!
+              .getBoundingClientRect().top,
+          anchor,
+        )) - top,
+    ),
+  ).toBeLessThan(2);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.locator('.corax-message')).toHaveCount(20);
+  await expect(page.getByText('历史回答 79', { exact: true })).toBeVisible();
+  await expect(page.getByText('历史回答 80', { exact: true })).toBeVisible();
+});
+
 test('welcome recommendations update silently without blocking input or creating a chat', async ({
   page,
 }) => {
@@ -1096,7 +1248,7 @@ test('first-message initialization is silent until the native assistant message 
   expect(await page.evaluate(() => (window as any).__desktopTest.backendStarts)).toBe(1);
 });
 
-test('opening an existing uncached conversation retains explicit history-loading feedback', async ({
+test('an uncached history displays its tail while canonical synchronization still gates all writes', async ({
   page,
 }) => {
   await nativeDesktop(page, true);
@@ -1105,9 +1257,190 @@ test('opening an existing uncached conversation retains explicit history-loading
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
-  await expect(page.locator('.chat-activity')).toContainText('正在读取会话');
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await expect(page.locator('.chat-activity')).toHaveCount(0);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('等状态确认后再发送');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  expect(await page.evaluate(() => (window as any).__desktopTest.watchRequests.length)).toBe(0);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.some((path: string) =>
+        path.endsWith('/events?tail=512'),
+      ),
+    ),
+  ).toBe(true);
   await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+});
+
+test('unfinished fragments expand the tail budget without inventing a completed reply', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const id = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const state = (window as any).__desktopTest;
+    const history = (window as any).__desktopFixture.histories[id];
+    const turn = { turnId: 'turn-1', sequence: 0, stepIndex: 0 };
+    history.splice(
+      3,
+      0,
+      ...Array.from({ length: 900 }, (_, index) => ({
+        type: 'message.appended',
+        data: { ...turn, messageDelta: 'fixture ' },
+        meta: { id: `chunk-${index}`, at: '2026-11-11T00:00:00Z' },
+      })),
+    );
+    history.splice(
+      history.findIndex((event: any) => event.type === 'message.completed'),
+      1,
+    );
+    history.at(-1).type = 'turn.cancelled';
+    state.holdHistoryFor = id;
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
+  const reads = await page.evaluate(() =>
+    (window as any).__desktopTest.requests.filter((path: string) => path.includes('/events?tail=')),
+  );
+  expect(reads.some((path: string) => path.endsWith('tail=512'))).toBe(true);
+  expect(reads.some((path: string) => path.endsWith('tail=2048'))).toBe(true);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('尚未同步不能发送');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+});
+
+test('a completed reply inside a long turn appears before full history without searching repeatedly for its turn start', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const id = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const state = (window as any).__desktopTest;
+    const history = (window as any).__desktopFixture.histories[id];
+    history.splice(
+      3,
+      0,
+      ...Array.from({ length: 3000 }, (_, index) => ({
+        type: 'message.appended',
+        data: { turnId: 'turn-1', sequence: 0, stepIndex: 0, messageDelta: 'fragment ' },
+        meta: { id: `long-${index}`, at: '2026-11-11T00:00:00Z' },
+      })),
+    );
+    state.holdPreviewFor = state.holdHistoryFor = id;
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.requests.some((path: string) =>
+          path.endsWith('/events?tail=512'),
+        ),
+      ),
+    )
+    .toBe(true);
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.some(
+        (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
+      ),
+    ),
+  ).toBe(false);
+  await page.evaluate(() => (window as any).__desktopFixture.releasePreviewReads());
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await expect(page.locator('.history-preview-status')).toContainText('最近回复预览');
+  await page.getByRole('textbox', { name: '输入消息' }).fill('预览不能授权发送');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  expect(
+    await page.evaluate(
+      () =>
+        (window as any).__desktopTest.requests.filter((path: string) =>
+          path.includes('/events?tail='),
+        ).length,
+    ),
+  ).toBe(1);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await expect(page.locator('.history-preview-status')).toHaveCount(0);
+  await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
+});
+
+test('a tail that is a verified complete prefix is synchronized without reading the same full history again', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.confirmCompleteTail = true;
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: '输入消息' }).fill('完整原生前缀可恢复就绪');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter(
+        (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
+      ),
+    ),
+  ).toEqual([]);
+  expect(await page.evaluate(() => (window as any).__desktopTest.watchRequests.length)).toBe(1);
+});
+
+test('an optional tail failure falls back to canonical loading without replaying a write', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.failPreview = true;
+    (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.locator('.chat-activity')).toContainText('正在读取会话');
+  await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  expect(
+    await page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter((path: string) =>
+        path.endsWith('/prompt_async'),
+      ),
+    ),
+  ).toEqual([]);
+});
+
+test('late tail preview responses cannot replace another selected conversation', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.holdHistoryFor = state.holdPreviewFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.requests.some((path: string) =>
+          path.endsWith('/events?tail=512'),
+        ),
+      ),
+    )
+    .toBe(true);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    (window as any).__desktopFixture.releaseHistory();
+    (window as any).__desktopFixture.releasePreviewReads();
+  });
+  await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
+  await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
 });
 
 test('native event records project into the conversation without a Node HTTP bridge', async ({
@@ -1791,7 +2124,9 @@ test('switching away cancels a held history read and does not subscribe the stal
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
-  await expect(page.getByText('正在读取会话…', { exact: true })).toBeVisible();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: '输入消息' }).fill('切换前不能从尾部预览发送');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await expect
     .poll(() =>
       page.evaluate(() =>
@@ -1947,8 +2282,14 @@ test('reconnection clears cached history before reading the replacement backend'
   await page.getByRole('button', { name: /^会话二/ }).click();
   await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
   await page.evaluate(() => {
-    (window as any).__desktopFixture.emit('backend-stream', 'connected');
-    (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const state = (window as any).__desktopTest;
+    const fixture = (window as any).__desktopFixture;
+    state.generation = '00000000-0000-4000-8000-000000000002';
+    state.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    for (const event of fixture.histories[state.holdHistoryFor]) {
+      if (event.type === 'message.completed') event.data.message = '新后端的会话一回复';
+    }
+    fixture.emit('backend-stream', 'connected');
   });
   await expect
     .poll(() =>
@@ -1962,6 +2303,9 @@ test('reconnection clears cached history before reading the replacement backend'
     .toBe(2);
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('新后端的会话一回复', { exact: true })).toBeVisible();
+  await page.getByRole('textbox', { name: '输入消息' }).fill('新后端仍需同步状态');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await expect
     .poll(() =>
       page.evaluate(
@@ -1973,5 +2317,6 @@ test('reconnection clears cached history before reading the replacement backend'
     )
     .toBe(2);
   await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
-  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await expect(page.getByText('新后端的会话一回复', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
 });

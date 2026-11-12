@@ -32,6 +32,8 @@ try {
     'NODE-LICENSE',
     'install-reset.mjs',
     'node_modules/@coraxjs/core/package.json',
+    'node_modules/@coraxjs/core/dist/src/compiled/@workflow/world-local/stream-info-batched.js',
+    'node_modules/@coraxjs/core/dist/src/execution/history-read-scope.js',
     'node_modules/tsx/package.json',
     'node_modules/@auto-agent/climber-mcp/src/sam/sam-profiles.json',
     'skills/device-automation/assets/library.sqlite',
