@@ -12,11 +12,13 @@
     "tools",
     "lib",
     "skills",
+    "assets/host",
     ".output"
   ],
   "exports": {
     "./config": "./lib/config/index.ts",
     "./config/paths": "./lib/config/paths.ts",
+    "./host-runtime": "./lib/host/runtime.ts",
     "./wiki": "./lib/wiki/index.ts",
     "./wiki/ingest": "./lib/wiki/ingest.ts",
     "./wiki/reference": "./lib/wiki/reference.ts"
@@ -32,7 +34,7 @@
     "@auto-agent/climber-mcp": "workspace:*",
     "@auto-agent/desktop-protocol": "workspace:*",
     "@auto-agent/llm-wiki": "workspace:*",
-    "@coraxjs/core": "0.1.0",
+    "@coraxjs/core": "0.1.1",
     "@modelcontextprotocol/sdk": "catalog:",
     "ai": "7.0.137",
     "shelljs": "^0.10.0",

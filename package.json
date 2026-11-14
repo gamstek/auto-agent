@@ -24,7 +24,8 @@
     "typecheck:agent": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "prepare:runtime": "node --import tsx desktop/scripts/prepare-runtime.ts"
+    "prepare:runtime": "node --import tsx desktop/scripts/prepare-runtime.ts",
+    "prepare:host": "node --import tsx scripts/prepare-host.ts"
   },
   "devDependencies": {
     "auto-agent": "workspace:*",
@@ -32,7 +33,7 @@
     "@auto-agent/climber-mcp": "workspace:*",
     "@auto-agent/desktop-protocol": "workspace:*",
     "@auto-agent/llm-wiki": "workspace:*",
-    "@coraxjs/core": "0.1.0",
+    "@coraxjs/core": "0.1.1",
     "@modelcontextprotocol/sdk": "catalog:",
     "ai": "7.0.137",
     "shelljs": "^0.10.0",

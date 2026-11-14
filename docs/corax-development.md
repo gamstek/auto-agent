@@ -1,6 +1,6 @@
 # Corax 开发接入
 
-使用 npm `@coraxjs/core@0.1.0` 与 Node.js 24+，只使用公开导出。应用与 MCP 使用官方支持的 Node 运行时、node:sqlite；不修改依赖源码或添加私有适配。
+使用正式 npm `@coraxjs/core@0.1.1` 与 Node.js 24+，应用只使用公开导出。应用与 MCP 使用官方支持的 Node 运行时、node:sqlite。原生 Workflow World 使用 `dataDir/corax/.workflow-data/world.db`，历史尾/区间读取使用上游 SQLite 索引；不再安装旧扫描补丁或使用本地 SDK link。唯一经用户批准的 SDK 补丁为[会话重命名](session-rename.md)，通过 pnpm patchedDependencies 和冻结锁文件复现，不手改安装依赖。详见 [历史读取性能](history-read-performance.md)。
 
 ## 启动
 
@@ -8,7 +8,7 @@
 
 `pnpm dev:desktop` 启动 Vite 和 Tauri。Rust 根据公开 `./bin` 导出定位 CLI，直接执行 `node <corax-bin> dev --no-ui --resume`；发布版使用随包 Node 和 corax start。子进程归 Rust 进程树管理。没有中间应用 HTTP 服务。
 
-`--resume` 是官方支持的开发恢复参数：缺省的新 dev 调用不会恢复先前调用保留的运行。它能恢复仍有有效运行快照的会话，不能复活已经取消或缺失快照的会话。当前 `@coraxjs/core@0.1.0` 会清理超过保留数量且退役超过宽限时间的开发快照；依赖已清理快照的运行会被框架取消，聊天历史仍可能保留，但不再受理消息。该版本没有公开的快照保留配置，应用不修改其私有清理逻辑；完整解决需上游保留仍被会话引用的快照或安全转移执行归属。
+`--resume` 是官方支持的开发恢复参数：缺省的新 dev 调用不会恢复先前调用保留的运行。它能恢复仍有有效运行快照的会话，不能复活已经取消或缺失快照的会话。`@coraxjs/core@0.1.1` 的 SQLite 更新没有一并解决开发快照保留问题：超过保留数量且退役超过宽限时间的快照仍可能被清理；依赖已清理快照的运行会被框架取消，聊天历史仍可能保留，但不再受理消息。该版本没有公开的快照保留配置，应用不修改其私有清理逻辑；完整解决需上游保留仍被会话引用的快照或安全转移执行归属。
 
 原生 dev 的预加载和 Nitro worker 使用 Node。应用内容集中在独立 workspace 包 `corax/`，本页的 agent、sandbox、lib、tools、channels、skills 路径均相对该目录。CLI 和 Rust 都以 `corax/` 为项目根目录，避免 Corax 的递归开发监听扫描相邻的 `desktop/src-tauri/target`。该包保留 `auto-agent` 名称，仓库根包改名 `auto-agent-workspace`；源码移动不改变会话身份。
 
@@ -38,7 +38,7 @@ lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI �
 
 模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。桌面知识库通过 channels/knowledge 的固定认证路由复用同一编译引擎和只读页面接口；不提供领域专用资料 Tool 或数据库导入。
 
-sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 ShellJS 实现宿主进程/文件 I/O；不替换 Corax 原生工具。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 需可发现的 Git Bash，继承宿主环境而非虚拟解释器。
+sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 Node 原生进程/文件 I/O，不替换 Corax 原生工具；glob/grep 通过公开导出启用。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 使用应用附带的原生 BusyBox-w32 POSIX Shell 和 ripgrep，不需要 Git Bash；Unix 使用宿主 Bash 或 `/bin/sh`。`pnpm prepare:host` 下载并校验固定版本组件及源码/许可，CLI dev/build 与桌面开发入口自动调用，运行包直接携带 assets/host，正式启动不下载组件。
 
 ## 构建与验证
 

@@ -67,7 +67,11 @@ const taskSchema = z
             experimentId: text,
             analysisPort: z.number().int().optional(),
             state: text.optional(),
-            deviceRunId: z.union([text, z.number()]).nullable().optional(),
+            // A registered experiment has no manufacturer run ID until it starts.
+            deviceRunId: z
+              .union([z.literal(''), text, z.number()])
+              .nullable()
+              .optional(),
           })
           .strip(),
       )

@@ -50,6 +50,7 @@ export function isAgentEvent(event: ServiceEvent): event is AgentEvent {
   return typeof event.sessionId === 'string';
 }
 export interface Settings {
+  approvalMode: 'always' | 'once' | 'never';
   dataDir: string;
   model: string;
   baseURL: string;

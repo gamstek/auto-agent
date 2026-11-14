@@ -13,6 +13,9 @@
 .sessions:focus-visible {
   outline-offset: -2px;
 }
+.sessions .nav-item[data-context-open='true'] {
+  background: var(--accent-selected);
+}
 .session-list-status {
   display: flex;
   align-items: center;

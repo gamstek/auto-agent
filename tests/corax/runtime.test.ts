@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, cp, rm, symlink, realpath, writeFile, lstat } from 'nod
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { prepareHostRuntime } from '../../scripts/prepare-host';
 import {
   Client,
   ClientError,
@@ -63,12 +64,16 @@ for (const mode of [
   test(`native Corax ${mode} exposes sessions, Wiki tools and host activity without a bridge`, async () => {
     const temporary = await mkdtemp(join(tmpdir(), 'auto-agent-native-corax-'));
     const root = resolve(import.meta.dirname, '../..');
+    await prepareHostRuntime(join(root, 'corax'));
     // Relocate the payload outside the workspace so missing production dependencies
     // cannot accidentally resolve from the developer's node_modules.
     const project = join(temporary, mode === 'development' ? 'workspace/corax' : 'project');
     let usedWiki = false;
     let usedHost = false;
     let usedHostFile = false;
+    let usedGlob = false;
+    let usedGrep = false;
+    let usedOutsideHostFile = false;
     let usedSkillReference = false;
     let usedRelocatedResource = false;
     let usedResumedHost = false;
@@ -107,6 +112,8 @@ for (const mode of [
         return Response.json({ ok: true, data: { task } });
       },
     });
+    const outsideHostFile = join(temporary, 'outside-host-fixture.txt');
+    const outsideModelPath = `${process.platform === 'win32' ? '/' : ''}${outsideHostFile.replaceAll('\\', '/')}`;
     const calls: { name: string; arguments: Record<string, unknown> }[] = [
       { name: 'memory__save_memory', arguments: { text: memoryFact } },
       {
@@ -125,6 +132,10 @@ for (const mode of [
         name: 'write_file',
         arguments: { filePath: '/workspace/host-fixture.txt', content: 'HOST-FILE-UPDATED' },
       },
+      { name: 'glob', arguments: { pattern: '**/*-fixture.txt' } },
+      { name: 'grep', arguments: { pattern: 'HOST-FILE-UPDATED', glob: '*.txt' } },
+      { name: 'write_file', arguments: { filePath: outsideModelPath, content: 'HOST-OUTSIDE-OK' } },
+      { name: 'read_file', arguments: { filePath: outsideModelPath } },
       { name: 'corax__skill', arguments: { name: 'device-automation' } },
       { name: 'corax__skill', arguments: { name: 'knowledge-base' } },
       {
@@ -271,6 +282,10 @@ for (const mode of [
           usedHost ||=
             output.includes('HOST-SHELL-OK') && output.includes('native-host-environment');
           usedHostFile ||= output.includes('HOST-FILE-OK');
+          usedGlob ||= output.includes('host-fixture.txt') && output.includes('count');
+          usedGrep ||= output.includes('HOST-FILE-UPDATED') && output.includes('matchCount');
+          usedOutsideHostFile ||=
+            output.includes('HOST-OUTSIDE-OK') && output.includes('totalLines');
           usedSkillReference ||= output.includes('methods.md') && output.includes('totalLines');
           usedRelocatedResource ||= output.includes('HOST-INSTALLED-RESOURCE-OK');
           usedResumedHost ||= output.includes('RESUMED-HOST');
@@ -351,6 +366,10 @@ for (const mode of [
         'package.json',
       ])
         await cp(join(root, 'corax', name), join(project, name), { recursive: true });
+      if (process.platform === 'win32')
+        await cp(join(root, 'corax/assets/host'), join(project, 'assets/host'), {
+          recursive: true,
+        });
       for (const name of [
         '@coraxjs/core',
         'ai',
@@ -388,7 +407,13 @@ for (const mode of [
       'HOST-INSTALLED-RESOURCE-OK',
     );
     const env = {
-      ...process.env,
+      // Native tools must work with no Git Bash or GNU utilities on PATH.
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([key]) => process.platform !== 'win32' || key.toUpperCase() !== 'PATH',
+        ),
+      ),
+      ...(process.platform === 'win32' ? { PATH: dirname(Bun.which('node')!) } : {}),
       // Bun's test NODE_ENV enables Corax's authored-model stubs, bypassing this HTTP fake.
       NODE_ENV: mode === 'development' ? 'development' : 'production',
       AUTO_AGENT_CONFIG: config,
@@ -410,7 +435,7 @@ for (const mode of [
     const runtime =
       mode === 'packaged'
         ? join(project, process.platform === 'win32' ? 'node.exe' : 'node')
-        : 'node';
+        : Bun.which('node')!;
     if (mode === 'start') {
       const build = Bun.spawn([runtime, cli, 'build'], {
         cwd: project,
@@ -556,6 +581,7 @@ for (const mode of [
         'bash',
         'write_file',
         'write_file',
+        'write_file',
         'climber_register_batch',
         'climber_start_batch',
       ]);
@@ -563,6 +589,10 @@ for (const mode of [
       expect(usedWiki).toBe(true);
       expect(usedHost).toBe(true);
       expect(usedHostFile).toBe(true);
+      expect(usedGlob).toBe(true);
+      expect(usedGrep).toBe(true);
+      expect(usedOutsideHostFile).toBe(true);
+      expect(await Bun.file(outsideHostFile).text()).toBe('HOST-OUTSIDE-OK');
       expect(usedSkillReference).toBe(true);
       expect(usedRelocatedResource).toBe(true);
       expect(await Bun.file(join(temporary, 'workspace/host-fixture.txt')).text()).toBe(
@@ -580,6 +610,19 @@ for (const mode of [
       await other.response.result();
       expect(recalledMemory).toBe(true);
       checkingMemory = false;
+      const renamed = await client.fetch(`/corax/v1/session/${session.state.sessionId}/title`, {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ title: '已重命名的原生会话' }),
+      });
+      expect(renamed.status).toBe(200);
+      expect((await renamed.json()).title).toBe('已重命名的原生会话');
+      const renamedList = await client.fetch('/corax/v1/session?limit=50&offset=0');
+      expect(
+        (await renamedList.json()).sessions.find(
+          (row: { id: string }) => row.id === session.state.sessionId,
+        )?.title,
+      ).toBe('已重命名的原生会话');
       const snapshot = await session.snapshot();
       expect(
         snapshot.events.some(
@@ -942,6 +985,23 @@ for (const mode of [
       expect(previewPage.text).toContain('LONG-LINE-END');
       expect(await Bun.file(join(temporary, 'llm-wiki/.state/current.json')).exists()).toBe(true);
       expect(writes).toHaveLength(2);
+      const savedApproval = await (await activeClient.fetch('/desktop/approval')).json();
+      expect(savedApproval.mode).toBe('once');
+      await stop();
+      const preferenceToken = crypto.randomUUID();
+      env.AUTO_AGENT_TOKEN = preferenceToken;
+      child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
+      errors = new Response(child.stderr).text();
+      const restored = new Client({
+        host: await ready(),
+        auth: { basic: { username: 'auto-agent', password: preferenceToken } },
+      });
+      const restoredApproval = await restored.fetch('/desktop/approval');
+      expect(restoredApproval.status).toBe(200);
+      const restoredPolicy = await restoredApproval.json();
+      expect(restoredPolicy.mode).toBe(savedApproval.mode);
+      expect(restoredPolicy.revision).toBe(0);
+      expect(restoredPolicy.configRevision).toBe(savedApproval.configRevision);
     } finally {
       releaseKnowledge();
       const stderr = await stop();

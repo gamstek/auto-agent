@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::collections::HashSet;
 
-const FIELDS: &[&str] = &["dataDir", "model", "baseURL", "maxInputTokens", "maxOutputTokens", "systemPrompt", "llmWiki", "climber"];
+const FIELDS: &[&str] = &["dataDir", "model", "baseURL", "maxInputTokens", "maxOutputTokens", "systemPrompt", "approvalMode", "llmWiki", "climber"];
 pub const DATA_LAYOUT: &str = "corax-node-llm-wiki-v1";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -152,9 +152,24 @@ pub fn save(path: &Path, revision: &str, next: &Settings) -> Result<String, Stri
         assert_eq!(document.raw["dataDir"], ".");
         assert_eq!(document.raw["llmWiki"], json!({"sources":[]}));
         assert_eq!(document.raw["climber"], json!({"enabled":true,"serviceURL":"http://127.0.0.1:18080/api/v1","timeoutMs":5000}));
+        assert_eq!(document.raw["approvalMode"], "always");
         assert_eq!(std::fs::read_to_string(f.root.join(".data-layout")).unwrap(), DATA_LAYOUT);
         ensure(&f.path).unwrap();
         assert_eq!(read(&f.path).unwrap().revision, document.revision);
+    }
+    #[test] fn approval_mode_roundtrips_and_stale_settings_cannot_overwrite_it() {
+        let f = Fixture::new(); ensure(&f.path).unwrap();
+        let before = read(&f.path).unwrap();
+        let mut next = settings(&f.path, &before.raw).unwrap();
+        next.approval_mode = "never".into();
+        save(&f.path, &before.revision, &next).unwrap();
+        let saved = read(&f.path).unwrap();
+        assert_eq!(saved.raw["approvalMode"], "never");
+        assert_eq!(saved.raw["dataDir"], ".");
+        assert!(save(&f.path, &before.revision, &Settings::default()).is_err());
+        let mut invalid = next;
+        invalid.approval_mode = "invalid".into();
+        assert!(invalid.validate().is_err());
     }
     #[test] fn historical_configuration_is_rejected_without_translation() {
         let f = Fixture::new();

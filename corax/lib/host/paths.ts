@@ -4,6 +4,7 @@ import { isAbsolute, resolve } from 'node:path';
 export interface HostPaths {
   workspace: string;
   skills: string;
+  project?: string;
 }
 
 export function hostEnvironmentValue(name: string): string | undefined {
@@ -16,10 +17,7 @@ export function hostEnvironmentValue(name: string): string | undefined {
 }
 
 export function toShellPath(value: string): string {
-  const path = value.replaceAll('\\', '/');
-  return process.platform === 'win32'
-    ? path.replace(/^([a-z]):\//i, (_, drive: string) => `/${drive.toLowerCase()}/`)
-    : path;
+  return value.replaceAll('\\', '/');
 }
 
 /** Corax resource aliases resolve to installed resources; other paths are native host paths. */

@@ -1,53 +1,40 @@
-import shell from 'shelljs';
 import { existsSync } from 'node:fs';
-import { delimiter, dirname, join, parse } from 'node:path';
+import { delimiter, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { hostPath, hostEnvironmentValue, toShellPath, type HostPaths } from './paths';
+import { hostRuntimeDirectory } from './runtime';
 
 function which(command: string) {
-  if (process.platform !== 'win32') return shell.which(command)?.toString();
   // Authored dev modules can receive a plain environment snapshot. Windows Path
   // remains case-insensitive even when that snapshot's JS keys are case-sensitive.
   for (const directory of (hostEnvironmentValue('PATH') ?? '').split(delimiter)) {
     if (!directory) continue;
-    const path = join(directory.replace(/^"|"$/g, ''), `${command}.exe`);
+    const path = join(
+      directory.replace(/^"|"$/g, ''),
+      process.platform === 'win32' ? `${command}.exe` : command,
+    );
     if (existsSync(path)) return path;
   }
   return undefined;
 }
 
-export function hostBash() {
-  const found = which('bash');
-  const candidates =
-    found && !/[/\\]Windows[/\\](System32|Sysnative)[/\\]bash\.exe$/i.test(found) ? [found] : [];
-  const git = which('git');
-  for (
-    let directory = git ? dirname(git) : '';
-    directory && directory !== parse(directory).root;
-    directory = dirname(directory)
-  ) {
-    candidates.push(join(directory, 'bin/bash.exe'), join(directory, 'usr/bin/bash.exe'));
-  }
-  const executable = candidates.find((path) => existsSync(path));
-  if (!executable)
+export function hostShell(project = resolve(import.meta.dirname, '../..')) {
+  const windows = process.platform === 'win32';
+  const executable = windows
+    ? join(hostRuntimeDirectory(project), 'busybox.exe')
+    : (which('bash') ?? '/bin/sh');
+  if (!existsSync(executable))
     throw new Error(
-      'ShellJS 未找到宿主机 Bash。Corax 原生工具需要 POSIX Shell；Windows 可使用已安装的 Git Bash，并将其加入 PATH。',
+      windows
+        ? '应用缺少随附的宿主执行组件。开发环境请运行 pnpm prepare:host；安装版请重新安装应用，无需安装 Git Bash。'
+        : '未找到宿主 POSIX Shell。',
     );
-  const directories = [dirname(executable)];
-  for (
-    let directory = dirname(executable);
-    directory !== parse(directory).root;
-    directory = dirname(directory)
-  ) {
-    const utilities = join(directory, 'usr/bin');
-    if (existsSync(utilities)) {
-      directories.push(utilities);
-      break;
-    }
-  }
   return {
     executable,
-    path: [...new Set(directories), hostEnvironmentValue('PATH') ?? ''].join(delimiter),
+    args: windows ? ['sh', '-c'] : ['-c'],
+    path: windows
+      ? [hostRuntimeDirectory(project), hostEnvironmentValue('PATH') ?? ''].join(delimiter)
+      : (hostEnvironmentValue('PATH') ?? ''),
   };
 }
 
@@ -59,6 +46,11 @@ export function hostEnvironment(path: string, extra?: Record<string, string>) {
     TMPDIR: toShellPath(tmpdir()),
     ...extra,
   };
+  // Node picks one spelling of duplicate environment keys on Windows. Do not let
+  // an inherited `Path` shadow the PATH chosen for this command.
+  if (process.platform === 'win32')
+    for (const key of Object.keys(env))
+      if (key.toUpperCase() === 'PATH' && key !== 'PATH') delete env[key];
   // Application-private transport/model credentials are not host command credentials.
   for (const key of Object.keys(env))
     if (['AUTO_AGENT_TOKEN', 'AUTO_AGENT_API_KEY'].includes(key.toUpperCase())) delete env[key];
@@ -66,6 +58,7 @@ export function hostEnvironment(path: string, extra?: Record<string, string>) {
 }
 
 function isResourceAlias(value: string) {
+  if (process.platform === 'win32' && /^\/[a-z](?::)?(?:\/|$)/i.test(value)) return true;
   return [
     '/workspace',
     '/tmp',
@@ -78,7 +71,7 @@ const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
 /** Adapt documented Corax filesystem path arguments, not shell programs or tool contracts. */
 export function bindHostPaths(command: string, paths: HostPaths) {
   return command.replace(
-    /'([^']*)'|"([^"$`]*)"|(^|[\s;|&])((?:\/workspace|\/tmp)(?:\/[^\s;'"|&()]*)?)(?=$|[\s;|&])/g,
+    /'([^']*)'|"([^"$`]*)"|(^|[\s;|&])((?:\/workspace|\/tmp|\/[a-z]:?)(?:\/[^\s;'"|&()]*)?)(?=$|[\s;|&])/gi,
     (
       match,
       single: string | undefined,
@@ -93,5 +86,3 @@ export function bindHostPaths(command: string, paths: HostPaths) {
     },
   );
 }
-
-export const shelljs = shell;

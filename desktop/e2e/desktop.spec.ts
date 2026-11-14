@@ -24,6 +24,9 @@ async function nativeDesktop(
     const histories: Record<string, any[]> = { [sessionId]: records };
     const testState = {
       requests: [] as string[],
+      renames: [] as { id: string; title: string }[],
+      sessionTitles: {} as Record<string, string>,
+      failRename: false,
       backendStarts: 0,
       rejectSend: false,
       approvalChanges: [] as any[],
@@ -109,6 +112,7 @@ async function nativeDesktop(
       watchId = '',
       submitted = false;
     const settings = {
+      approvalMode: 'always',
       dataDir: 'C:/isolated',
       model: 'local',
       baseURL: 'http://127.0.0.1/v1',
@@ -302,6 +306,7 @@ async function nativeDesktop(
         }
         if (command === 'backend_start') {
           testState.backendStarts++;
+          testState.approvalPolicy = { mode: settings.approvalMode, revision: 0 };
           return { ready: true };
         }
         if (command === 'backend_chat_open') {
@@ -376,6 +381,7 @@ async function nativeDesktop(
             if (previous.revision !== args.body.revision) throw new Error('审批策略已经变化');
             const value = { mode: args.body.mode, revision: previous.revision + 1 };
             testState.approvalPolicy = value;
+            settings.approvalMode = value.mode;
             return { generation: testState.generation, ...value };
           }
           if (args.path.endsWith('/respond')) {
@@ -602,15 +608,31 @@ async function nativeDesktop(
               },
             };
           if (args.path.startsWith('/session?')) {
-            if (testState.holdList) await new Promise<void>((resolve) => releaseList.push(resolve));
-            return existing
+            const rows = existing
               ? [
-                  { id: sessionId, title: '会话一', updatedAt: 1800000000001 },
-                  { id: secondId, title: '会话二', updatedAt: 1800000000000 },
+                  {
+                    id: sessionId,
+                    title: testState.sessionTitles[sessionId] ?? '会话一',
+                    updatedAt: 1800000000001,
+                  },
+                  {
+                    id: secondId,
+                    title: testState.sessionTitles[secondId] ?? '会话二',
+                    updatedAt: 1800000000000,
+                  },
                 ]
               : submitted
                 ? [{ id: sessionId, title: '原生会话', updatedAt: 1800000000000 }]
                 : [];
+            if (testState.holdList) await new Promise<void>((resolve) => releaseList.push(resolve));
+            return rows;
+          }
+          if (args.path.endsWith('/title') && args.method === 'PATCH') {
+            const id = args.path.split('/')[2];
+            testState.renames.push({ id, title: args.body.title });
+            if (testState.failRename) throw new Error('保存失败，请刷新会话列表核对结果。');
+            testState.sessionTitles[id] = args.body.title.trim();
+            return { id, title: testState.sessionTitles[id] };
           }
           if (args.path === '/session' && args.method === 'POST') {
             return { id: sessionId, title: '新会话', updatedAt: 1800000000000 };
@@ -835,6 +857,26 @@ test('composer policy is global, switches without history reads and never submit
   await page.keyboard.press('Escape');
   await expect(page.locator('.chat-input-dock .chat-input-request')).toBeVisible();
   expect(await page.evaluate(() => (window as any).__desktopTest.responses)).toEqual([]);
+});
+
+test('composer approval selection restores from settings after a backend restart without replaying a policy update', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const trigger = page.getByRole('button', { name: '审批策略', exact: true });
+  await trigger.click();
+  await page.getByRole('menuitemradio', { name: /无需批准/ }).click();
+  await expect(trigger).toContainText('无需批准');
+  await page.evaluate(() =>
+    (window as any).__desktopFixture.emit('backend-stream', 'disconnected'),
+  );
+  await page.getByRole('button', { name: '重新连接', exact: true }).click();
+  await expect(trigger).toContainText('无需批准');
+  await expect(trigger).toBeEnabled();
+  expect(await page.evaluate(() => (window as any).__desktopTest.backendStarts)).toBe(2);
+  expect(await page.evaluate(() => (window as any).__desktopTest.approvalChanges.length)).toBe(1);
 });
 
 test('native ask_question uses compact single-choice rows and the composer submit button without hiding messages', async ({
@@ -1432,6 +1474,116 @@ test('welcome recommendations update silently without blocking input or creating
   ).toEqual([]);
   await question.click();
   await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+});
+
+test('session rename context menu edits the target without selecting it and persists the displayed title', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  const target = page.getByRole('button', { name: /^会话二/ });
+  await target.click({ button: 'right' });
+  const menu = page.getByRole('menu', { name: '会话操作' });
+  await expect(menu).toBeVisible();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  await menu.getByRole('menuitem', { name: /重命名/ }).click();
+  const dialog = page.getByRole('dialog', { name: '重命名会话' });
+  const input = dialog.getByRole('textbox', { name: '会话名称' });
+  await expect(input).toBeFocused();
+  await expect(input).toHaveClass(/ui-input/);
+  await input.fill('我的测试方案');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByRole('button', { name: /^我的测试方案/ })).toBeVisible();
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.renames)).toEqual([
+    { id: 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TC', title: '我的测试方案' },
+  ]);
+  await page.getByRole('button', { name: /^我的测试方案/ }).click();
+  await expect(page.locator('.content-caption')).toHaveText('我的测试方案');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(page.getByRole('button', { name: /^我的测试方案/ })).toBeVisible();
+});
+
+test('session rename keyboard controls cancel without writes and retain edits after a failed save', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const row = page.getByRole('button', { name: /^会话一/ });
+  await row.focus();
+  await row.press('Shift+F10');
+  await expect(page.getByRole('menu', { name: '会话操作' })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(row).toBeFocused();
+  await row.press('F2');
+  const dialog = page.getByRole('dialog', { name: '重命名会话' });
+  const input = dialog.getByRole('textbox', { name: '会话名称' });
+  await input.fill('  ');
+  await expect(dialog.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
+  await input.fill('x'.repeat(101));
+  await expect(dialog.getByRole('button', { name: '保存', exact: true })).toBeDisabled();
+  await input.fill('需要保留的名称');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.failRename = true;
+  });
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toContainText('保存失败');
+  await expect(input).toHaveValue('需要保留的名称');
+  await expect(row).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.renames.length)).toBe(1);
+  await page.keyboard.press('Escape');
+  await expect(dialog).not.toBeVisible();
+  await expect(row).toBeFocused();
+});
+
+test('session rename survives an older pending list refresh and the context menu stays inside the viewport', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const row = page.getByRole('button', { name: /^会话一/ });
+  await row.dispatchEvent('contextmenu', { clientX: 1278, clientY: 858 });
+  const menu = page.getByRole('menu', { name: '会话操作' });
+  await expect(menu).toBeVisible();
+  const bounds = (await menu.boundingBox())!;
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(1272);
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(852);
+  await page.keyboard.press('Escape');
+  const count = await page.evaluate(
+    () =>
+      (window as any).__desktopTest.requests.filter((path: string) => path.startsWith('/session?'))
+        .length,
+  );
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdList = true;
+    (window as any).__desktopFixture.emit('agent-event', {
+      sessionId: 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB',
+      type: 'session.updated',
+      properties: {},
+    });
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as any).__desktopTest.requests.filter((path: string) =>
+            path.startsWith('/session?'),
+          ).length,
+      ),
+    )
+    .toBe(count + 1);
+  await row.focus();
+  await row.press('F2');
+  const dialog = page.getByRole('dialog', { name: '重命名会话' });
+  await dialog.getByRole('textbox', { name: '会话名称' }).fill('刷新后仍保留的名称');
+  await dialog.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseList());
+  await expect(page.getByRole('button', { name: /^刷新后仍保留的名称/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^会话一/ })).not.toBeVisible();
 });
 
 test('recommendation failure silently retains usable starter questions and does not retry on typing', async ({

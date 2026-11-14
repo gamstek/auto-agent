@@ -11,13 +11,13 @@
     "build": "pnpm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "tauri": "tauri",
-    "dev:desktop": "tauri dev",
+    "dev:desktop": "node --import tsx ../scripts/prepare-host.ts && tauri dev",
     "build:desktop": "tauri build",
     "build:release": "node --import tsx scripts/release.ts",
     "prepare:runtime": "node --import tsx scripts/prepare-runtime.ts"
   },
   "dependencies": {
-    "@coraxjs/core": "0.1.0",
+    "@coraxjs/core": "0.1.1",
     "@auto-agent/desktop-protocol": "workspace:*",
     "@tauri-apps/api": "^2.0.0",
     "@tauri-apps/plugin-dialog": "^2.0.0",

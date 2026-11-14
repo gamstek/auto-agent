@@ -20,3 +20,4 @@ coverage/
 docs/internal/
 .corax/
 .output/
+corax/assets/host/

@@ -9,7 +9,7 @@
 - **sam_file Tool**：Climber（研发别称 G5）和 SiCOPE（研发别称 G12）的 SAM 文件处理能力，由 MCP 提供。
 - **Climber Tool**：Climber 仪器的健康、当前状态、批次登记和启动能力；SiCOPE 文件支持不等于已接入其设备控制。
 - **device-automation Skill**：方法、材料规则、文件准备及测样流程指导，按目标组合 Wiki 和 Climber。
-- **宿主执行环境**：通过 ShellJS 接入真实宿主 Bash 与文件系统，保留 Corax 原生工具，不使用 JustBash 虚拟环境。
+- **宿主执行环境**：Corax 原生工具通过 Host Provider 直接操作本机文件和进程；Windows 随应用附带执行组件，不用安装 Git Bash，不使用 JustBash 虚拟环境。
 - **跨会话长期记忆**：使用 Corax 原生记忆能力，保留稳定的仪器使用背景、实验偏好和用户要求延续的项目摘要，重启后继续可用。
 - **个性化问题推荐**：欢迎页根据最近会话主题、提问与当前可用能力，调用已配置模型静默更新推荐问题；模型不可用时保留通用问题。
 
@@ -71,7 +71,9 @@ UTF-8 Markdown/TXT → LLM 分析 → 生成/合并 Markdown 知识页
 
 仅使用 **pnpm 10.15.1** 安装依赖。应用、Corax CLI、MCP、构建与发布脚本使用 **Node.js 24+**；系统 Bun 1.4.2 仅用于部分测试。
 
-ShellJS 调用宿主已安装的真实 Bash；Windows 使用 Git Bash，需使 Git/Bash 可通过 PATH 发现。ShellJS 不提供 Bash 解释器。`corax/sandbox.ts` 使用 Corax 公开 Provider 接口，文件和程序都在真实宿主执行；工作目录为 `dataDir/workspace`，Skill 引用由 Provider 绑定到实际安装资源，不依赖构建机的模板缓存。
+`corax/sandbox.ts` 使用公开 Host Provider，文件读写与进程执行都由 Node 原生 API 接入真实宿主。Windows 随应用附带 BusyBox-w32 POSIX Shell 与 ripgrep，无需安装 Git Bash、WSL 或 Docker；macOS/Linux 使用宿主 Bash 或 `/bin/sh`。Corax 原生 Bash、读写、glob/grep 工具保持原执行器，默认工作目录为真实的 `dataDir/workspace`，也能访问宿主其他实际路径和启动已安装的本机程序。Windows 命令使用 POSIX 语法和 `C:/目录/文件` 路径；原生文件/搜索工具按 Corax 约定使用 `/C:/目录/文件`，Provider 映射到同一个真实路径。BusyBox 不等同于完整 GNU Bash。
+
+开发和构建入口会准备固定版本、校验哈希的执行组件（也可单独运行 `pnpm prepare:host`），安装包包含这些组件、BusyBox 对应源码及许可，用户启动时不下载或安装。Skill 引用仍绑定实际安装资源，不依赖虚拟模板缓存。
 
 ```powershell
 pnpm install --frozen-lockfile
@@ -85,7 +87,7 @@ pnpm dev:desktop
 - 开发配置和可选 `.env` 仍位于仓库根目录，构建产物位于 `corax/.output`；独立源码目录不改变既有数据路径。
 - CLI start、正式桌面版与 LLM Wiki CLI 默认使用 `~/.auto-agent/config.json`。
 - CLI 用 `AUTO_AGENT_CONFIG` 选择配置；桌面可传 `--config` 或隔离的 `--data-dir`。
-- Node 直接读取唯一 config.json，Corax 进程固定自己的内存配置。桌面忙碌时允许保存，空闲后重启生效。
+- Node 直接读取唯一 config.json；模型、路径等配置在忙碌时可保存、空闲后重启生效。全局批准策略 `approvalMode` 保存到同一配置文件并实时生效，重启自动恢复。
 - API Key 来自 `AUTO_AGENT_API_KEY` 或桌面 OS keyring，不写进 JSON，也不返回 WebView 明文。
 - 是否需要 API Key 由所配置的模型服务决定；无需认证的本地或自建兼容模型服务可不填 Key。模型服务返回 HTTP 401/403 时，会明确提示检查服务地址、凭据和模型访问权限。
 
@@ -99,6 +101,7 @@ pnpm dev:desktop
   "maxInputTokens": 128000,
   "maxOutputTokens": 16000,
   "systemPrompt": "",
+  "approvalMode": "always",
   "climber": { "enabled": true, "serviceURL": "http://127.0.0.1:18080/api/v1", "timeoutMs": 5000 },
   "llmWiki": {
     "sources": [{ "id": "manuals", "type": "directory", "path": "knowledge" }]

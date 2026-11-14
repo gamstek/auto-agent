@@ -30,16 +30,18 @@ struct Settings {
     max_input_tokens: u64,
     max_output_tokens: u64,
     system_prompt: String,
+    approval_mode: String,
 }
 impl Default for Settings {
     fn default() -> Self {
         Self { model: "deepseek-flash".into(), base_url: "https://api.deepseek.com".into(),
             data_dir: ".".into(), llm_wiki: configuration::LlmWikiSettings::default(), climber: configuration::ClimberSettings::default(),
-            max_input_tokens: 128000, max_output_tokens: 16000, system_prompt: String::new() }
+             max_input_tokens: 128000, max_output_tokens: 16000, system_prompt: String::new(), approval_mode: "always".into() }
     }
 }
 impl Settings {
     fn validate(&self) -> Result<(), String> {
+        if !["always", "once", "never"].contains(&self.approval_mode.as_str()) { return Err("批准策略无效".into()); }
         for value in [&self.base_url] {
             let url = reqwest::Url::parse(value).map_err(|_| "服务地址不是有效 URL")?;
             if !["http", "https"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() {
@@ -56,7 +58,7 @@ impl Settings {
         Ok(())
     }
 }
-struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<CoraxRuntime>>, owned_tree: std::sync::Mutex<Option<std::sync::Weak<corax::ProcessTree>>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
+struct Desktop { root: PathBuf, config_path: PathBuf, backend: Mutex<Option<CoraxRuntime>>, config_writes: Mutex<()>, owned_tree: std::sync::Mutex<Option<std::sync::Weak<corax::ProcessTree>>>, client: reqwest::Client, pending_apply: AtomicBool, exiting: AtomicBool }
 fn credential(root: &Path) -> Result<keyring::Entry, String> { keyring::Entry::new("com.gamstek.autoagent", &format!("model-api-key:{}", root.display())).map_err(|_| "无法访问系统凭据库".into()) }
 fn read_key(root: &Path) -> Result<Option<String>, String> {
     match credential(root)?.get_password() { Ok(key) => Ok(Some(key)), Err(keyring::Error::NoEntry) => Ok(None), Err(_) => Err("无法读取系统凭据库，请检查 Windows 凭据服务".into()) }
@@ -112,12 +114,14 @@ async fn settings_save(app: tauri::AppHandle, state: State<'_, Desktop>, setting
     settings.validate()?;
     if api_key.as_ref().is_some_and(|key| key.len() > 4096 || key.trim().is_empty()) { return Err("API Key 长度或内容无效".into()); }
     if clear_key && api_key.is_some() { return Err("不能同时保存和移除 Key".into()); }
+    let config_write = state.config_writes.lock().await;
     let mut slot = state.backend.lock().await;
     if configuration::read(&state.config_path)?.revision != config_revision { return Err("共享配置已被外部修改，请重新读取配置后再编辑".into()); }
     configuration::merged(&state.config_path, &configuration::read(&state.config_path)?.raw, &settings)?;
     if clear_key { match credential(&state.root)?.delete_credential() { Ok(()) | Err(keyring::Error::NoEntry) => {}, Err(_) => return Err("无法移除系统凭据".into()) } }
     if let Some(key) = api_key { credential(&state.root)?.set_password(key.trim()).map_err(|_| "无法保存至系统凭据库")?; }
     let config_revision = configuration::save(&state.config_path, &config_revision, &settings)?;
+    drop(config_write);
     state.pending_apply.store(true, Ordering::SeqCst);
     if state.exiting.load(Ordering::SeqCst) { return Ok(json!({ "saved": true, "applied": false, "configRevision": config_revision })); }
     if let Some(backend) = slot.as_ref() {
@@ -204,7 +208,7 @@ fn main() {
                 chat_debug::initialize(&logs);
             }
             let client = reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(30)).build()?;
-            app.manage(Desktop { root, config_path, backend: Mutex::new(None), owned_tree: std::sync::Mutex::new(None), client, pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) });
+            app.manage(Desktop { root, config_path, backend: Mutex::new(None), config_writes: Mutex::new(()), owned_tree: std::sync::Mutex::new(None), client, pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) });
             tauri::async_runtime::spawn(apply_when_idle(app.handle().clone()));
             tauri::WebviewWindowBuilder::new(app, "launcher", tauri::WebviewUrl::App("index.html?launcher".into()))
                 .title("AI 助理").inner_size(88.0, 120.0).decorations(false).transparent(true).always_on_top(true).skip_taskbar(true).resizable(false).visible(false).build()?;

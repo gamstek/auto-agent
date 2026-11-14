@@ -118,6 +118,7 @@ export function App() {
     error: sessionsError,
     refreshSessions,
     loadMore: loadMoreSessions,
+    renameSession,
   } = useSessions();
   const [showBottom, setShowBottom] = useState(false);
   const [requestHeight, setRequestHeight] = useState(0);
@@ -351,6 +352,7 @@ export function App() {
                 setSettings(false);
               }}
               onLoadMore={loadMoreSessions}
+              onRename={renameSession}
               onRetry={() => {
                 if (moreSessions) void loadMoreSessions();
                 else void refreshSessions().catch(() => {});

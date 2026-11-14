@@ -1,4 +1,7 @@
-import { expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { always, type ApprovalContext } from '@coraxjs/core/tools/approval';
 import nativeBash from '@coraxjs/core/tools/bash';
 import nativeWriteFile from '@coraxjs/core/tools/write_file';
@@ -11,6 +14,20 @@ import {
   approvalSetting,
 } from '../../corax/lib/approval';
 import approvalChannel from '../../corax/channels/approval';
+import { ensureConfig } from '../../corax/lib/config';
+
+let directory: string;
+const previousConfig = process.env.AUTO_AGENT_CONFIG;
+beforeAll(async () => {
+  directory = await mkdtemp(join(tmpdir(), 'approval-policy-'));
+  process.env.AUTO_AGENT_CONFIG = join(directory, 'config.json');
+  ensureConfig(process.env.AUTO_AGENT_CONFIG);
+});
+afterAll(async () => {
+  if (previousConfig === undefined) delete process.env.AUTO_AGENT_CONFIG;
+  else process.env.AUTO_AGENT_CONFIG = previousConfig;
+  await rm(directory, { recursive: true, force: true, maxRetries: 5 });
+});
 
 const context = (id = 'fixture') =>
   ({

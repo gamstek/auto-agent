@@ -24,6 +24,7 @@ test('inactive LRU entries transfer official projections and retain the latest e
   cache.put(history('two'), 'generation');
   const selected = cache.take('one')!;
   expect(selected.projection).toBe(first);
+  if (!selected.projection) throw new Error('Expected a complete cached history');
   expect(cache.size).toBe(1);
   selected.projection.append(3, [
     {
@@ -63,4 +64,39 @@ test('memory budget evicts inactive entries and skips oversized histories withou
   expect(cache.size).toBe(0);
   expect(cache.estimatedBytes).toBe(0);
   expect(cache.take('one')).toBeUndefined();
+});
+
+test('interrupted history retains its preview for display without an authoritative cursor', () => {
+  const cache = new ChatHistoryCache(2);
+  const preview = history('long-history').snapshot();
+  cache.putPreview(preview, 'generation', 5000, 'reply');
+  cache.put(history('other'), 'generation');
+  const restored = cache.take('long-history')!;
+  expect(restored.snapshot).toBe(preview);
+  expect(restored.projection).toBeUndefined();
+  expect(restored.preview).toEqual({ startIndex: 5000, kind: 'reply' });
+  expect(restored.generation).toBe('generation');
+
+  cache.putPreview(restored.snapshot, restored.generation, 5000, 'reply');
+  const complete = history('long-history', '完整历史');
+  cache.put(complete, 'generation');
+  expect(cache.size).toBe(2);
+  const canonical = cache.take('long-history')!;
+  expect(canonical.projection).toBe(complete);
+  expect(canonical.preview).toBeUndefined();
+});
+
+test('previews share the session and memory limits and are cleared with complete histories', () => {
+  const cache = new ChatHistoryCache(1);
+  cache.putPreview(history('one').snapshot(), 'generation', 100, 'turns');
+  expect(cache.estimatedBytes).toBeGreaterThan(0);
+  cache.putPreview(history('two').snapshot(), 'generation', 200, 'reply');
+  expect(cache.take('one')).toBeUndefined();
+  cache.clear();
+  expect(cache.take('two')).toBeUndefined();
+  expect(cache.estimatedBytes).toBe(0);
+
+  const bounded = new ChatHistoryCache(2, 1);
+  bounded.putPreview(history('large').snapshot(), 'generation', 100, 'turns');
+  expect(bounded.size).toBe(0);
 });

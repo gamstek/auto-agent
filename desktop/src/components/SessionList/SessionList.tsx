@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { Session } from '../../bridge';
 import { NavigationItem } from '../NavigationItem/NavigationItem';
 import { Button } from '../Button/Button';
+import { SessionContextMenu } from '../SessionContextMenu/SessionContextMenu';
+import { SessionRenameDialog } from '../SessionRenameDialog/SessionRenameDialog';
 import './SessionList.css';
 
 export function SessionList({
@@ -16,6 +18,7 @@ export function SessionList({
   onSelect,
   onLoadMore,
   onRetry,
+  onRename,
 }: {
   sessions: Session[];
   selectedId: string;
@@ -27,9 +30,28 @@ export function SessionList({
   onSelect: (id: string) => void;
   onLoadMore: () => void;
   onRetry: () => void;
+  onRename: (id: string, title: string) => Promise<void>;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const sentinel = useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [editing, setEditing] = useState<Session | null>(null);
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const closeMenu = useCallback((restoreFocus = false) => {
+    setMenu(null);
+    if (restoreFocus) trigger.current?.focus({ preventScroll: true });
+  }, []);
+  const closeEditor = useCallback(() => {
+    setEditing(null);
+    trigger.current?.focus({ preventScroll: true });
+  }, []);
+  useEffect(() => {
+    if (!active) {
+      setMenu(null);
+      setEditing(null);
+    }
+  }, [active]);
+  const menuSession = menu ? sessions.find((session) => session.id === menu.id) : undefined;
   const visible = sessions.filter((session) =>
     session.title.toLowerCase().includes(query.trim().toLowerCase()),
   );
@@ -68,6 +90,35 @@ export function SessionList({
             day: 'numeric',
           })}
           onClick={() => onSelect(session.id)}
+          data-context-open={menu?.id === session.id}
+          aria-haspopup="menu"
+          aria-keyshortcuts="F2 Shift+F10"
+          aria-expanded={menu?.id === session.id}
+          onContextMenu={(event) => {
+            event.preventDefault();
+            if (!active) return;
+            trigger.current = event.currentTarget;
+            const rect = event.currentTarget.getBoundingClientRect();
+            setMenu({
+              id: session.id,
+              x: event.clientX || rect.left + 24,
+              y: event.clientY || rect.bottom,
+            });
+          }}
+          onKeyDown={(event) => {
+            if (!active) return;
+            if (event.key === 'F2') {
+              event.preventDefault();
+              trigger.current = event.currentTarget;
+              setMenu(null);
+              setEditing(session);
+            } else if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+              event.preventDefault();
+              trigger.current = event.currentTarget;
+              const rect = event.currentTarget.getBoundingClientRect();
+              setMenu({ id: session.id, x: rect.left + 24, y: rect.bottom });
+            }
+          }}
         />
       ))}
       {!visible.length && !loading && !error && !hasMore && (
@@ -91,6 +142,25 @@ export function SessionList({
         <p className="session-list-status">已显示全部会话</p>
       )}
       <div className="session-list-sentinel" ref={sentinel} aria-hidden="true" />
+      {active && menu && menuSession && (
+        <SessionContextMenu
+          x={menu.x}
+          y={menu.y}
+          onClose={closeMenu}
+          onRename={() => {
+            setMenu(null);
+            setEditing(menuSession);
+          }}
+        />
+      )}
+      {active && editing && (
+        <SessionRenameDialog
+          key={editing.id}
+          session={editing}
+          onSave={onRename}
+          onClose={closeEditor}
+        />
+      )}
     </div>
   );
 }

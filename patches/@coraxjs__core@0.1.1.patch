@@ -1,0 +1,131 @@
+diff --git a/dist/src/corax-channel/list-sessions.js b/dist/src/corax-channel/list-sessions.js
+index 06b483729669f819030150e3d716f3c33186fa87..deadfe07f0af4ab4918941cd2cd03ef8abb65634 100644
+--- a/dist/src/corax-channel/list-sessions.js
++++ b/dist/src/corax-channel/list-sessions.js
+@@ -1 +1,40 @@
+-import{getWorld}from"#internal/workflow/runtime.js";async function listSessions(e){let t=new URL(e.url),n=Number(t.searchParams.get(`limit`)??50),r=Number(t.searchParams.get(`offset`)??0);if(!Number.isSafeInteger(n)||n<1||n>100||!Number.isSafeInteger(r)||r<0)return Response.json({ok:!1,error:`Invalid session page`},{status:400});let i=await getWorld(),a=new Map,o;do{let e=await i.runs.list({resolveData:`none`,pagination:{limit:100,...o?{cursor:o}:{}}});for(let t of e.data){let e=t.attributes??{};if(e[`$corax.type`]!==`session`||e[`$corax.parent`])continue;let n=String(e[`$corax.session`]??t.runId),r=a.get(n),i=new Date(t.updatedAt).getTime();r&&r.updatedAt>=i||a.set(n,{id:n,title:String(e[`$corax.title`]??r?.title??`New session`),updatedAt:i,createdAt:r?.createdAt??new Date(t.createdAt).getTime()})}o=e.hasMore&&e.cursor?e.cursor:void 0}while(o);let s=[...a.values()].sort((e,t)=>t.updatedAt-e.updatedAt||t.id.localeCompare(e.id));return Response.json({sessions:s.slice(r,r+n),hasMore:r+n<s.length},{headers:{"cache-control":`no-store`}})}export{listSessions};
+\ No newline at end of file
++import { getWorld } from "#internal/workflow/runtime.js";
++
++/** Read Corax's native catalog, preserving user titles on the stable session anchor. */
++export async function listSessions(request) {
++  const url = new URL(request.url);
++  const limit = Number(url.searchParams.get("limit") ?? 50);
++  const offset = Number(url.searchParams.get("offset") ?? 0);
++  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100 ||
++      !Number.isSafeInteger(offset) || offset < 0)
++    return Response.json({ ok: false, error: "Invalid session page" }, { status: 400 });
++  const world = await getWorld();
++  const sessions = new Map();
++  const userTitles = new Map();
++  let cursor;
++  do {
++    const page = await world.runs.list({ resolveData: "none", pagination: {
++      limit: 100, ...(cursor ? { cursor } : {}),
++    } });
++    for (const run of page.data) {
++      const attributes = run.attributes ?? {};
++      if (attributes["$corax.type"] !== "session" || attributes["$corax.parent"]) continue;
++      const id = String(attributes["$corax.session"] ?? run.runId);
++      if (run.runId === id && typeof attributes["$corax.user_title"] === "string")
++        userTitles.set(id, attributes["$corax.user_title"]);
++      const previous = sessions.get(id);
++      const updatedAt = new Date(run.updatedAt).getTime();
++      if (previous && previous.updatedAt >= updatedAt) continue;
++      sessions.set(id, { id, title: String(attributes["$corax.title"] ?? previous?.title ?? "New session"),
++        updatedAt, createdAt: previous?.createdAt ?? new Date(run.createdAt).getTime() });
++    }
++    cursor = page.hasMore && page.cursor ? page.cursor : undefined;
++  } while (cursor);
++  for (const [id, title] of userTitles) {
++    const session = sessions.get(id);
++    if (session) session.title = title;
++  }
++  const sorted = [...sessions.values()].sort((a, b) => b.updatedAt - a.updatedAt || b.id.localeCompare(a.id));
++  return Response.json({ sessions: sorted.slice(offset, offset + limit), hasMore: offset + limit < sorted.length },
++    { headers: { "cache-control": "no-store" } });
++}
+diff --git a/dist/src/corax-channel/session-title.js b/dist/src/corax-channel/session-title.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..1a45a489e6be6e3d4db3b9c00134ff6153ab7eb0
+--- /dev/null
++++ b/dist/src/corax-channel/session-title.js
+@@ -0,0 +1,63 @@
++import { PATCH } from "#public/definitions/channel.js";
++import { routeAuth } from "#public/channels/auth.js";
++import { getWorld } from "#internal/workflow/runtime.js";
++import { isMissingWorkflowRunError } from "#internal/workflow/is-inactive-workflow-run-error.js";
++
++// Metadata only: no session dispatch, workflow replay or message-stream writes.
++export function createSessionTitleRoute(input, resolveWorld = getWorld) {
++  return PATCH("/corax/v1/session/:sessionId/title", async (request, context) => {
++    const auth = await routeAuth(request, input.auth);
++    if (auth instanceof Response) return auth;
++    const id = context.params.sessionId;
++    if (!/^wrun_[A-Za-z0-9]{26}$/.test(id ?? ""))
++      return Response.json({ ok: false, error: "Invalid session ID." }, { status: 400 });
++    let body;
++    try {
++      if (!request.body) throw new Error("Missing body");
++      const reader = request.body.getReader();
++      const chunks = [];
++      let size = 0;
++      try {
++        while (true) {
++          const next = await reader.read();
++          if (next.done) break;
++          size += next.value.byteLength;
++          if (size > 4096) {
++            await reader.cancel();
++            throw new Error("Body too large");
++          }
++          chunks.push(next.value);
++        }
++      } finally { reader.releaseLock(); }
++      body = JSON.parse(Buffer.concat(chunks).toString("utf8"));
++    } catch {
++      return Response.json({ ok: false, error: "Invalid title request." }, { status: 400 });
++    }
++    if (!body || typeof body !== "object" || Array.isArray(body) ||
++        Object.keys(body).length !== 1 || typeof body.title !== "string" ||
++        /[\x00-\x1f\x7f]/u.test(body.title))
++      return Response.json({ ok: false, error: "Invalid session title." }, { status: 400 });
++    const title = body.title.trim();
++    if (!title || Array.from(title).length > 100 || Buffer.byteLength(title, "utf8") > 1024)
++      return Response.json({ ok: false, error: "Title must contain 1 to 100 characters." }, { status: 400 });
++    try {
++      const world = await resolveWorld();
++      const run = await world.runs.get(id, { resolveData: "none" });
++      if (run.attributes?.["$corax.type"] !== "session" || run.attributes?.["$corax.parent"] ||
++          (run.attributes?.["$corax.session"] && run.attributes["$corax.session"] !== id))
++        return Response.json({ ok: false, error: "Session not found." }, { status: 404 });
++      if (!world.runs.experimentalSetAttributes)
++        return Response.json({ ok: false, error: "Session metadata updates are unavailable." }, { status: 501 });
++      // Store on the stable anchor. A handoff or derived title cannot override a user edit.
++      await world.runs.experimentalSetAttributes(id, [
++        { key: "$corax.title", value: title },
++        { key: "$corax.user_title", value: title },
++      ], { allowReservedAttributes: true });
++      return Response.json({ id, title }, { headers: { "cache-control": "no-store" } });
++    } catch (error) {
++      return Response.json({ ok: false, error: isMissingWorkflowRunError(error)
++        ? "Session not found." : "Unable to update session title." },
++        { status: isMissingWorkflowRunError(error) ? 404 : 503 });
++    }
++  });
++}
+diff --git a/dist/src/public/channels/corax.js b/dist/src/public/channels/corax.js
+index b489a6210a1028b4119282f4d3660b3f4b8b721d..10f9e2396d63ff8fc5ebcbef7eeb87d0adc7531c 100644
+--- a/dist/src/public/channels/corax.js
++++ b/dist/src/public/channels/corax.js
+@@ -1 +1,8 @@
+-export*from"#corax-channel/index.js";export{};
+\ No newline at end of file
++export * from "#corax-channel/index.js";
++import { coraxChannel as nativeCoraxChannel } from "#corax-channel/index.js";
++import { createSessionTitleRoute } from "#corax-channel/session-title.js";
++
++export function coraxChannel(input = {}) {
++  const channel = nativeCoraxChannel(input);
++  return { ...channel, routes: [...channel.routes, createSessionTitleRoute(input)] };
++}

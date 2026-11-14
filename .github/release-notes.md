@@ -13,7 +13,7 @@
 
 ### 安装与使用
 
-下载 `Auto-Agent_2.0.0-beta.6_x64-setup.exe`。无需另装 Node、Bun 或 Rust；宿主 Bash 工具仍需要 Windows 上已安装的 Git Bash。缺少 WebView2 时，安装器会下载其运行时。若旧版内置更新失败，可正常退出应用后手动运行安装包覆盖安装。
+下载 `Auto-Agent_2.0.0-beta.6_x64-setup.exe`。无需另装 Node、Bun、Rust 或 Git Bash；真实宿主工具使用随包附带的原生执行组件。缺少 WebView2 时，安装器会下载其运行时。若旧版内置更新失败，可正常退出应用后手动运行安装包覆盖安装。
 
 在模型设置中填写服务地址、模型名；是否需要 API Key 由实际服务决定，匿名本地或自建兼容服务可留空。Climber 默认厂家地址为 `http://127.0.0.1:18080/api/v1`，可在“设置 → 仪器”调整。
 

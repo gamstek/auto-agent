@@ -6,6 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { ClimberController } from '../src/controller';
+import { resultSchema } from '../src/vendor';
 
 const experiment = {
   experimentId: 'EXP-1',
@@ -38,7 +39,14 @@ async function fixture() {
     const body = JSON.parse(Buffer.concat(chunks).toString());
     writes.push(body);
     task = path.endsWith('/tasks')
-      ? { batchId: body.batchId, state: 'READY', experiments: body.experiments }
+      ? {
+          batchId: body.batchId,
+          state: 'READY',
+          experiments: body.experiments.map((entry: typeof experiment) => ({
+            ...entry,
+            deviceRunId: '',
+          })),
+        }
       : { ...task, state: 'RUNNING' };
     response.statusCode = uncertain ? 500 : 200;
     response.end(uncertain ? 'response lost' : JSON.stringify({ ok: true, data: { task } }));
@@ -87,6 +95,48 @@ test('batch control works for standard callers without an Agent or skill identit
     controller.close();
     await f.close();
   }
+});
+
+test('registration and READY status preserve an empty deviceRunId without an unknown write', async () => {
+  const f = await fixture();
+  const controller = f.create();
+  try {
+    const registered = await controller.execute(
+      'register_batch',
+      { batchId: 'B-EMPTY-RUN', experiments: [experiment] },
+      'client-a',
+      'OP-EMPTY-RUN',
+    );
+    assert.equal(registered.task?.experiments?.[0]?.deviceRunId, '');
+    assert.equal(resultSchema.parse(registered).task?.state, 'READY');
+    const status = await controller.execute('get_status', {}, 'client-a');
+    assert.equal(status.task?.experiments?.[0]?.deviceRunId, '');
+    assert.equal(resultSchema.parse(status).task?.batchId, 'B-EMPTY-RUN');
+    assert.equal(
+      controller.db.prepare('SELECT status FROM operations WHERE id=?').get('OP-EMPTY-RUN')?.status,
+      'confirmed',
+    );
+    assert.equal(f.writes.length, 1);
+  } finally {
+    controller.close();
+    await f.close();
+  }
+});
+
+test('deviceRunId accepts empty, absent, null, numeric and valid text values only', () => {
+  const result = (deviceRunId: unknown) => ({
+    source: 'climber-vendor',
+    operation: 'get_status',
+    task: {
+      batchId: 'B-1',
+      state: 'READY',
+      experiments: [{ experimentId: 'EXP-1', deviceRunId }],
+    },
+  });
+  for (const value of ['', undefined, null, 123, 'run-1'])
+    assert.equal(resultSchema.parse(result(value)).task?.experiments?.[0]?.deviceRunId, value);
+  for (const value of [' ', '\n', 'x'.repeat(129), {}, true])
+    assert.equal(resultSchema.safeParse(result(value)).success, false);
 });
 
 test('independent server instances cannot register concurrent batches on the same endpoint', async () => {

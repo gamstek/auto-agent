@@ -1,0 +1,49 @@
+.session-rename-dialog {
+  width: min(420px, calc(100vw - 40px));
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--control-border);
+  border-radius: 16px;
+  background: #fff;
+  color: var(--text-primary);
+  box-shadow: 0 20px 70px #23354a26;
+}
+.session-rename-dialog::backdrop {
+  background: #1b2c4538;
+}
+.session-rename-dialog form {
+  display: grid;
+  gap: 10px;
+}
+.session-rename-dialog h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.session-rename-dialog label {
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+.session-rename-dialog .ui-input {
+  min-height: 40px;
+}
+.session-rename-hint {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.session-rename-error {
+  margin: 0;
+  color: #b43d3d;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.session-rename-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}

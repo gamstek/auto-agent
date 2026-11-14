@@ -134,6 +134,20 @@ pub(super) async fn read(client: &Client, backend: &Connection, id: &str, query:
         let mut response = client.get(&url).basic_auth("auto-agent", Some(&backend.token))
             .send().await.map_err(|_| "无法读取 Corax 会话状态")?;
         timing.mark("headers", json!({"attempt":attempt,"status":response.status().as_u16()}));
+        #[cfg(debug_assertions)] {
+            let mut metrics = serde_json::Map::new();
+            for (header, field) in [
+                ("x-auto-agent-history-tail-ms", "tailMs"),
+                ("x-auto-agent-history-stream-ms", "streamMs"),
+                ("x-auto-agent-history-handler-ms", "handlerMs"),
+            ] {
+                if let Some(value) = response.headers().get(header).and_then(|v| v.to_str().ok())
+                    .and_then(|v| v.parse::<u64>().ok()).filter(|v| *v <= 86_400_000) {
+                    metrics.insert(field.into(), json!(value));
+                }
+            }
+            if !metrics.is_empty() { timing.mark("server", Value::Object(metrics)); }
+        }
         if !response.status().is_success() {
             if attempt + 1 == attempts || ![404, 409, 425, 503].contains(&response.status().as_u16()) { break; }
             drop(response);

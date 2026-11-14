@@ -7,30 +7,41 @@ import {
   type ApprovalStatus,
 } from '@coraxjs/core/tools/approval';
 import type { ApprovalMode, ApprovalSetting } from '@auto-agent/desktop-protocol';
+import { getRuntimeConfig, saveRuntimeApprovalMode } from './config';
 
+export class ApprovalConflictError extends Error {}
 const key = Symbol.for('auto-agent.global-approval-setting');
 const host = globalThis as typeof globalThis & { [key]?: { value: ApprovalSetting } };
-const setting = (host[key] ??= { value: { mode: 'always', revision: 0 } });
+
 const policies = { always: always<unknown>(), once: once<unknown>(), never: never<unknown>() };
 
 // Policy choices only; Corax still owns all approval requests, grants and durable work.
-// They reset to always on a complete backend restart and are never model arguments.
+// Persist only the user's selection, not native request decisions or grants.
 export function approvalSetting(): ApprovalSetting {
-  return { ...setting.value };
+  host[key] ??= { value: { mode: getRuntimeConfig().approvalMode, revision: 0 } };
+  return { ...host[key].value };
 }
 
 export function setApprovalSetting(mode: ApprovalMode, revision: number): ApprovalSetting {
   const previous = approvalSetting();
-  if (previous.revision !== revision) throw new Error('审批策略已经变化，请重新读取后选择。');
+  if (previous.revision !== revision)
+    throw new ApprovalConflictError('审批策略已经变化，请重新读取后选择。');
+  saveRuntimeApprovalMode(mode);
   const next = { mode, revision: revision + 1 };
-  setting.value = next;
+  host[key]!.value = next;
   return { ...next };
 }
 
 export function requestApproval(
   context: ApprovalContext<unknown>,
 ): ApprovalStatus | Promise<ApprovalStatus> {
-  return policies[approvalSetting().mode](context);
+  let mode: ApprovalMode = 'always';
+  try {
+    mode = approvalSetting().mode;
+  } catch {
+    /* Unreadable configuration requires native approval. */
+  }
+  return policies[mode](context);
 }
 
 /** Request-time policy only. Corax owns request IDs, decisions and execution. */

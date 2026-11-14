@@ -9,6 +9,7 @@ import {
   ownCoraxRuntime,
 } from 'auto-agent/config';
 import { startProcess } from './shared/process';
+import { prepareHostRuntime } from './prepare-host';
 
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 24)
   throw new Error('Run Auto-Agent with Node.js 24+');
@@ -16,6 +17,7 @@ const root = resolve(import.meta.dirname, '..');
 const project = join(root, 'corax');
 const command = process.argv[2] ?? 'dev';
 if (!['dev', 'build', 'start'].includes(command)) throw new Error('Expected dev, build or start');
+if (command !== 'start') await prepareHostRuntime(project);
 const args = process.argv.slice(3);
 const env = {
   ...process.env,

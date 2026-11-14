@@ -20,7 +20,7 @@ pub struct Connection {
     token: String,
     secrets: Vec<String>,
     generation: String,
-    config_revision: String,
+    config_revision: SyncMutex<String>,
     pending: SyncMutex<HashMap<String, PendingAdmission>>,
     knowledge_pending: SyncMutex<Option<String>>,
     dispatch: Mutex<()>,
@@ -254,7 +254,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
         });
     }
     let secrets: Vec<String> = std::iter::once(token.clone()).chain(key).collect();
-    let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), config_revision: document.revision, pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
+    let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), config_revision: SyncMutex::new(document.revision), pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
     let mut backend = CoraxRuntime { child, connection, chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
@@ -375,7 +375,13 @@ fn transport_error(method: &str, path: &str, timeout: bool) -> &'static str {
 async fn request_status(state: &Desktop, backend: &Connection, method: &str, path: &str, body: Option<Value>) -> Result<(reqwest::StatusCode, Value), String> {
     let timing = chat_debug::Span::new(timing_operation(method, path));
     #[cfg(debug_assertions)] let started = std::time::Instant::now();
-    let mut request = state.client.request(if method == "GET" { reqwest::Method::GET } else { reqwest::Method::POST }, format!("{}{path}", backend.url)).basic_auth("auto-agent", Some(&backend.token));
+    let verb = match method {
+        "GET" => reqwest::Method::GET,
+        "POST" => reqwest::Method::POST,
+        "PATCH" => reqwest::Method::PATCH,
+        _ => return Err("不支持的 Corax 请求方法".into()),
+    };
+    let mut request = state.client.request(verb, format!("{}{path}", backend.url)).basic_auth("auto-agent", Some(&backend.token));
     if path == "/desktop/devices/climber/refresh" { request = request.timeout(Duration::from_secs(70)); }
     if let Some(body) = body { request = request.json(&body); }
     let response = request.send().await.map_err(|error| transport_error(method, path, error.is_timeout()))?;
@@ -481,7 +487,9 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "POST" && ["/knowledge/ingest", "/knowledge/cancel", "/knowledge/read"].contains(&path) { return true; }
     let parts: Vec<_> = route.trim_start_matches('/').split('/').collect();
     parts.len() == 3 && parts[0] == "session" && valid_session_id(parts[1]) &&
-        ((method == "GET" && parts[2] == "events" && HistoryQuery::parse(path).is_ok()) || (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
+        ((method == "GET" && parts[2] == "events" && HistoryQuery::parse(path).is_ok()) ||
+         (method == "PATCH" && parts[2] == "title" && path == route) ||
+         (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
 }
 fn valid_session_id(id: &str) -> bool { id.strip_prefix("wrun_").is_some_and(|id| id.len() == 26 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())) }
 
@@ -554,6 +562,7 @@ fn reconcile_knowledge(backend: &Connection, value: &Value) -> bool {
 }
 
 async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, path: &str, body: Option<Value>) -> Result<Value, Value> {
+    let config_revision = backend.config_revision.lock().unwrap().clone();
     let mut payload = body.unwrap_or(json!({}));
     let start = path == "/knowledge/ingest";
     let cancel = path == "/knowledge/cancel";
@@ -566,7 +575,7 @@ async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, 
             if payload.as_object().is_none_or(|object| object.keys().any(|key| !["generation", "configRevision", "sourceId"].contains(&key.as_str()))) || payload.get("sourceId").is_some_and(|source| !source.is_null() && !source.is_string()) {
                 return Err(json!({"message":"知识整理参数无效","admission":"rejected"}));
             }
-            if state.pending_apply.load(Ordering::SeqCst) || payload["configRevision"].as_str() != Some(backend.config_revision.as_str()) || configuration::read(&state.config_path)?.revision != backend.config_revision {
+            if state.pending_apply.load(Ordering::SeqCst) || payload["configRevision"].as_str() != Some(config_revision.as_str()) || configuration::read(&state.config_path)?.revision != config_revision {
                 return Err(json!({"message":"资料配置尚未保存或生效，请等待设置应用","admission":"rejected"}));
             }
             let has_pending = backend.knowledge_pending.lock().unwrap().is_some();
@@ -578,7 +587,7 @@ async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, 
             }
             let id = uuid::Uuid::new_v4().to_string();
             *backend.knowledge_pending.lock().unwrap() = Some(id.clone());
-            payload = if let Some(source) = payload["sourceId"].as_str() { json!({"operationId":id,"configRevision":backend.config_revision,"sourceId":source}) } else { json!({"operationId":id,"configRevision":backend.config_revision}) };
+            payload = if let Some(source) = payload["sourceId"].as_str() { json!({"operationId":id,"configRevision":config_revision,"sourceId":source}) } else { json!({"operationId":id,"configRevision":config_revision}) };
             operation_id = Some(id);
         } else {
             payload = json!({"operationId":payload["operationId"]});
@@ -594,10 +603,21 @@ async fn knowledge_request(state: &Desktop, backend: &Connection, method: &str, 
     }
     if value.is_object() {
         value["generation"] = json!(backend.generation);
-        if value.get("configRevision").is_none() { value["configRevision"] = json!(backend.config_revision); }
+        if value.get("configRevision").is_none() { value["configRevision"] = json!(config_revision); }
         if value.get("operation").is_some() { value["admissionUncertain"] = json!(reconcile_knowledge(backend, &value)); }
     }
     Ok(value)
+}
+
+fn approval_response(backend: &Connection, mut value: Value, saved_revision: Option<&str>) -> Value {
+    let revision = value.as_object_mut().and_then(|object| object.remove("configRevision"));
+    if let Some(revision) = revision.and_then(|value| value.as_str().map(String::from)) {
+        if saved_revision == Some(revision.as_str()) && revision.len() == 64 && revision.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            *backend.config_revision.lock().unwrap() = revision;
+        }
+    }
+    value["generation"] = json!(backend.generation);
+    value
 }
 
 // Fixed labels only: never write a URL, session ID or query string to the timing log.
@@ -698,18 +718,20 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     if path == "/suggestions" { return suggestions_request(&state, &backend).await.map_err(Value::from); }
     if path == "/approval" {
         if method == "GET" {
-            let mut value = request(&state, &backend, "GET", "/desktop/approval", None).await?;
-            value["generation"] = json!(backend.generation);
-            return Ok(value);
+            let value = request(&state, &backend, "GET", "/desktop/approval", None).await?;
+            // Serialize revision reconciliation with policy/settings writes, not the HTTP read.
+            let _config_write = state.config_writes.lock().await;
+            let saved = configuration::read(&state.config_path)?;
+            return Ok(approval_response(&backend, value, Some(&saved.revision)));
         }
         let payload = body.unwrap_or(json!({}));
         if payload["generation"].as_str() != Some(&backend.generation) || payload.as_object().is_none_or(|object| object.keys().any(|key| !["generation", "mode", "revision"].contains(&key.as_str()))) { return Err("审批策略的后端身份已经变化，请重新读取。".into()); }
         // Global policy updates do not read history or wait for chat admission.
         // Node applies the revisioned choice atomically; this does not answer pending inputs.
+        let _config_write = state.config_writes.lock().await;
         let value = request(&state, &backend, "POST", "/desktop/approval", Some(json!({"mode":payload["mode"],"revision":payload["revision"]}))).await?;
-        let mut value = value;
-        value["generation"] = json!(backend.generation);
-        return Ok(value);
+        let saved = configuration::read(&state.config_path)?;
+        return Ok(approval_response(&backend, value, Some(&saved.revision)));
     }
     let _serialized = if read_only { None } else { Some(backend.dispatch.lock().await) };
     timing.mark("dispatch-lock", json!({"readOnly":read_only}));
@@ -735,6 +757,19 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
         for event in &mut page.events { redact(event, &backend.secrets); }
         timing.mark("redacted", json!({"count":page.events.len()}));
         return Ok(page.into_response(id, &backend.generation, admitted));
+    }
+    if action == "title" {
+        let payload = body.ok_or("缺少会话名称")?;
+        let title = payload["title"].as_str().ok_or("会话名称无效")?;
+        if payload.as_object().is_none_or(|object| object.len() != 1) ||
+            title.trim().is_empty() || title.trim().chars().count() > 100 ||
+            title.chars().any(char::is_control) {
+            return Err("会话名称须为 1–100 个字符，且不能包含控制字符".into());
+        }
+        let value = request(&state, &backend, "PATCH", &format!("/corax/v1/session/{id}/title"),
+            Some(json!({"title":title.trim()}))).await?;
+        let _ = app.emit("agent-event", json!({"sessionId":id,"type":"session.updated","properties":{}}));
+        return Ok(value);
     }
     let mut payload = body.unwrap_or(json!({}));
     if action == "prompt_async" {
@@ -940,7 +975,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     }); }
 
     fn connection(url: String) -> Arc<Connection> {
-        Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), config_revision: "fixture".into(), pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })
+        Arc::new(Connection { url, token: "fixture".into(), secrets: vec![], generation: uuid::Uuid::new_v4().to_string(), config_revision: SyncMutex::new("fixture".into()), pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) })
     }
     #[test] fn capability_catalog_uses_runtime_entries_and_projects_only_display_metadata() {
         let info = json!({
@@ -965,7 +1000,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(!allowed_request("POST", "/capabilities"));
     }
     fn state() -> Desktop {
-        Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), owned_tree: SyncMutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
+        Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), config_writes: Mutex::new(()), owned_tree: SyncMutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
     }
     #[test] fn read_transport_failures_are_not_reported_as_ambiguous_writes() {
         for (method, path) in [("GET", "/corax/v1/session?limit=100"), ("POST", "/desktop/activity"), ("POST", "/desktop/knowledge/read"), ("POST", "/desktop/devices/climber/refresh")] {
@@ -1021,11 +1056,31 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         for method in ["GET", "POST"] { assert!(allowed_request(method, "/approval")); }
         for (method, path) in [("DELETE", "/approval"), ("GET", "/approval?sessionId=other"), ("POST", "/approval/never"), ("GET", "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/approval")] { assert!(!allowed_request(method, path)); }
     }
+    #[test] fn approval_responses_synchronize_applied_config_revision_without_changing_the_ipc_shape() {
+        let backend = connection("http://127.0.0.1".into());
+        let revision = "a".repeat(64);
+        let value = approval_response(&backend, json!({"mode":"never","revision":1,"configRevision":revision}), Some(&revision));
+        assert_eq!(*backend.config_revision.lock().unwrap(), revision);
+        assert_eq!(value, json!({"mode":"never","revision":1,"generation":backend.generation}));
+        approval_response(&backend, json!({"mode":"once","revision":2,"configRevision":"invalid"}), Some(&revision));
+        assert_eq!(*backend.config_revision.lock().unwrap(), revision);
+        let stale_revision = "b".repeat(64);
+        approval_response(&backend, json!({"mode":"always","revision":0,"configRevision":stale_revision}), Some(&revision));
+        assert_eq!(*backend.config_revision.lock().unwrap(), revision, "An older HTTP response must not roll back the applied revision");
+    }
     #[test] fn tail_previews_have_a_separate_bounded_read_contract() {
         let path = "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events";
         for count in [1, 128, 512, 2048] { assert!(allowed_request("GET", &format!("{path}?tail={count}"))); }
         for query in ["tail=0", "tail=2049", "tail=-128", "tail=128&tail=512", "tail=128&startIndex=0", "tail=128&url=private"] { assert!(!allowed_request("GET", &format!("{path}?{query}"))); }
         assert!(!allowed_request("POST", &format!("{path}?tail=128")));
+    }
+    #[test] fn session_titles_have_one_fixed_patch_endpoint() {
+        let path = "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/title";
+        assert!(allowed_request("PATCH", path));
+        for method in ["GET", "POST", "PUT", "DELETE"] { assert!(!allowed_request(method, path)); }
+        assert!(!allowed_request("PATCH", &format!("{path}?url=other")));
+        assert!(!allowed_request("PATCH", "/session/invalid/title"));
+        assert!(!allowed_request("PATCH", "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events"));
     }
     #[test] fn tail_previews_preserve_global_offsets_and_never_release_pending_admission() { tauri::async_runtime::block_on(async {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -1169,8 +1224,8 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         std::fs::write(&state.config_path, "{}").unwrap();
         let revision = configuration::read(&state.config_path).unwrap().revision;
         let (url, task) = server(vec![(500, json!({"error":"unknown admission"}))]).await;
-        let mut connection = connection(url);
-        Arc::get_mut(&mut connection).unwrap().config_revision = revision.clone();
+        let connection = connection(url);
+        *connection.config_revision.lock().unwrap() = revision.clone();
         let stale = knowledge_request(&state, &connection, "POST", "/knowledge/ingest", Some(json!({"generation":connection.generation,"configRevision":"stale"}))).await.unwrap_err();
         assert_eq!(stale["admission"], "rejected");
         assert!(connection.knowledge_pending.lock().unwrap().is_none());

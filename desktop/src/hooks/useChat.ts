@@ -44,18 +44,19 @@ interface ViewLease {
 }
 
 function chatContext(id: string, cached?: CachedChatHistory) {
+  const preview = cached?.preview;
   return {
     id,
     projection: cached?.projection ?? new CoraxProjection(id),
-    snapshot: (cached?.snapshot ?? null) as ChatSnapshot | null,
-    preview: null as ChatSnapshot | null,
-    previewGeneration: '',
-    previewStartIndex: 0,
-    previewKind: 'turns' as 'turns' | 'reply',
+    snapshot: (preview ? null : (cached?.snapshot ?? null)) as ChatSnapshot | null,
+    preview: (preview ? cached.snapshot : null) as ChatSnapshot | null,
+    previewGeneration: preview ? cached.generation : '',
+    previewStartIndex: preview?.startIndex ?? 0,
+    previewKind: preview?.kind ?? ('turns' as 'turns' | 'reply'),
     watchId: '',
-    loaded: !!cached,
+    loaded: !!cached && !preview,
     view: undefined as ViewLease | undefined,
-    generation: cached?.generation ?? '',
+    generation: preview ? '' : (cached?.generation ?? ''),
     loading: !!id,
     error: '',
   };
@@ -73,6 +74,13 @@ export function useChat(sessionId: string, connected: boolean, allowPreview = tr
     const previous = current.current;
     const cached = cache.current.take(sessionId);
     if (previous.loaded) cache.current.put(previous.projection, previous.generation);
+    else if (previous.preview)
+      cache.current.putPreview(
+        previous.preview,
+        previous.previewGeneration,
+        previous.previewStartIndex,
+        previous.previewKind,
+      );
     current.current = chatContext(sessionId, cached);
   }
   const notify = useCallback(() => render((value) => value + 1), []);
@@ -277,7 +285,7 @@ export function useChat(sessionId: string, connected: boolean, allowPreview = tr
     let received = false;
     let unlisten: (() => void) | undefined;
     const preview = async () => {
-      if (!previewAllowed.current || selected.loaded) return;
+      if (!previewAllowed.current || selected.loaded || selected.preview) return;
       const trace = chatTrace('chat-sync', { initial: true });
       const active = () =>
         !disposed &&

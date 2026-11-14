@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startProcess } from '../../scripts/shared/process';
+import { verifyCoraxRuntime } from './corax-runtime';
 
 // Extract rather than execute NSIS: verification must never touch the developer's
 // registry, installed application or ~/.auto-agent data-layout marker.
@@ -32,13 +33,12 @@ try {
     'NODE-LICENSE',
     'install-reset.mjs',
     'node_modules/@coraxjs/core/package.json',
-    'node_modules/@coraxjs/core/dist/src/compiled/@workflow/world-local/stream-info-batched.js',
-    'node_modules/@coraxjs/core/dist/src/execution/history-read-scope.js',
     'node_modules/tsx/package.json',
     'node_modules/@auto-agent/climber-mcp/src/sam/sam-profiles.json',
     'skills/device-automation/assets/library.sqlite',
   ])
     assert.ok((await stat(join(runtime, resource))).isFile(), `Missing installed ${resource}`);
+  await verifyCoraxRuntime(runtime);
   for (const obsolete of ['backend', 'auto-agent-backend.exe', 'runtime/bun.exe'])
     await assert.rejects(stat(join(extracted, obsolete)), { code: 'ENOENT' });
 

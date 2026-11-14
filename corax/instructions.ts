@@ -24,6 +24,7 @@ function instructions() {
 模型标识（当前配置）：${config.model}
 宿主平台：${process.platform}/${process.arch}
 运行时：Node.js ${process.versions.node}
+工具执行环境：真实宿主文件系统与本机进程，命令使用 POSIX 语法。${process.platform === 'win32' ? 'Windows 使用应用随附的 BusyBox POSIX Shell 和 ripgrep，不需要 Git Bash；BusyBox 不等同于完整 GNU Bash。Corax 文件/搜索工具的 Windows 绝对路径使用 /C:/目录/文件，映射真实 C 盘；Shell 命令中可使用 C:/目录/文件。SAM 工具仍使用返回的原生 Windows 路径。' : '使用宿主 Bash 或 /bin/sh。'}
 </environment>`;
   return defineInstructions({
     content: `<role>\n${config.systemPrompt.trim() || defaultRole}\n</role>\n\n${workingGuidance}\n\n${environment}`,

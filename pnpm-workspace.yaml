@@ -15,7 +15,7 @@ onlyBuiltDependencies:
   - esbuild
 
 patchedDependencies:
-  '@coraxjs/core@0.1.0': patches/@coraxjs__core@0.1.0.patch
+  '@coraxjs/core@0.1.1': patches/@coraxjs__core@0.1.1.patch
 
 syncInjectedDepsAfterScripts:
   - build

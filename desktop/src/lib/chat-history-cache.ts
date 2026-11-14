@@ -1,11 +1,13 @@
 import type { ChatSnapshot } from '@auto-agent/desktop-protocol';
 import type { CoraxProjection } from './corax-projection';
 
-export interface CachedChatHistory {
-  projection: CoraxProjection;
+export type CachedChatHistory = {
   generation: string;
   snapshot: ChatSnapshot;
-}
+} & (
+  | { projection: CoraxProjection; preview?: never }
+  | { projection?: never; preview: { startIndex: number; kind: 'turns' | 'reply' } }
+);
 
 // Charge UTF-16 strings, property slots and object overhead, counting shared objects once.
 // This is a conservative retention budget, not an engine-specific heap measurement.
@@ -62,15 +64,28 @@ export class ChatHistoryCache {
   }
 
   put(projection: CoraxProjection, generation: string) {
-    this.take(projection.id);
-    if (!projection.id || !generation || this.maxSessions <= 0) return;
-    const history = { projection, generation, snapshot: projection.snapshot() };
+    this.retain(projection.id, { projection, generation, snapshot: projection.snapshot() });
+  }
+
+  /** A suffix is display-only: never retain it as an authoritative event prefix. */
+  putPreview(
+    snapshot: ChatSnapshot,
+    generation: string,
+    startIndex: number,
+    kind: 'turns' | 'reply',
+  ) {
+    this.retain(snapshot.sessionId, { snapshot, generation, preview: { startIndex, kind } });
+  }
+
+  private retain(id: string, history: CachedChatHistory) {
+    this.take(id);
+    if (!id || !history.generation || this.maxSessions <= 0) return;
     const bytes = retainedBytes(history, this.maxBytes);
     // An oversized conversation remains readable in the active view, but is never retained.
     if (bytes > this.maxBytes) return;
     while (this.entries.size >= this.maxSessions || this.bytes + bytes > this.maxBytes)
       this.take(this.entries.keys().next().value!);
-    this.entries.set(projection.id, { history, bytes });
+    this.entries.set(id, { history, bytes });
     this.bytes += bytes;
   }
 

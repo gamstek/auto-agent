@@ -10,6 +10,7 @@ async function open(context: SandboxProviderSessionContext) {
   const session = await createHostSession({
     workspace: join(getRuntimeConfig().dataDir, 'workspace'),
     skills: context.host.resolveProjectPath('skills'),
+    project: context.host.resolveProjectPath('.'),
   });
   return {
     sandbox: session.sandbox,

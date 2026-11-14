@@ -4,6 +4,8 @@ import { build } from 'esbuild';
 import { pnpmCommand } from '../../scripts/shared/pnpm';
 import { startProcess } from '../../scripts/shared/process';
 import { preparePublishedTree } from './runtime-tree';
+import { verifyCoraxRuntime } from './corax-runtime';
+import { hostRuntimeDirectory } from 'auto-agent/host-runtime';
 
 const root = resolve(import.meta.dirname, '../..');
 if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64')
@@ -50,17 +52,28 @@ for (const path of [
   'node_modules/@auto-agent/climber-mcp/src/sam/sam-generate.js',
   'node_modules/@auto-agent/climber-mcp/src/sam/sam-profiles.json',
   'node_modules/@coraxjs/core/bin/corax.js',
-  'node_modules/@coraxjs/core/dist/src/compiled/@workflow/world-local/stream-info-batched.js',
-  'node_modules/@coraxjs/core/dist/src/execution/history-read-scope.js',
   'node_modules/tsx/package.json',
-  'node_modules/shelljs/package.json',
   'sandbox.ts',
   'memory.ts',
 ]) {
   if (!(await stat(join(output, path))).isFile())
     throw new Error(`Runtime resource missing: ${path}`);
 }
+if (process.platform === 'win32') {
+  for (const name of [
+    'busybox.exe',
+    'rg.exe',
+    'busybox-source.tgz',
+    'ripgrep.zip',
+    'NOTICE.txt',
+    'RIPGREP-COPYING',
+    'RIPGREP-LICENSE-MIT',
+  ])
+    if (!(await stat(join(hostRuntimeDirectory(output), name))).isFile())
+      throw new Error(`Packaged native host resource missing: ${name}`);
+}
 const deployed = JSON.parse(await readFile(join(output, 'package.json'), 'utf8'));
+await verifyCoraxRuntime(output);
 if (deployed.name !== 'auto-agent')
   throw new Error('Packaged runtime must preserve the auto-agent session identity');
 if (!deployed.dependencies?.['@coraxjs/core'])
@@ -75,7 +88,7 @@ if (
   prepared.entries.some((entry: { providerName: string }) => entry.providerName !== 'host')
 )
   throw new Error(
-    'Packaged runtime must select the ShellJS host sandbox, not a virtual sandbox template',
+    'Packaged runtime must select the real host sandbox, not a virtual sandbox template',
   );
 // PATH launchers and dependency source maps are deployment/debugging artifacts,
 // not runtime inputs. Keep sources, declarations, licenses and native/WASM assets.

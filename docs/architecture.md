@@ -19,23 +19,23 @@ Corax 管理会话 ID、标题、消息和持久化；应用不另建 Agent 循�
 
 Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、instructions、sandbox、memory、tools、channels 和 lib 路径均相对此目录。开发 CLI 的 CWD 和项目根目录只指向该包，桌面构建产物不进入其递归监听范围。`corax/package.json` 保留 `auto-agent` 身份与发布白名单，仓库根包仅负责工作区命令和验证。
 
-| 路径                                | 职责                                                |
-| ----------------------------------- | --------------------------------------------------- |
-| agent.ts / instructions.ts          | 动态模型与角色/共享原则                             |
-| memory.ts                           | Corax 原生长期记忆、稳定本地用户作用域              |
-| sandbox.ts / lib/host               | 公开 Corax Provider、ShellJS 宿主进程与真实文件 I/O |
-| tools/wiki.ts                       | Agent 通用 Wiki：知识、只读证据与显式摄入           |
-| tools/climber.ts                    | MCP 契约驱动的动态 SAM/Climber 工具                 |
-| channels/corax.ts                   | 原生 HTTP 与认证                                    |
-| channels/desktop.ts                 | 官方 reducer/句柄支持的忙闲检查                     |
-| channels/instruments.ts             | 认证的仪器只读投影，禁止设备写入                    |
-| lib/config                          | 唯一配置 IO、进程内快照与 Corax 数据目录占用锁      |
-| lib/wiki                            | 知识库装配、模型连接、通用只读证据访问              |
-| lib/climber                         | 固定 stdio MCP 客户端与临时仪器投影                 |
-| packages/climber-mcp                | SAM 完整实现/配置、厂家协议、设备预留与未知写阻断   |
-| packages/llm-wiki                   | 文本快照、两阶段知识编译、持久 Markdown、发布与检索 |
-| desktop/src-tauri/src/corax.rs      | CLI、进程树、认证和 NDJSON 游标                     |
-| desktop/src/lib/corax-projection.ts | 官方 reducer/toolCallState 的 UI 投影               |
+| 路径                                | 职责                                                  |
+| ----------------------------------- | ----------------------------------------------------- |
+| agent.ts / instructions.ts          | 动态模型与角色/共享原则                               |
+| memory.ts                           | Corax 原生长期记忆、稳定本地用户作用域                |
+| sandbox.ts / lib/host               | 公开 Corax Host Provider、Node 原生进程与真实文件 I/O |
+| tools/wiki.ts                       | Agent 通用 Wiki：知识、只读证据与显式摄入             |
+| tools/climber.ts                    | MCP 契约驱动的动态 SAM/Climber 工具                   |
+| channels/corax.ts                   | 原生 HTTP 与认证                                      |
+| channels/desktop.ts                 | 官方 reducer/句柄支持的忙闲检查                       |
+| channels/instruments.ts             | 认证的仪器只读投影，禁止设备写入                      |
+| lib/config                          | 唯一配置 IO、进程内快照与 Corax 数据目录占用锁        |
+| lib/wiki                            | 知识库装配、模型连接、通用只读证据访问                |
+| lib/climber                         | 固定 stdio MCP 客户端与临时仪器投影                   |
+| packages/climber-mcp                | SAM 完整实现/配置、厂家协议、设备预留与未知写阻断     |
+| packages/llm-wiki                   | 文本快照、两阶段知识编译、持久 Markdown、发布与检索   |
+| desktop/src-tauri/src/corax.rs      | CLI、进程树、认证和 NDJSON 游标                       |
+| desktop/src/lib/corax-projection.ts | 官方 reducer/toolCallState 的 UI 投影                 |
 
 旧通用 wiki-core/wiki-sam 位于 docs/history/wiki-indexer，仅保留历史实现，不参与 workspace 或应用发布。
 
@@ -69,7 +69,7 @@ SAM 路径属于 MCP 执行宿主，使用其原生绝对路径，不能直接�
 
 ## 宿主环境
 
-`sandbox.ts` 用公开 defineSandbox/defineSandboxProvider 绑定 ShellJS。Bash/read_file/write_file 等仍是 Corax 原生工具；适配只发生在 Provider 的进程和文件 I/O 边界。执行真实宿主 Bash，继承 PATH 等宿主变量，Windows 使用 Git Bash；不回退 JustBash，也不把 ShellJS 当解释器。工作目录 dataDir/workspace 为真实文件目录，Skill 资源路径映射到当前应用资源，不写入个人全局 skills 目录；关闭句柄只停止自己持有的命令，不删除工作文件。
+`sandbox.ts` 用公开 defineSandbox/defineSandboxProvider 选择真实 Host。Bash/read_file/write_file/glob/grep 保留 Corax 原生执行器；适配只发生在 Provider 的进程和文件 I/O 边界。Node 直接 spawn 本机进程；Windows 使用随包 BusyBox-w32 与 ripgrep，Unix 使用宿主 Bash 或 `/bin/sh`，不依赖用户安装 Git Bash，不使用 JustBash。工作目录 dataDir/workspace 为真实文件目录，继承 PATH 等宿主变量并过滤应用私有凭据，Skill 资源路径映射到当前应用资源；关闭句柄只停止自己持有的命令，不删除工作文件。构建时准备固定版本和 SHA256 校验的 Windows 执行组件、对应源码和许可，运行包允许列表包含 assets/host；正式启动不联网下载组件。
 
 ## 配置与发布
 

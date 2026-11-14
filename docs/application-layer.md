@@ -11,7 +11,7 @@ lib/
 │  ├─ paths.ts        默认配置位置与布局标识，不依赖 schema
 │  ├─ index.ts        统一入口：配置 IO、相对路径解析与进程内快照
 │  └─ runtime.ts      Corax 数据目录与宿主占用锁
-├─ host/              ShellJS 宿主 Provider、进程生命周期和原生路径/文件 I/O
+├─ host/              Node 原生 Host Provider、进程生命周期、真实文件 I/O 与执行组件定义
 ├─ wiki/
 │  ├─ index.ts        知识库与预置集合装配，不创建另一个聊天循环
 │  ├─ ingest.ts       显式两阶段模型调用，无工具执行或自动重试
@@ -32,7 +32,7 @@ lib/
 - 知识库 UI 的 `KnowledgeBase` 保留整理受理、轮询及固定引用读取；`KnowledgeWorkspace`、`KnowledgeSources`、`KnowledgeReader` 和 `KnowledgeGraph` 仅负责布局与展示。默认设置侧边栏保持原样，内容区固定为左侧浏览、右侧正文两个主体。左栏通过图谱/目录/资料页签原位切换，没有附加侧栏、遮罩或弹窗；右栏正文独立滚动，来源和固定版本信息折叠展示。窄容器在同一内容区域切换到阅读，并提供返回浏览按钮；恢复宽屏时同一正文无须重新读取即可回到右栏。切换或调整尺寸不取消编译。图谱专注模式只占满知识内容区，不收起外层设置导航。知识页阅读使用独立请求序号，晚到响应不能覆盖新选择。
 - 设置中的工具/技能目录由 Rust 读取官方 Corax info 并投影显示字段；`channels/desktop.ts` 仅补充与模型注册共用定义的动态工具元数据，不执行工具或连接仪器。内置能力不可禁用。
 - `lib/model.ts` 仅解释模型服务实际返回的认证错误，不按模型名、服务商或 Key 是否为空添加认证要求。
-- `sandbox.ts` 仅选择公开 Corax 宿主 Provider，lib/host 负责 ShellJS/文件 I/O；保留原生工具，不在应用里复制 Bash/read_file/write_file/glob/grep 实现。Provider 不需要 JustBash 模板或构建机个人缓存，也不负责设备协议。
+- `sandbox.ts` 仅选择公开 Corax 宿主 Provider，lib/host 负责 Node 原生进程/文件 I/O；保留原生工具，不在应用里复制 Bash/read_file/write_file/glob/grep 实现。Windows 使用随包 BusyBox-w32 与 ripgrep，不需要用户安装 Git Bash；POSIX 命令在真实宿主运行，不是虚拟文件系统。Provider 不需要 JustBash 模板或构建机个人缓存，也不负责设备协议。
 - `memory.ts` 仅声明公开 Corax 原生记忆槽：`defineMemory` + `fileMemory` + `sqliteMemory`，路径为 dataDir/corax/memory.sqlite。稳定 namespace=auto-agent、scope=local-user，身份不依赖会话、安装位置或传输令牌；文件随 dataDir 隔离。Corax 拥有召回、并发版本检查及保存/删除工具，应用不复制记忆存储或增设桌面数据库命令。默认召回上限 4000 字符，内容是持久记忆而非可丢弃缓存。
 - lib/wiki 为统一 Wiki Tool 装配 knowledge/reference 集合；知识编译与只读检索保留各自数据边界。reference 适配器接收应用绑定的数据源，不在工具 schema 中暴露数据库路径、SQL 或领域专用字段；人工材料规则由 Skill references 阅读。
 - lib/climber 只启动随应用发布的固定 MCP CLI；不接受模型指定的解释器、脚本、环境或 shell 命令。SAM schema、完整产品配置、单位和文件写入由 MCP 包拥有。Corax 动态工具直接复用包导出的定义；Skill 只维护操作工作流和解释边界。
@@ -77,7 +77,7 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 聊天页的 `InstrumentMonitor` 与仪器页复用 `useInstruments` 的原生只读快照、刷新及退避轮询。`useInstrumentMonitor` 只管理容器断点、临时展开偏好与短暂动画存在状态，按钮选中态对应展开意图；浮窗展开且后端已连接时才订阅和轮询，收起即停止读取并设置 inert/aria-hidden，退出动画结束或有界兜底计时后释放展示，快速重新展开可中断退出。后端/配置展示身份变化会重新创建浮窗读取状态，迟到结果不能恢复旧展示；失败或未确认的状态不推断为在线、空闲或无任务。宽窄屏均使用覆盖在聊天内容区的浮窗，开合不改变正文和输入区的位置、宽度或消息滚动偏移，不划出独立滚动列；工具栏有独立层级且不参与消息滚动。自动跟随与“回到最新”只调整消息容器的 scrollTop，不通过 scrollIntoView 滚动外层窗口或把工具栏滚出视口。
 
-历史显示由 `useMessageWindow` 管理，首屏最近 20 条，向上滚动接近边界时每次增加前 20 条，按钮作为键盘和手动后备入口。已渲染消息的身份作为滚动锚点，补充旧内容不改变原消息屏幕位置，阅读旧消息时也保留该起点；会话或后端展示身份改变会重置渲染窗口。`CoraxProjection.catchUp` 仍使用官方 reducer 处理有序原生前缀，每批最多 128 个事件或约 8 ms 后让出主线程，并在恢复时检查读取视图是否仍有效；首次重建完成前不确认当前视图。原生流与增量游标不变，不用尾部截断代替完整任务/输入状态，也不声称 Corax 0.1.0 已支持独立的历史消息分页快照。
+历史显示由 `useMessageWindow` 管理，首屏最近 20 条，向上滚动接近边界时每次增加前 20 条，按钮作为键盘和手动后备入口。已渲染消息的身份作为滚动锚点，补充旧内容不改变原消息屏幕位置，阅读旧消息时也保留该起点；会话或后端展示身份改变会重置渲染窗口。`CoraxProjection.catchUp` 仍使用官方 reducer 处理有序原生前缀，每批最多 128 个事件或约 8 ms 后让出主线程，并在恢复时检查读取视图是否仍有效；首次重建完成前不确认当前视图。原生流与增量游标不变，不用尾部截断代替完整任务/输入状态。Corax 0.1.1 的原生 SQLite 索引改善历史读取，但不代表已支持独立的历史消息分页快照。
 
 冷打开已有会话时，`useChat` 在同一前台读取租约内先完成有界尾部读取，再启动完整原生同步，不并行争抢冷读。Rust 的专用 `events?tail=N` 只转发固定原生 stream 路由的负游标、`follow=false` 和尾索引头，限制事件数 1..2048、响应 2 MiB。前端默认窗口 512；优先用官方 reducer 展示从真实 turn.started 开始且属于已载入轮次的事件，忽略窗口外旧轮次的迟到事件。单轮超过窗口时，从真实完成事件投影末条终稿，保留原生消息身份并明确标为最近回复预览，不重建或假造缺失的过程；没有可用终稿或起点时才扩大为 2048。
 
@@ -89,7 +89,7 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 `tools/bash.ts`、`tools/write_file.ts` 只组合官方导出的工具定义与原生审批 callback，schema/execute 保持原引用。Climber 动态工具通过 `defineDurableCallback` 绑定操作身份，只读 SAM 与设备查询不要求批准，SAM 写入及设备登记/启动调用统一审批策略；Wiki 的 ingest/resolve 同样接入。`tools/ask_question.ts` 直接导出原生 `askQuestion()`，不增加多选参数或自定义答案协议。
 
-`lib/approval.ts` 保存一个进程内全局 `mode/revision`，使用 Symbol carrier 在编译/注册模块间共享选择，调用原生 always/once/never helper；没有会话设置表或自建授权记录。原生 once 的已批准工具集合仍由 Corax 拥有。`channels/approval.ts` 的固定认证 GET/POST 只读写这个全局值，不附带 sessionId、不遍历历史、不执行工具或响应待处理请求。Rust 在生命周期锁外转发并绑定 backend generation，更新预留 in-flight 但不持有聊天 dispatch 锁，revision 拒绝过期覆盖；策略更新不解除任何 pending 写入记录。完整后端重启后默认 always，不向模型开放策略修改工具。
+`lib/approval.ts` 通过 Symbol carrier 在编译/注册模块间共享全局 `mode/revision`，调用原生 always/once/never helper；启动模式来自唯一 config.json 的 `approvalMode`，缺省 always。`lib/config/index.ts` 在原子保存模式后更新运行中选择，不应用其他已保存但待重启的模型或路径字段；只有其余已保存字段与运行快照一致时，才同步已应用配置的 revision。`channels/approval.ts` 的固定认证 GET/POST 不附带 sessionId、不遍历历史、不执行工具或响应待处理请求。Rust 在生命周期锁外转发并绑定 backend generation，预留 in-flight，不持有聊天 dispatch 锁；独立配置写锁串行化该请求与设置页保存，拒绝过期覆盖，响应同步配置 revision 但不解除 pending 写入。模式持久化不增加其他配置文件、会话设置表或许可记录；原生 once 的工具授权仍由 Corax 拥有，不向模型开放策略修改工具。
 
 `useApprovalPolicy` 独立于当前会话，连接/配置身份改变时重新读取，普通切会话不请求策略；切换不乐观显示更宽权限，收到后端确认后更新，结果不明只允许重新读取而非自动重发。菜单的 never 指原生免询问，不代表科学条件已确认。已有输入请求仍由原生状态驱动，修改策略本身不会提交 approve/cancel 响应；后续原生评估和 recheck 按当前原生策略执行。
 

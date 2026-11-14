@@ -7,6 +7,6 @@ export default defineTool({
   ...bash,
   approval: {
     request: (context) => requestApproval(context),
-    prompt: () => '即将执行宿主 Bash 命令。请核对完整命令后批准本次调用。',
+    prompt: () => '即将执行真实宿主命令。请核对完整命令后批准本次调用。',
   },
 });

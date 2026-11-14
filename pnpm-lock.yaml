@@ -21,9 +21,9 @@ catalogs:
       version: 4.6.5
 
 patchedDependencies:
-  '@coraxjs/core@0.1.0':
-    hash: a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5
-    path: patches/@coraxjs__core@0.1.0.patch
+  '@coraxjs/core@0.1.1':
+    hash: 841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451
+    path: patches/@coraxjs__core@0.1.1.patch
 
 importers:
 
@@ -42,8 +42,8 @@ importers:
         specifier: workspace:*
         version: link:packages/llm-wiki
       '@coraxjs/core':
-        specifier: 0.1.0
-        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
+        specifier: 0.1.1
+        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -96,8 +96,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/llm-wiki
       '@coraxjs/core':
-        specifier: 0.1.0
-        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
+        specifier: 0.1.1
+        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -130,8 +130,8 @@ importers:
         specifier: workspace:*
         version: link:../packages/desktop-protocol
       '@coraxjs/core':
-        specifier: 0.1.0
-        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
+        specifier: 0.1.1
+        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
       '@tauri-apps/api':
         specifier: ^2.0.0
         version: 2.12.4
@@ -207,8 +207,8 @@ importers:
   packages/desktop-protocol:
     dependencies:
       '@coraxjs/core':
-        specifier: 0.1.0
-        version: 0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))
+        specifier: 0.1.1
+        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -333,8 +333,8 @@ packages:
   '@cfworker/json-schema@4.1.4':
     resolution: {integrity: sha512-20rPE8EX0dSg6JGOVe31HpqsLYZTDSlcFJZA5mpZqQxcZ71vh/SXCMX+UuHO1mMcZBDKeb752z+3L8IWa+0Svg==}
 
-  '@coraxjs/core@0.1.0':
-    resolution: {integrity: sha512-I5JWvIHD54GmvF9hL0TfmYmnfSJvn3to6VnU5rQtIHincfcvdXrVV0bbhu7vpNyDsKeKClyqTlLDyuvywRf7fQ==}
+  '@coraxjs/core@0.1.1':
+    resolution: {integrity: sha512-nGtgGmMKRUMJJGscAv2HKoOkODmeXG/HSQwJYYqarrOYGEdIrcL2XVCCZbEHbHKMBCKml+18/jHHSLwBluJd6A==}
     engines: {node: '>=24.0.0'}
     hasBin: true
     peerDependencies:
@@ -2171,6 +2171,7 @@ packages:
 
   re2js@1.4.0:
     resolution: {integrity: sha512-KTOIcZTSOpOxbu3i0+T6mFQ6tkxXKlTxfcMFs1trQbsMnG84qNq+DjXr8Afu+FEFjvF1NNlldpC7roPyazFI8g==}
+    deprecated: Accidental publish of breaking changes. Please downgrade to 1.3.3 or upgrade to the latest version.
 
   react-dom@19.3.1:
     resolution: {integrity: sha512-Y0bARz53lhEC1NMCASs0/j+faB/zqt3R8hpvg1e8+61ZVJ4UL0UdC4cBbXfZMcIuhrfgeILTLe+ZeBCavQPtKQ==}
@@ -2695,7 +2696,7 @@ snapshots:
   '@cfworker/json-schema@4.1.4':
     optional: true
 
-  '@coraxjs/core@0.1.0(patch_hash=a8969b826d0228a4a491aca7ed681c7abb7c8bc827f829872d78f5b9319b98b5)(ai@7.0.137(zod@4.6.5))':
+  '@coraxjs/core@0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))':
     dependencies:
       ai: 7.0.137(zod@4.6.5)
       just-bash: 3.1.0

@@ -4,27 +4,30 @@ import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
 import type { SandboxSession, SandboxProcess } from '@coraxjs/core/sandbox';
 import { hostPath, hostEnvironmentValue, type HostPaths } from './paths';
-import { bindHostPaths, hostBash, hostEnvironment, shelljs } from './shell';
+import { bindHostPaths, hostShell, hostEnvironment } from './shell';
 
 export async function createHostSession(paths: HostPaths) {
   await mkdir(paths.workspace, { recursive: true });
-  const shell = hostBash();
   const processes = new Set<SandboxProcess>();
   const session: SandboxSession = {
     resolvePath: (path) => hostPath(path, paths),
     async spawn(options) {
       options.abortSignal?.throwIfAborted();
       const windows = process.platform === 'win32';
-      const child = shelljs.exec(bindHostPaths(options.command, paths), {
-        async: true,
-        silent: true,
-        shell: shell.executable,
-        cwd: options.workingDirectory ? hostPath(options.workingDirectory, paths) : paths.workspace,
-        env: hostEnvironment(shell.path, options.env),
-        windowsHide: true,
-        maxBuffer: 64 * 1024 * 1024,
-        encoding: 'buffer',
-      });
+      const shell = hostShell(paths.project);
+      const child = spawn(
+        shell.executable,
+        [...shell.args, bindHostPaths(options.command, paths)],
+        {
+          cwd: options.workingDirectory
+            ? hostPath(options.workingDirectory, paths)
+            : paths.workspace,
+          env: hostEnvironment(shell.path, options.env),
+          windowsHide: true,
+          detached: !windows,
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      );
       let stopped = false;
       const kill = async () => {
         if (stopped || child.exitCode !== null || !child.pid) return;
@@ -40,35 +43,11 @@ export async function createHostSession(paths: HostPaths) {
             task.once('exit', () => resolve());
           });
         } else {
-          const listing = await new Promise<string>((resolve) => {
-            const task = shelljs.exec(
-              'ps -A -o pid=,ppid=',
-              {
-                async: true,
-                silent: true,
-                shell: shell.executable,
-                env: hostEnvironment(shell.path),
-              },
-              (code, stdout) => resolve(code === 0 ? stdout : ''),
-            );
-            task.once('error', () => resolve(''));
-          });
-          const tree = listing.split('\n').map((line) => line.trim().split(/\s+/).map(Number));
-          const owned = new Set([child.pid]);
-          for (let changed = true; changed;) {
-            changed = false;
-            for (const [pid, parent] of tree)
-              if (owned.has(parent) && !owned.has(pid)) {
-                owned.add(pid);
-                changed = true;
-              }
+          try {
+            process.kill(-child.pid, 'SIGKILL');
+          } catch (error) {
+            if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
           }
-          for (const pid of owned)
-            try {
-              process.kill(pid, 'SIGKILL');
-            } catch (error) {
-              if ((error as NodeJS.ErrnoException).code !== 'ESRCH') throw error;
-            }
         }
       };
       const abort = () => {

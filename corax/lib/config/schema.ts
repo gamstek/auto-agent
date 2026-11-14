@@ -51,6 +51,7 @@ export const configSchema = z
     maxInputTokens: z.number().int().positive().default(128000),
     maxOutputTokens: z.number().int().positive().default(16000),
     systemPrompt: z.string().max(16000).default(''),
+    approvalMode: z.enum(['always', 'once', 'never']).default('always'),
     climber: climberSchema.prefault({}),
     llmWiki: z
       .object({
