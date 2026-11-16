@@ -4,10 +4,8 @@ import type { CoraxProjection } from './corax-projection';
 export type CachedChatHistory = {
   generation: string;
   snapshot: ChatSnapshot;
-} & (
-  | { projection: CoraxProjection; preview?: never }
-  | { projection?: never; preview: { startIndex: number; kind: 'turns' | 'reply' } }
-);
+  projection: CoraxProjection;
+};
 
 // Charge UTF-16 strings, property slots and object overhead, counting shared objects once.
 // This is a conservative retention budget, not an engine-specific heap measurement.
@@ -65,16 +63,6 @@ export class ChatHistoryCache {
 
   put(projection: CoraxProjection, generation: string) {
     this.retain(projection.id, { projection, generation, snapshot: projection.snapshot() });
-  }
-
-  /** A suffix is display-only: never retain it as an authoritative event prefix. */
-  putPreview(
-    snapshot: ChatSnapshot,
-    generation: string,
-    startIndex: number,
-    kind: 'turns' | 'reply',
-  ) {
-    this.retain(snapshot.sessionId, { snapshot, generation, preview: { startIndex, kind } });
   }
 
   private retain(id: string, history: CachedChatHistory) {

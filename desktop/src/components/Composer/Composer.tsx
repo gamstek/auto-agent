@@ -26,6 +26,7 @@ export function Composer({
   onBottom,
   renderRequestCard,
   approvalControl,
+  autoFocus = false,
 }: {
   input: string;
   onInput: (text: string) => void;
@@ -41,6 +42,7 @@ export function Composer({
   onBottom: () => void;
   renderRequestCard?: (onSubmitState: (action: ChatInputAction | null) => void) => ReactNode;
   approvalControl?: ReactNode;
+  autoFocus?: boolean;
 }) {
   const textareaId = useId();
   const [requestAction, setRequestAction] = useState<ChatInputAction | null>(null);
@@ -126,6 +128,7 @@ export function Composer({
           <textarea
             id={textareaId}
             ref={inputRef}
+            autoFocus={autoFocus}
             rows={1}
             value={input}
             disabled={waitingForInput}

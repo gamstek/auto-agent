@@ -27,8 +27,14 @@ async function nativeDesktop(
       renames: [] as { id: string; title: string }[],
       sessionTitles: {} as Record<string, string>,
       failRename: false,
+      suggestedTitle: null as string | null,
+      titleRequests: [] as any[],
+      holdTitleSuggestion: false,
       backendStarts: 0,
       rejectSend: false,
+      prompts: [] as { id: string; content: string }[],
+      holdCreate: false,
+      holdPromptFor: '',
       approvalChanges: [] as any[],
       approvalPolicy: { mode: 'always', revision: 0 },
       responses: [] as any[],
@@ -100,6 +106,9 @@ async function nativeDesktop(
     const heldHistory = new Map<string, () => void>();
     const releaseHistory = new Map<string, () => void>();
     const releaseList: (() => void)[] = [];
+    const releaseCreates: (() => void)[] = [];
+    const releaseTitles: (() => void)[] = [];
+    const releasePrompts: (() => void)[] = [];
     const releaseSuggestions: (() => void)[] = [];
     const releaseUpdate: (() => void)[] = [];
     const releaseKnowledgeReads: (() => void)[] = [];
@@ -202,6 +211,18 @@ async function nativeDesktop(
         testState.holdList = false;
         for (const release of releaseList.splice(0)) release();
       },
+      releaseCreate: () => {
+        testState.holdCreate = false;
+        for (const release of releaseCreates.splice(0)) release();
+      },
+      releaseTitleSuggestion: () => {
+        testState.holdTitleSuggestion = false;
+        for (const release of releaseTitles.splice(0)) release();
+      },
+      releasePrompt: () => {
+        testState.holdPromptFor = '';
+        for (const release of releasePrompts.splice(0)) release();
+      },
       releaseSuggestions: () => {
         testState.holdSuggestions = false;
         for (const release of releaseSuggestions.splice(0)) release();
@@ -237,13 +258,13 @@ async function nativeDesktop(
         };
       },
     };
-    const append = (type: string, data: unknown) =>
-      records.push({
+    const append = (type: string, data: unknown, target = records) =>
+      target.push({
         type,
         data,
         meta: {
-          id: `event-${records.length}`,
-          at: new Date(1800000000000 + records.length * 100).toISOString(),
+          id: `event-${target.length}`,
+          at: new Date(1800000000000 + target.length * 100).toISOString(),
         },
       });
     if (existing) {
@@ -627,6 +648,12 @@ async function nativeDesktop(
             if (testState.holdList) await new Promise<void>((resolve) => releaseList.push(resolve));
             return rows;
           }
+          if (args.path.endsWith('/title-suggestion') && args.method === 'POST') {
+            testState.titleRequests.push({ path: args.path, content: args.body.content });
+            if (testState.holdTitleSuggestion)
+              await new Promise<void>((resolve) => releaseTitles.push(resolve));
+            return { title: testState.suggestedTitle, generation: testState.generation };
+          }
           if (args.path.endsWith('/title') && args.method === 'PATCH') {
             const id = args.path.split('/')[2];
             testState.renames.push({ id, title: args.body.title });
@@ -635,6 +662,8 @@ async function nativeDesktop(
             return { id, title: testState.sessionTitles[id] };
           }
           if (args.path === '/session' && args.method === 'POST') {
+            if (testState.holdCreate)
+              await new Promise<void>((resolve) => releaseCreates.push(resolve));
             return { id: sessionId, title: '新会话', updatedAt: 1800000000000 };
           }
           if (args.path.split('?')[0].endsWith('/events')) {
@@ -694,6 +723,10 @@ async function nativeDesktop(
             };
           }
           if (args.path.endsWith('/prompt_async')) {
+            const target = args.path.split('/')[2];
+            testState.prompts.push({ id: target, content: args.body.content });
+            if (testState.holdPromptFor === target)
+              await new Promise<void>((resolve) => releasePrompts.push(resolve));
             if (testState.rejectSend)
               throw {
                 code: 'session_not_ready',
@@ -701,35 +734,40 @@ async function nativeDesktop(
                 message: '会话仍在准备中，本次消息尚未受理，请稍后发送。',
               };
             submitted = true;
-            const startIndex = records.length;
-            append('session.started', {});
-            append('turn.started', { turnId: 'turn-1', sequence: 0 });
-            append('message.received', {
+            const targetRecords = (histories[target] ??= []);
+            const appendEvent = (type: string, data: unknown) => append(type, data, targetRecords);
+            const startIndex = targetRecords.length;
+            appendEvent('session.started', {});
+            appendEvent('turn.started', { turnId: 'turn-1', sequence: 0 });
+            appendEvent('message.received', {
               turnId: 'turn-1',
               sequence: 0,
               message: args.body.content,
             });
-            append('message.appended', {
+            appendEvent('message.appended', {
               turnId: 'turn-1',
               sequence: 0,
               stepIndex: 0,
               messageDelta: 'Corax 原生连接成功。',
             });
-            append('message.completed', {
+            appendEvent('message.completed', {
               turnId: 'turn-1',
               sequence: 0,
               stepIndex: 0,
               message: 'Corax 原生连接成功。',
               finishReason: 'stop',
             });
-            append('turn.completed', { turnId: 'turn-1', sequence: 0 });
-            append('session.waiting', { continuationToken: sessionId, wait: 'next-user-message' });
+            appendEvent('turn.completed', { turnId: 'turn-1', sequence: 0 });
+            appendEvent('session.waiting', {
+              continuationToken: target,
+              wait: 'next-user-message',
+            });
             setTimeout(() => {
               emit('corax-events', {
-                sessionId,
+                sessionId: target,
                 watchId,
                 startIndex,
-                events: structuredClone(records.slice(startIndex)),
+                events: structuredClone(targetRecords.slice(startIndex)),
               });
               emit('agent-event', { sessionId, type: 'session.updated', properties: {} });
             }, 30);
@@ -1355,11 +1393,30 @@ test('long conversations render a recent page and load earlier messages on upwar
         meta: { id: `paged-event-${index}`, at: '2026-11-11T00:00:00Z' },
       }),
     );
+    const state = window as any;
+    state.__historyPaintOffsets = [];
+    const sample = () => {
+      const scroll = document.querySelector('.conversation');
+      if (scroll?.querySelector('[data-message-id]'))
+        state.__historyPaintOffsets.push(
+          scroll.scrollHeight - scroll.scrollTop - scroll.clientHeight,
+        );
+      state.__historyPaintFrame = requestAnimationFrame(sample);
+    };
+    state.__historyPaintFrame = requestAnimationFrame(sample);
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect(page.getByText('历史回答 79', { exact: true })).toBeVisible();
   await expect(page.locator('.corax-message')).toHaveCount(20);
   await expect(page.getByText('历史问题 0', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '加载更早的消息', exact: true })).toHaveCount(0);
+  const paintOffsets = await page.evaluate(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    cancelAnimationFrame((window as any).__historyPaintFrame);
+    return (window as any).__historyPaintOffsets as number[];
+  });
+  expect(paintOffsets.length).toBeGreaterThan(0);
+  expect(paintOffsets.every((offset) => Math.abs(offset) <= 1)).toBe(true);
   const first = page.locator('.corax-message').first();
   const anchor = await first.getAttribute('data-message-id');
   await page.evaluate(() => {
@@ -1474,6 +1531,30 @@ test('welcome recommendations update silently without blocking input or creating
   ).toEqual([]);
   await question.click();
   await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+});
+
+test('new conversations summarize their topic in the background without following later navigation', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.suggestedTitle = '碳材料测试方案';
+    (window as any).__desktopTest.holdTitleSuggestion = true;
+  });
+  await page.getByRole('textbox', { name: '输入消息' }).fill('帮我确认多孔碳材料的测试方案');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(page.getByText('Corax 原生连接成功。', { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.titleRequests.length))
+    .toBe(1);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await page.evaluate(() => (window as any).__desktopFixture.releaseTitleSuggestion());
+  await expect(page.getByRole('button', { name: /^碳材料测试方案/ })).toBeVisible();
+  await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.renames)).toEqual([
+    { id: 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB', title: '碳材料测试方案' },
+  ]);
 });
 
 test('session rename context menu edits the target without selecting it and persists the displayed title', async ({
@@ -1744,7 +1825,78 @@ test('first-message initialization is silent until the native assistant message 
   expect(await page.evaluate(() => (window as any).__desktopTest.backendStarts)).toBe(1);
 });
 
-test('an uncached history displays its tail while canonical synchronization still gates all writes', async ({
+test('fast session switching does not paint an incomplete reply layout before full history', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
+  await page.evaluate(() => {
+    const history = (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'];
+    history.splice(
+      3,
+      0,
+      ...Array.from({ length: 600 }, (_, index) => ({
+        type: 'message.appended',
+        data: { turnId: 'turn-1', sequence: 0, stepIndex: 0, messageDelta: 'fragment ' },
+        meta: { id: `switch-fragment-${index}`, at: '2026-11-11T00:00:00Z' },
+      })),
+    );
+    const state = window as any;
+    state.__replyPaintTops = [];
+    const sample = () => {
+      const reply = Array.from(document.querySelectorAll('.corax-message.assistant')).find((node) =>
+        node.textContent?.includes('会话一的回复'),
+      );
+      if (reply) state.__replyPaintTops.push(reply.getBoundingClientRect().top);
+      state.__replyPaintFrame = requestAnimationFrame(sample);
+    };
+    state.__replyPaintFrame = requestAnimationFrame(sample);
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.watchRequests.length))
+    .toBe(2);
+  const tops = await page.evaluate(async () => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    cancelAnimationFrame((window as any).__replyPaintFrame);
+    return (window as any).__replyPaintTops as number[];
+  });
+  expect(tops.length).toBeGreaterThan(0);
+  expect(Math.max(...tops) - Math.min(...tops)).toBeLessThan(1);
+});
+
+test('opening an uncached session keeps the chat layout stable until its atomic history commit', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const state = (window as any).__desktopTest;
+    state.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.locator('.faq-card')).toHaveCount(0);
+  await expect(page.locator('.main-area')).not.toHaveClass(/is-empty/);
+  const composer = page.locator('.composer-region');
+  const before = await composer.boundingBox();
+  expect(before).not.toBeNull();
+  // Stay beyond the former preview timeout: slow reads must use the same layout too.
+  await page.waitForTimeout(200);
+  await expect(page.locator('.corax-message')).toHaveCount(0);
+  await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.watchRequests.length))
+    .toBe(1);
+  const complete = await composer.boundingBox();
+  expect(complete).not.toBeNull();
+  expect(Math.abs(complete!.y - before!.y)).toBeLessThan(1);
+  await expect(page.locator('.faq-card')).toHaveCount(0);
+});
+
+test('an uncached history reads one canonical prefix and gates writes until synchronized', async ({
   page,
 }) => {
   await nativeDesktop(page, true);
@@ -1753,8 +1905,8 @@ test('an uncached history displays its tail while canonical synchronization stil
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
-  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
-  await expect(page.locator('.chat-activity')).toHaveCount(0);
+  await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
+  await expect(page.locator('.chat-activity')).toContainText('正在读取会话');
   await page.getByRole('textbox', { name: '输入消息' }).fill('等状态确认后再发送');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   expect(await page.evaluate(() => (window as any).__desktopTest.watchRequests.length)).toBe(0);
@@ -1764,15 +1916,13 @@ test('an uncached history displays its tail while canonical synchronization stil
         path.endsWith('/events?tail=512'),
       ),
     ),
-  ).toBe(true);
+  ).toBe(false);
   await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
 });
 
-test('unfinished fragments expand the tail budget without inventing a completed reply', async ({
-  page,
-}) => {
+test('unfinished long turns appear only with their canonical cancelled state', async ({ page }) => {
   await nativeDesktop(page, true);
   await page.goto('/');
   await page.evaluate(() => {
@@ -1797,19 +1947,16 @@ test('unfinished fragments expand the tail budget without inventing a completed 
     state.holdHistoryFor = id;
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
-  await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
-  const reads = await page.evaluate(() =>
-    (window as any).__desktopTest.requests.filter((path: string) => path.includes('/events?tail=')),
-  );
-  expect(reads.some((path: string) => path.endsWith('tail=512'))).toBe(true);
-  expect(reads.some((path: string) => path.endsWith('tail=2048'))).toBe(true);
+  await expect(page.locator('.chat-activity')).toContainText('正在读取会话');
+  await expect(page.locator('.corax-message')).toHaveCount(0);
   await page.getByRole('textbox', { name: '输入消息' }).fill('尚未同步不能发送');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
+  await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
 });
 
-test('a completed reply inside a long turn appears before full history without searching repeatedly for its turn start', async ({
+test('a long turn commits its question and completed reply together without a partial preview', async ({
   page,
 }) => {
   await nativeDesktop(page, true);
@@ -1827,29 +1974,21 @@ test('a completed reply inside a long turn appears before full history without s
         meta: { id: `long-${index}`, at: '2026-11-11T00:00:00Z' },
       })),
     );
-    state.holdPreviewFor = state.holdHistoryFor = id;
+    state.holdHistoryFor = id;
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
-        (window as any).__desktopTest.requests.some((path: string) =>
-          path.endsWith('/events?tail=512'),
+        (window as any).__desktopTest.requests.some(
+          (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
         ),
       ),
     )
     .toBe(true);
-  expect(
-    await page.evaluate(() =>
-      (window as any).__desktopTest.requests.some(
-        (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
-      ),
-    ),
-  ).toBe(false);
-  await page.evaluate(() => (window as any).__desktopFixture.releasePreviewReads());
-  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
-  await expect(page.locator('.history-preview-status')).toContainText('最近回复预览');
-  await page.getByRole('textbox', { name: '输入消息' }).fill('预览不能授权发送');
+  await page.waitForTimeout(200);
+  await expect(page.locator('.corax-message')).toHaveCount(0);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('完整同步后发送');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   expect(
     await page.evaluate(
@@ -1858,21 +1997,16 @@ test('a completed reply inside a long turn appears before full history without s
           path.includes('/events?tail='),
         ).length,
     ),
-  ).toBe(1);
+  ).toBe(0);
   await page.evaluate(() => (window as any).__desktopFixture.releaseHistory());
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
-  await expect(page.locator('.history-preview-status')).toHaveCount(0);
+  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
 });
 
-test('a tail that is a verified complete prefix is synchronized without reading the same full history again', async ({
-  page,
-}) => {
+test('cold history synchronizes with a single canonical read', async ({ page }) => {
   await nativeDesktop(page, true);
   await page.goto('/');
-  await page.evaluate(() => {
-    (window as any).__desktopTest.confirmCompleteTail = true;
-  });
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await page.getByRole('textbox', { name: '输入消息' }).fill('完整原生前缀可恢复就绪');
@@ -1883,17 +2017,14 @@ test('a tail that is a verified complete prefix is synchronized without reading 
         (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
       ),
     ),
-  ).toEqual([]);
+  ).toEqual(['/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events']);
   expect(await page.evaluate(() => (window as any).__desktopTest.watchRequests.length)).toBe(1);
 });
 
-test('an optional tail failure falls back to canonical loading without replaying a write', async ({
-  page,
-}) => {
+test('loading history never dispatches or replays a write', async ({ page }) => {
   await nativeDesktop(page, true);
   await page.goto('/');
   await page.evaluate(() => {
-    (window as any).__desktopTest.failPreview = true;
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
@@ -1910,21 +2041,19 @@ test('an optional tail failure falls back to canonical loading without replaying
   ).toEqual([]);
 });
 
-test('late tail preview responses cannot replace another selected conversation', async ({
-  page,
-}) => {
+test('late history reads cannot replace another selected conversation', async ({ page }) => {
   await nativeDesktop(page, true);
   await page.goto('/');
   await page.evaluate(() => {
     const state = (window as any).__desktopTest;
-    state.holdHistoryFor = state.holdPreviewFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    state.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect
     .poll(() =>
       page.evaluate(() =>
-        (window as any).__desktopTest.requests.some((path: string) =>
-          path.endsWith('/events?tail=512'),
+        (window as any).__desktopTest.requests.some(
+          (path: string) => path === '/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events',
         ),
       ),
     )
@@ -1933,7 +2062,6 @@ test('late tail preview responses cannot replace another selected conversation',
   await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
   await page.evaluate(() => {
     (window as any).__desktopFixture.releaseHistory();
-    (window as any).__desktopFixture.releasePreviewReads();
   });
   await expect(page.getByText('会话二的回复', { exact: true })).toBeVisible();
   await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
@@ -2111,6 +2239,194 @@ test('Wiki sources accept both text files and directories through the native pic
     .click();
   await expect(page.locator('code[title="C:\\\\isolated\\\\config.json"]')).toHaveCount(1);
   await expect(page.getByText('C:\\isolated', { exact: true })).toBeVisible();
+});
+
+test('conversation drafts isolate unsent new chats from each historical conversation', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: '输入消息' });
+  await input.fill('新建会话中尚未发送的内容');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
+  await input.fill('会话一的独立草稿');
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(input).toHaveValue('');
+  await input.fill('只发送给会话二');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('会话一的独立草稿');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(input).toHaveValue('新建会话中尚未发送的内容');
+  await expect(input).toBeFocused();
+  expect(await page.evaluate(() => (window as any).__desktopTest.prompts)).toEqual([]);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(input).toHaveValue('只发送给会话二');
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect(input).toHaveValue('');
+  expect(await page.evaluate(() => (window as any).__desktopTest.prompts)).toEqual([
+    { id: 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TC', content: '只发送给会话二' },
+  ]);
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('会话一的独立草稿');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(input).toHaveValue('新建会话中尚未发送的内容');
+});
+
+for (const edited of [false, true])
+  test(`conversation drafts clear only the accepted source and preserve later edits: ${edited}`, async ({
+    page,
+  }) => {
+    await nativeDesktop(page, true);
+    await page.goto('/');
+    await page.getByRole('button', { name: /^会话一/ }).click();
+    const input = page.getByRole('textbox', { name: '输入消息' });
+    await input.fill('会话一提交中的内容');
+    await page.evaluate(() => {
+      (window as any).__desktopTest.holdPromptFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    });
+    await page.getByRole('button', { name: '发送消息', exact: true }).click();
+    await expect
+      .poll(() => page.evaluate(() => (window as any).__desktopTest.prompts.length))
+      .toBe(1);
+    if (edited) await input.fill('会话一等待回执时的新草稿');
+    await page.getByRole('button', { name: /^会话二/ }).click();
+    await expect(input).toHaveValue('');
+    await input.fill('会话二未发送的草稿');
+    await page.evaluate(() => (window as any).__desktopFixture.releasePrompt());
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          (window as any).__desktopTest.timings.some(
+            (entry: any) => entry.operation === 'send' && entry.stage === 'end',
+          ),
+        ),
+      )
+      .toBe(true);
+    await expect(input).toHaveValue('会话二未发送的草稿');
+    await page.getByRole('button', { name: /^会话一/ }).click();
+    await expect(input).toHaveValue(edited ? '会话一等待回执时的新草稿' : '');
+  });
+
+test('conversation drafts retain edits made while the new session ID is still being created', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: '输入消息' });
+  await input.fill('新会话第一条消息');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdCreate = true;
+    (window as any).__desktopTest.holdPromptFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.requests.includes('/session')))
+    .toBe(true);
+  await input.fill('创建期间继续编辑的下一条草稿');
+  await page.evaluate(() => (window as any).__desktopFixture.releaseCreate());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.prompts.length))
+    .toBe(1);
+  await expect(input).toHaveValue('创建期间继续编辑的下一条草稿');
+  await expect(input).toBeFocused();
+  await page.evaluate(() => (window as any).__desktopFixture.releasePrompt());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.timings.some(
+          (entry: any) => entry.operation === 'send' && entry.stage === 'end',
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect(input).toHaveValue('创建期间继续编辑的下一条草稿');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(input).toHaveValue('');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('创建期间继续编辑的下一条草稿');
+});
+
+test('conversation drafts keep a detached new-session creation separate from a newer new-chat draft', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  const input = page.getByRole('textbox', { name: '输入消息' });
+  await input.fill('原新会话实际发送的消息');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.holdCreate = true;
+    (window as any).__desktopTest.holdPromptFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.requests.includes('/session')))
+    .toBe(true);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(input).toHaveValue('');
+  await input.fill('历史会话二的草稿');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(input).toHaveValue('原新会话实际发送的消息');
+  await input.fill('后来重新打开新对话的独立草稿');
+  await page.evaluate(() => (window as any).__desktopFixture.releaseCreate());
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.prompts.length))
+    .toBe(1);
+  await expect(input).toHaveValue('后来重新打开新对话的独立草稿');
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await expect(input).toHaveValue('历史会话二的草稿');
+  await page.evaluate(() => (window as any).__desktopFixture.releasePrompt());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.timings.some(
+          (entry: any) => entry.operation === 'send' && entry.stage === 'end',
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect(input).toHaveValue('历史会话二的草稿');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('');
+  await page.getByRole('button', { name: '新对话', exact: true }).click();
+  await expect(input).toHaveValue('后来重新打开新对话的独立草稿');
+  expect(await page.evaluate(() => (window as any).__desktopTest.prompts)).toEqual([
+    { id: 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB', content: '原新会话实际发送的消息' },
+  ]);
+});
+
+test('conversation drafts remain on the rejected source when the user navigates during admission', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const input = page.getByRole('textbox', { name: '输入消息' });
+  await input.fill('未受理的会话一草稿');
+  await page.evaluate(() => {
+    (window as any).__desktopTest.rejectSend = true;
+    (window as any).__desktopTest.holdPromptFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+  });
+  await page.getByRole('button', { name: '发送消息', exact: true }).click();
+  await expect
+    .poll(() => page.evaluate(() => (window as any).__desktopTest.prompts.length))
+    .toBe(1);
+  await page.getByRole('button', { name: /^会话二/ }).click();
+  await input.fill('不能被失败回执修改的草稿');
+  await page.evaluate(() => (window as any).__desktopFixture.releasePrompt());
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        (window as any).__desktopTest.timings.some(
+          (entry: any) => entry.operation === 'send' && entry.stage === 'end',
+        ),
+      ),
+    )
+    .toBe(true);
+  await expect(input).toHaveValue('不能被失败回执修改的草稿');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(input).toHaveValue('未受理的会话一草稿');
 });
 
 test('known admission rejection keeps the draft and does not claim the send outcome is unknown', async ({
@@ -2620,8 +2936,8 @@ test('switching away cancels a held history read and does not subscribe the stal
     (window as any).__desktopTest.holdHistoryFor = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
   });
   await page.getByRole('button', { name: /^会话一/ }).click();
-  await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
-  await page.getByRole('textbox', { name: '输入消息' }).fill('切换前不能从尾部预览发送');
+  await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
+  await page.getByRole('textbox', { name: '输入消息' }).fill('完整历史同步前不能发送');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await expect
     .poll(() =>
@@ -2799,7 +3115,7 @@ test('reconnection clears cached history before reading the replacement backend'
     .toBe(2);
   await page.getByRole('button', { name: /^会话一/ }).click();
   await expect(page.getByText('会话一的回复', { exact: true })).toHaveCount(0);
-  await expect(page.getByText('新后端的会话一回复', { exact: true })).toBeVisible();
+  await expect(page.getByText('新后端的会话一回复', { exact: true })).toHaveCount(0);
   await page.getByRole('textbox', { name: '输入消息' }).fill('新后端仍需同步状态');
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled();
   await expect

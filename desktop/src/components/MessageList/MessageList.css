@@ -53,11 +53,10 @@
 .user-text {
   white-space: pre-wrap;
 }
-.older-button {
-  background: transparent;
-  color: #8796a8;
-  font-size: 12px;
-  align-self: center;
+.message-list-sentinel {
+  height: 1px;
+  flex-shrink: 0;
+  margin-bottom: -26px;
 }
 .chat-notice {
   display: flex;

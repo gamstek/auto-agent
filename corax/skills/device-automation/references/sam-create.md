@@ -11,7 +11,7 @@
 1. 读 [选择规则](./materials/选择规则.md)，按材料、需求和细分条件选出明确的模板名称；再读 [模板定义](./materials/模板定义.md) 中对应模板的采集与报告设置。文档已匹配时，不先查历史 SAM 或寻找同材料案例。
 2. 将文档明确的气体、温度、压力/注气段、平衡与报告设置整理为本次参数，保留用户已确认的条件。文档允许在范围内选固定值时，可给出范围内建议值及依据，并在用户授权范围内准备草稿；不因出现范围就一律追问。原文明确待确认、动态程序未定义或缺少关键依据的项仍保持待确认，不凭历史文件补齐。
 3. 再调用 `profiles`，参数为 `{}` 或 `{"product":"g5"}`，只核对实际目标产品/版本的完整文件结构、配套物性、报告类型和输出目录。这里选的是文件底座，不是重新选择材料方案。
-4. 按下表的支持路径显式写入文档参数。关键参数无法表达时说明具体缺口，不改用历史程序并称为“按文档生成”。生成后只对实际检查到的字段给出核验结论，并说明文档模板名及与当前目标相关的未覆盖/待确认项。
+4. 按下表的支持路径显式写入文档参数。报告须同时落实“报告勾选设置”和“概要报告具体设置”：用 reportTypes 选择报告，再用 summaryReport 填写概要内部选项及两个 P/P0 保留值，不能只勾选概要报告或沿用底座。关键参数无法表达时说明具体缺口，不改用历史程序并称为“按文档生成”。生成后读回并 compare 本次完整 summaryReport，只有所有已请求子项相符才说明这些子项已核验；文档待确认项仍单列说明。
 
 完整配置底座中，Climber（G5）当前使用 softwareVersion=2.11.1、clientVersion=2.11.1.26.1028，来自用户确认可执行的文件；SiCOPE（G12）保留独立的2.1/2.1.26.0416配置，不将两款产品的字段和版本强套。两者包含 N2 物性及有来源的历史方法程序，后者只说明底座来源，不优先于本次已选文档方案。按实际目标产品选择文件标识，已有配置及版本信息不重复索取。来源文件可执行不代表每份新文件已经现场验收，保留 `executionVerified=false`。
 
@@ -19,22 +19,22 @@
 
 ### 当前工具支持与核验范围
 
-| 文档设置                       | 当前支持路径                                                                                               | 可以据此核验什么                                                                    |
-| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 分析温度、压力模式和目标压力段 | 显式 settings：temperatureK、pressureMode、collectionMode、pressureProgram                                 | inspect 返回 facts/pressureProgram；compare 可核对其已支持字段                      |
-| 注气增量段、低压注气选项       | 显式 incrementProgram 或对应低压 settings；秒间隔与小时延时分别处理                                        | inspect 返回增量段及活动路径；compare 不接收整段 incrementProgram，不虚构该比较能力 |
-| 自由空间模式、后标定           | settings 没有直接的 freeSpaceMode 参数；仅在产品/版本字段映射已核实时使用原始 changes                      | inspect/compare 可解释支持的自由空间模式；不能把 SiCOPE 后标定枚举套给 Climber      |
-| CO2 等非 N2 配置               | 当前 settings 按需生成只有 N2 完整物性；其他气体须有配套完整配置，再按工具支持的 template/原始字段路径处理 | 气体名称和温度检查不等于全套物性已核实，不仅改 mnemonic 或悄悄换回 N2               |
-| 一次/四次泄气及动态增量触发    | 当前 settings 没有这些直接参数；原始字段或控制语义未核实时说明缺口                                         | 文档未给完整触发条件的动态程序仍待确认，不用旧例程序填成已完成                      |
-| 报告整体勾选                   | reportTypes 只切换报告 options.selected，保留完整配置                                                      | inspect 的 reports 可核对类型、名称和整体勾选，不证明概要子项或 DFT 核文件已匹配    |
-| 概要报告内部勾选及其他报告选项 | 写入须有已核实的原始字段映射；当前 inspect/compare 不返回这些内部选项                                      | 没有额外可靠检查结果时标为未核验，不能仅凭报告已勾选声称子项一致                    |
-| 样品预处理温度/时长            | 作为方案中的样品处理条件；不替换成仪器准备抽真空参数                                                       | 文件已生成不证明实际样品已完成预处理                                                |
+| 文档设置                       | 当前支持路径                                                                                               | 可以据此核验什么                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
+| 分析温度、压力模式和目标压力段 | 显式 settings：temperatureK、pressureMode、collectionMode、pressureProgram                                 | inspect 返回 facts/pressureProgram；compare 可核对其已支持字段                         |
+| 注气增量段、低压注气选项       | 显式 incrementProgram 或对应低压 settings；秒间隔与小时延时分别处理                                        | inspect 返回增量段及活动路径；compare 不接收整段 incrementProgram，不虚构该比较能力    |
+| 自由空间模式、后标定           | settings 没有直接的 freeSpaceMode 参数；仅在产品/版本字段映射已核实时使用原始 changes                      | inspect/compare 可解释支持的自由空间模式；不能把 SiCOPE 后标定枚举套给 Climber         |
+| CO2 等非 N2 配置               | 当前 settings 按需生成只有 N2 完整物性；其他气体须有配套完整配置，再按工具支持的 template/原始字段路径处理 | 气体名称和温度检查不等于全套物性已核实，不仅改 mnemonic 或悄悄换回 N2                  |
+| 一次/四次泄气及动态增量触发    | 当前 settings 没有这些直接参数；原始字段或控制语义未核实时说明缺口                                         | 文档未给完整触发条件的动态程序仍待确认，不用旧例程序填成已完成                         |
+| 报告整体勾选                   | reportTypes 只切换报告 options.selected，保留完整配置                                                      | inspect 的 reports 可核对类型、名称和整体勾选，不证明概要子项或 DFT 核文件已匹配       |
+| 概要报告内部勾选及 P/P0        | settings.summaryReport；修改/另存为用顶层 summaryReport，字段契约见下文                                    | inspect/write 返回 summaryReport，compare 可逐项核对；其他报告内部选项仍按原始配置处理 |
+| 样品预处理温度/时长            | 作为方案中的样品处理条件；不替换成仪器准备抽真空参数                                                       | 文件已生成不证明实际样品已完成预处理                                                   |
 
 按本次目标区分 **已核验**、**未覆盖检查** 和 **待确认方案项**。只对相关缺口说明，不要求所有文件任务都补齐无关子项；仅改报告整体勾选时，完成相应检查即可结束。`written=true` 或某次 `comparison.overall=match` 只证明本次写入或请求字段的检查结果，不扩大为整份文档模板全部通过。
 
 ### 文档参数显式传入示例
 
-以下仅演示《模板定义》中“BET测试模板-默认模板”的温度和目标压力段如何显式传入；实际模板名称先由《选择规则》匹配。保留文档的分段表达，不自行展开点数。报告整体勾选和概要子项按上表分别处理，未返回的子项不宣称已核验。
+以下演示《模板定义》中“BET测试模板-默认模板”的温度、目标压力段、报告选择及概要内部选项如何显式传入；实际模板名称先由《选择规则》匹配。保留文档的分段表达，不自行展开点数。概要中未启用的孔体积阈值也按文档保留。
 
 ```json
 {
@@ -44,6 +44,12 @@
     "temperatureK": 77,
     "pressureMode": "relative-pp0",
     "pressureProgram": [{ "start": 0, "end": 0.3, "step": 0.05, "intervalSeconds": 5 }],
+    "reportTypes": [1, 5, 6],
+    "summaryReport": {
+      "enabledFields": ["showSinglePointBET", "showMultiPointBET"],
+      "adsorptionPoresAtPP0": 0.99405431,
+      "desorptionPoresAtPP0": 0.95
+    },
     "sampleName": "石墨样品",
     "sampleMassG": 1.5,
     "tubeMassG": 29.1
@@ -61,13 +67,41 @@ labType 是实验模式：**0=常规模式，1=高通量模式**。当前厂家�
 
 settings 使用归一化单位，支持以下字段：
 
-- `analysisType` 必填：bet、mesopore、micropore；`gasMnemonic` 当前为 N2。
+- `analysisType` 必填：Climber（g5）支持 bet、mesopore；SiCOPE（g12）支持 bet、mesopore、micropore。`gasMnemonic` 当前为 N2。
 - `sampleName`、`sampleMassG`、`tubeMassG`、`sampleDensityGPerCm3`；显式质量/密度必须为正数。
 - `unit` 为1/2，默认1；`port` 从0开始，G5为0–2，G12为0–3，默认0。Climber 实际任务的 analysisPort 仍按登记契约填写。
 - `temperatureK`、`p0MmHg`；`preparationEvacuationHours` 是仪器准备抽真空时间，不是样品预处理温度或时长。
 - `collectionMode` 为 target-pressure 或 dose-increment，默认保留方法来源的实际采集模式。`pressureProgram` 是有序 start/end/step/intervalSeconds 数组；提供后选用目标压力路径。`incrementProgram` 是 end/useDoseIncrement/doseCm3StpPerG/percentOfPrevious/intervalSeconds 数组；提供后选用注气增量路径。一次只提供一种自定义程序，同时指定 `pressureMode`（relative-pp0/absolute-mmHg），由脚本转换 mmHg/1000；不改变原值含义。
 - `lowPressureEnabled`、`lowPressureDoseCm3StpPerG`、`lowPressureMinHours`、`lowPressureMaxHours` 作用于实际活动路径的 T_ 或 D_ 选项，不混用秒和小时。
 - `reportTypes` 可选，非空、无重复的报告类型编号，必须是 profiles 返回的本产品版本已有类型。脚本只切换完整 options 对象的 selected，不凭编号拼造报告结构。未指定时 BET 选择概要、等温线、BET，其它方法保留本产品配置的勾选项。DFT 等报告的模型文件与方法适用性仍需核对，不以勾选替代物性或模型配置。
+- `summaryReport`：新建且勾选概要报告（type=1）时必填，包含 enabledFields、adsorptionPoresAtPP0、desorptionPoresAtPP0。enabledFields 是完整的已启用开关列表，未列出的已支持开关均关闭；两个 P/P0 为 0–1 数值，按文档显式填写，包括未启用项目的保留值。缺项返回 MISSING_SUMMARY_REPORT/INVALID_SUMMARY_REPORT、writeOutcome=not-started，未写文件。其他原生 options 和未知扩展字段保留。
+
+### 概要报告参数与文档映射
+
+这些是原生显示开关，不是实验分析类型。按《模板定义》的当前类别逐项构造 enabledFields；不得把下面的字段目录全部勾选。报告整体选择也须显式填写：BET 选择概要、等温线、BET；介孔再加 BJH 吸附/脱附，不继承底座的 Langmuir、t-Plot 等勾选。实际编号取当前产品 profiles。
+
+| 概要指标                                  | enabledFields 中的原生字段                                                                     |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| 单点、多点 BET 比表面积                   | showSinglePointBET、showMultiPointBET                                                          |
+| Langmuir 比表面积                         | showLangmuir                                                                                   |
+| t-Plot 微孔面积、外表面积、微孔体积       | showt_PlotMicroporeArea、showt_PlotExternal、showt_PlotMicroporeVolume                         |
+| BJH 吸附/脱附累积表面积                   | showBJHCumulativeAdsorptionArea、showBJHCumulativeDesorptionArea                               |
+| 吸附/脱附总孔体积                         | showAdsorptionTotalPoreVolume、showDesorptionTotalPoreVolume                                   |
+| BJH 吸附/脱附累积孔体积（原生字段含义）   | showBJHCumulativeAdsorptionVolume、showBJHCumulativeDesorptionVolume                           |
+| 平均孔径（4V/A）                          | showAveragePoreDiameter                                                                        |
+| BJH 吸附/脱附平均孔宽（4V/A）             | showBJHAdsorptionAveragePore、showBJHDesorptionAveragePore                                     |
+| BJH 吸附/脱附最可几孔径                   | showBJHAdsorptionMostProbablePoreWidth、showBJHDesorptionMostProbablePoreWidth                 |
+| Dubinin-Astakhov 微孔表面积、微孔极限体积 | showDAMicroporeSurfaceArea、showDALimitingMicroporeVolume                                      |
+| Horvath-Kawazoe 最大孔体积、中值孔径      | showHKMaximumPoreVolume、showHKMedianPoreWidth                                                 |
+| DFT 孔径、孔体积百分比                    | showNLDFTPoreSize、showNLDFTPoreVolumePercentage                                               |
+| Dubinin-Radushkevich 微孔表面积、单层容量 | showDRMicroporeSurfaceArea、showDRMonolayerCapacity                                            |
+| 通过/失败报告项目 1–4                     | showAbnormalDefOption1、showAbnormalDefOption2、showAbnormalDefOption3、showAbnormalDefOption4 |
+
+《模板定义》“孔体积”分组中的两项 BJH 原文仍写作“累积表面积”，与上述原生 Volume 字段的对应关系未获确认；不能仅按分组或英文名猜定这两项。BET 模板中两项均未勾选，可以明确关闭；介孔、微孔中两项勾选的具体含义须单独确认后再构造完整列表，其他已明确的条件继续复用，不要求用户提供完整 JSON。
+
+生成/修改后的 summaryReport 返回已知选项原值 options、完整可解释时的 enabledFields、unresolvedFields、extraKeys 和 source。compare 的 requirements.summaryReport 接受同一对象，逐项返回 summaryReport.enabledFields 及两个阈值的检查；enabledFields 按集合精确比较，既检查应开启项，也检查应关闭项，不受数组顺序影响。无效、缺失或产品不匹配的选项不能得到 match。
+
+modify/save-as 的顶层 summaryReport 可只提供需要修改的 enabledFields 或某个阈值，未请求的部分保持原值；不能与 changes.reports 同时提供。凡通过 summaryReport 显式写入的设置，写入器都会在发布目标文件前从临时文件读回并 compare；不相符则不发布，回执中的 comparison 保留实际核对结果。
 
 未显式传入的字段仍可能继承内置底座或历史方法程序，因此不能只传 `analysisType` 就认定文件已经符合所选文档模板。文档已定义的温度、采集方式、压力/注气段、间隔和报告设置应显式处理并逐项核对。底座只补充文档未规定且当前产品需要的完整字段；来源不明或关键映射不支持时列为缺口，不把历史默认值冒充文档值。
 
@@ -79,11 +113,11 @@ settings 使用归一化单位，支持以下字段：
 
 三个写入命令均接收单个 JSON 参数，`product` 为 `g5` 或 `g12`，`path` 为当前主机可写的绝对 SAM/SMP 路径（settings 新建可省略）。写入使用 Qt 大端状态、字符串字节长度和 UTF-16BE JSON。先在同目录写完整临时文件并解析校验，再发布目标文件。
 
-| 命令      | JSON 字段                                                                | 行为                                                                                       |
-| --------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
-| `create`  | `product, settings`，可选 `path, profile`；或 `path, product, template`  | 根据内置完整配置及测样参数新建，或直接写入完整原始配置；独立 UUID/新建状态，不覆盖已有目标 |
-| `modify`  | `path, product, expectedSha256`，至少提供 `changes` 或 `reportTypes`     | 核对源文件当前哈希后，修改并替换该文件                                                     |
-| `save-as` | `path, product, sourcePath, expectedSha256`，可选 `changes, reportTypes` | 核对源哈希，将源配置另存到新路径；保留源文件，目标已存在时报错                             |
+| 命令      | JSON 字段                                                                               | 行为                                                                                       |
+| --------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `create`  | `product, settings`，可选 `path, profile`；或 `path, product, template`                 | 根据内置完整配置及测样参数新建，或直接写入完整原始配置；独立 UUID/新建状态，不覆盖已有目标 |
+| `modify`  | `path, product, expectedSha256`，至少提供 `changes`、`reportTypes` 或 `summaryReport`   | 核对源文件当前哈希后，修改并替换该文件                                                     |
+| `save-as` | `path, product, sourcePath, expectedSha256`，可选 `changes, reportTypes, summaryReport` | 核对源哈希，将源配置另存到新路径；保留源文件，目标已存在时报错                             |
 
 直接提供 `template` 时，它是对应产品/版本的完整实验前配置对象，包含实际 `softwareVersion`、`clientVersion`、`sample name`、mass、sample tube、analysis conditions 下的吸附质物性、采集、准备、自由空间、P0/温度及回填配置。通常优先使用上面的 settings 生成路径，由内置配置提供这些字段，不向用户索取完整 JSON。结构检查不替代厂家软件校验。新建配置不携带旧运行时间、采集数据或报告结果；UUID 和 analysisStatus 由脚本生成。
 

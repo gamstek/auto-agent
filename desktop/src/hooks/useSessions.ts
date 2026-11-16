@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 import { api, errorText, type Session } from '../bridge';
 import { chatTrace } from '../lib/chat-debug';
+import { SessionTitles } from '../lib/session-titles';
 
 const PAGE_SIZE = 50;
 
@@ -16,6 +17,23 @@ export function useSessions() {
   const refreshPromise = useRef<Promise<Session[]> | null>(null);
   const titleRevision = useRef(0);
   const titleChanges = useRef(new Map<string, { revision: number; title: string }>());
+  const [titles] = useState(
+    () =>
+      new SessionTitles({
+        generate: (id, content) => api(`/session/${id}/title-suggestion`, 'POST', { content }),
+        save: (id, title, generation) =>
+          api(`/session/${id}/title`, 'PATCH', {
+            title,
+            ...(generation ? { generation } : {}),
+          }),
+        changed: ({ id, title }) => {
+          titleChanges.current.set(id, { revision: ++titleRevision.current, title });
+          while (titleChanges.current.size > 100)
+            titleChanges.current.delete(titleChanges.current.keys().next().value!);
+          setSessions((rows) => rows.map((row) => (row.id === id ? { ...row, title } : row)));
+        },
+      }),
+  );
   const mergeTitles = (rows: Session[], started: number) =>
     rows.map((row) => {
       const change = titleChanges.current.get(row.id);
@@ -104,20 +122,27 @@ export function useSessions() {
     }
   }, []);
 
-  const renameSession = useCallback(async (id: string, title: string) => {
-    const value = await api<{ id: string; title: string }>(`/session/${id}/title`, 'PATCH', {
-      title,
-    });
-    if (value.id !== id || typeof value.title !== 'string' || !value.title.trim())
-      throw new Error('重命名响应无效，请刷新会话列表核对结果。');
-    titleChanges.current.set(id, { revision: ++titleRevision.current, title: value.title });
-    // Bound transient receipts; titles themselves are persisted only by Corax.
-    while (titleChanges.current.size > 100)
-      titleChanges.current.delete(titleChanges.current.keys().next().value!);
-    setSessions((rows) =>
-      rows.map((row) => (row.id === id ? { ...row, title: value.title } : row)),
-    );
-  }, []);
+  const renameSession = useCallback(
+    (id: string, title: string) => titles.rename(id, title),
+    [titles],
+  );
+  const prepareSessionTitle = useCallback((id: string) => titles.prepare(id), [titles]);
+  const generateSessionTitle = useCallback(
+    (id: string, content: string) => titles.accepted(id, content),
+    [titles],
+  );
+  const clearSessionTitles = useCallback(() => titles.clear(), [titles]);
 
-  return { sessions, loading, hasMore, error, refreshSessions, loadMore, renameSession };
+  return {
+    sessions,
+    loading,
+    hasMore,
+    error,
+    refreshSessions,
+    loadMore,
+    renameSession,
+    prepareSessionTitle,
+    generateSessionTitle,
+    clearSessionTitles,
+  };
 }

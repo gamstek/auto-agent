@@ -489,6 +489,7 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     parts.len() == 3 && parts[0] == "session" && valid_session_id(parts[1]) &&
         ((method == "GET" && parts[2] == "events" && HistoryQuery::parse(path).is_ok()) ||
          (method == "PATCH" && parts[2] == "title" && path == route) ||
+         (method == "POST" && parts[2] == "title-suggestion" && path == route) ||
          (path == route && method == "POST" && ["prompt_async", "respond", "abort", "clear", "compact", "reset"].contains(&parts[2])))
 }
 fn valid_session_id(id: &str) -> bool { id.strip_prefix("wrun_").is_some_and(|id| id.len() == 26 && id.bytes().all(|byte| byte.is_ascii_alphanumeric())) }
@@ -681,6 +682,29 @@ async fn suggestions_request(state: &Desktop, backend: &Connection) -> Result<Va
     request(state, backend, "POST", "/desktop/suggestions", Some(json!({"sessions":sessions}))).await
 }
 
+async fn session_title_request(state: &Desktop, backend: &Connection, payload: Value) -> Result<Value, String> {
+    if state.pending_apply.load(Ordering::SeqCst) { return Err("模型设置正在应用".into()); }
+    let content = payload["content"].as_str().ok_or("缺少会话提问")?;
+    if payload.as_object().is_none_or(|object| object.len() != 1) || content.trim().is_empty() || content.chars().count() > 6000 {
+        return Err("会话主题请求无效".into());
+    }
+    let mut value = request(state, backend, "POST", "/desktop/session-title", Some(json!({"content":content}))).await?;
+    value["generation"] = json!(backend.generation);
+    Ok(value)
+}
+
+fn session_title_payload(backend: &Connection, payload: &Value) -> Result<String, String> {
+    let title = payload["title"].as_str().ok_or("会话名称无效")?;
+    if payload.as_object().is_none_or(|object| object.keys().any(|key| !["title", "generation"].contains(&key.as_str()))) ||
+        title.trim().is_empty() || title.trim().chars().count() > 100 || title.chars().any(char::is_control) {
+        return Err("会话名称须为 1–100 个字符，且不能包含控制字符".into());
+    }
+    if payload.get("generation").is_some_and(|generation| generation.as_str() != Some(backend.generation.as_str())) {
+        return Err("会话标题的后端身份已经变化".into());
+    }
+    Ok(title.trim().into())
+}
+
 #[tauri::command]
 pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, method: String, path: String, body: Option<Value>, view_id: Option<String>) -> Result<Value, Value> {
     if !allowed_request(&method, &path) { return Err("不支持的桌面接口请求".into()); }
@@ -716,6 +740,9 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     // Advisory model generation reserves in-flight work, but must never hold
     // the chat dispatch lock or delay ordinary message admission.
     if path == "/suggestions" { return suggestions_request(&state, &backend).await.map_err(Value::from); }
+    if path.ends_with("/title-suggestion") {
+        return session_title_request(&state, &backend, body.unwrap_or(json!({}))).await.map_err(Value::from);
+    }
     if path == "/approval" {
         if method == "GET" {
             let value = request(&state, &backend, "GET", "/desktop/approval", None).await?;
@@ -760,12 +787,7 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     }
     if action == "title" {
         let payload = body.ok_or("缺少会话名称")?;
-        let title = payload["title"].as_str().ok_or("会话名称无效")?;
-        if payload.as_object().is_none_or(|object| object.len() != 1) ||
-            title.trim().is_empty() || title.trim().chars().count() > 100 ||
-            title.chars().any(char::is_control) {
-            return Err("会话名称须为 1–100 个字符，且不能包含控制字符".into());
-        }
+        let title = session_title_payload(&backend, &payload)?;
         let value = request(&state, &backend, "PATCH", &format!("/corax/v1/session/{id}/title"),
             Some(json!({"title":title.trim()}))).await?;
         let _ = app.emit("agent-event", json!({"sessionId":id,"type":"session.updated","properties":{}}));
@@ -1081,7 +1103,27 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         assert!(!allowed_request("PATCH", &format!("{path}?url=other")));
         assert!(!allowed_request("PATCH", "/session/invalid/title"));
         assert!(!allowed_request("PATCH", "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/events"));
+        let suggestion = "/session/wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB/title-suggestion";
+        assert!(allowed_request("POST", suggestion));
+        assert!(!allowed_request("GET", suggestion));
+        assert!(!allowed_request("POST", &format!("{suggestion}?url=other")));
+        let backend = connection("http://127.0.0.1".into());
+        assert_eq!(session_title_payload(&backend, &json!({"title":"手动标题"})).unwrap(), "手动标题");
+        assert_eq!(session_title_payload(&backend, &json!({"title":"模型标题","generation":backend.generation})).unwrap(), "模型标题");
+        assert!(session_title_payload(&backend, &json!({"title":"过期标题","generation":"old"})).is_err());
     }
+    #[test] fn topic_generation_uses_the_configured_channel_without_history_or_admission() { tauri::async_runtime::block_on(async {
+        let (url, task) = server(vec![(200, json!({"title":"材料测试方案"}))]).await;
+        let backend = connection(url);
+        let result = session_title_request(&state(), &backend, json!({"content":"确认材料测试方案"})).await.unwrap();
+        assert_eq!(result, json!({"title":"材料测试方案","generation":backend.generation}));
+        assert_eq!(task.await.unwrap(), 1);
+        assert!(backend.pending.lock().unwrap().is_empty());
+        assert!(session_title_request(&state(), &backend, json!({"content":"问题","command":"run"})).await.is_err());
+        let state = state();
+        state.pending_apply.store(true, Ordering::SeqCst);
+        assert!(session_title_request(&state, &backend, json!({"content":"问题"})).await.is_err());
+    }); }
     #[test] fn tail_previews_preserve_global_offsets_and_never_release_pending_admission() { tauri::async_runtime::block_on(async {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();

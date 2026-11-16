@@ -58,6 +58,7 @@ test(
           pressureMode: documentInput.settings.pressureMode,
           collectionMode: 'target-pressure',
           pressureProgram: documentInput.settings.pressureProgram,
+          summaryReport: documentInput.settings.summaryReport,
         },
       });
       assert.equal(checkedDocument.comparison.overall, 'match');
@@ -93,6 +94,7 @@ test(
         product: 'g5',
         settings: {
           analysisType: 'bet',
+          summaryReport: documentInput.settings.summaryReport,
           sampleName: 'Local fixture',
           sampleMassG: 1.5,
           tubeMassG: 29.1,

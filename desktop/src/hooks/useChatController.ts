@@ -3,6 +3,7 @@ import type { BackendCapabilities, InputResponse } from '@auto-agent/desktop-pro
 import { api, errorText, sendErrorText, type Session } from '../bridge';
 import { chatTrace } from '../lib/chat-debug';
 import { chatPresentation } from '../lib/chat-presentation';
+import { SessionDrafts } from '../lib/session-drafts';
 import { useChat } from './useChat';
 import { useApprovalPolicy } from './useApprovalPolicy';
 
@@ -13,6 +14,9 @@ export function useChatController({
   connected,
   capabilities,
   refreshSessions,
+  prepareSessionTitle,
+  generateSessionTitle,
+  clearSessionTitles,
   onError,
   onNavigate,
   onSend,
@@ -20,18 +24,30 @@ export function useChatController({
   connected: boolean;
   capabilities: BackendCapabilities;
   refreshSessions: () => Promise<Session[]>;
+  prepareSessionTitle: (id: string) => void;
+  generateSessionTitle: (id: string, content: string) => Promise<void>;
+  clearSessionTitles: () => void;
   onError: (message: string) => void;
   onNavigate: (fresh: boolean) => void;
   onSend: () => void;
 }) {
   const [view, setView] = useState<SelectedView>({ id: '', origin: 'history' });
-  const [input, setInput] = useState('');
+  const drafts = useRef(new SessionDrafts());
+  const [, renderDraft] = useState(0);
+  const input = drafts.current.read(view.id);
+  const setInput = useCallback(
+    (text: string) => {
+      drafts.current.set(view.id, text);
+      renderDraft((value) => value + 1);
+    },
+    [view.id],
+  );
   const [sending, setSending] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const sessionIdRef = useRef('');
   const navigationEpoch = useRef(0);
   const requestLock = useRef(false);
-  const history = useChat(view.id, connected, view.origin !== 'first-submission');
+  const history = useChat(view.id, connected);
   const approval = useApprovalPolicy(connected);
   const state = chatPresentation({
     sessionId: view.id,
@@ -85,7 +101,7 @@ export function useChatController({
 
   const select = useCallback(
     (id: string) => {
-      navigationEpoch.current++;
+      if (sessionIdRef.current !== id) navigationEpoch.current++;
       sessionIdRef.current = id;
       setView({ id, origin: 'history' });
       setCancelling(false);
@@ -100,19 +116,28 @@ export function useChatController({
     sessionIdRef.current = '';
     setView({ id: '', origin: 'history' });
     setCancelling(false);
-    setInput('');
     onError('');
     localStorage.removeItem('last-session');
     onNavigate(true);
   }, [onError, onNavigate]);
   const resetHistory = useCallback(() => {
+    clearSessionTitles();
     history.clearHistory();
     approval.invalidate();
     settleFirstSubmission();
-  }, [history.clearHistory, settleFirstSubmission, approval.invalidate]);
+  }, [history.clearHistory, settleFirstSubmission, approval.invalidate, clearSessionTitles]);
 
   async function send(text = input) {
-    if (!text.trim() || requestLock.current || !state.canSubmit || !approval.ready) return;
+    if (
+      sessionIdRef.current !== view.id ||
+      !text.trim() ||
+      requestLock.current ||
+      !state.canSubmit ||
+      !approval.ready
+    )
+      return;
+    const source = view.id;
+    const submitted = drafts.current.capture(source);
     requestLock.current = true;
     setSending(true);
     onError('');
@@ -121,25 +146,33 @@ export function useChatController({
     const trace = chatTrace('send', { initial: !sessionIdRef.current });
     let dispatched = false;
     try {
-      let id = sessionIdRef.current;
+      let id = source;
       if (!id) {
         trace.mark('create');
         const session = await api<Session>('/session', 'POST', {});
         trace.mark('created');
         id = session.id;
+        prepareSessionTitle(id);
         if (navigationEpoch.current === epoch) {
+          // Edits made while create() was pending still belong to this conversation.
+          drafts.current.attach(id);
           sessionIdRef.current = id;
           setView({ id, origin: 'first-submission' });
           localStorage.setItem('last-session', id);
+        } else if (submitted?.text.trim() === text.trim()) {
+          // Preserve the original submission on its new ID, not on another selected view.
+          drafts.current.attach(id, submitted);
+          renderDraft((value) => value + 1);
         }
       }
       trace.mark('submit');
       dispatched = true;
       await api(`/session/${id}/prompt_async`, 'POST', { content: text.trim() });
       trace.mark('accepted');
+      void generateSessionTitle(id, text);
       setSending(false);
+      if (drafts.current.accepted(id, submitted, text)) renderDraft((value) => value + 1);
       if (navigationEpoch.current === epoch) {
-        setInput('');
         trace.mark('sync');
         await history.refresh();
         trace.mark('synced');
@@ -153,8 +186,8 @@ export function useChatController({
       if (navigationEpoch.current === epoch) {
         settleFirstSubmission();
         onError(dispatched ? sendErrorText(error) : errorText(error));
+        await history.refresh().catch(() => {});
       }
-      await history.refresh().catch(() => {});
     } finally {
       requestLock.current = false;
       setSending(false);
@@ -194,12 +227,11 @@ export function useChatController({
     sessionId: view.id,
     sessionIdRef,
     input,
+    draftIdentity: navigationEpoch.current,
     setInput,
     sending,
     snapshot: history.snapshot,
     historyError: history.error,
-    previewingOlder: history.previewingOlder,
-    replyPreview: history.replyPreview,
     sync: history.refresh,
     resetHistory,
     select,

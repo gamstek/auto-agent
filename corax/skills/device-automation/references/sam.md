@@ -64,7 +64,7 @@ Climber MCP 的 `sam_file` 提供共享的 SAM/SMP 文件能力，支持 Climber
 - `T_` 表示目标压力模式、`D_` 表示注气增量模式。低压注气事实只取当前模式且开关已启用的字段；停用或缺失时为未知。
 - 两张表可以同时存在，以 active 标识哪张被模式选中，不合并为执行点。压力段保留原顺序和 start/end/step，step=0 标为 endpointOnly，不自动展开或补齐点位。
 - `unit`、零起始 `port` 原样返回，不自动换成厂家 analysisPort，更不把管号当端口。
-- reports 的 selected 只表示报告整体勾选；当前摘要不返回概要报告内部选项，不能据此声称概要子项已核验。报告存在不证明自动导出 PDF。
+- reports 的 selected 只表示报告整体勾选。summaryReport 单独返回概要内部已知 options 原值、enabledFields、unresolvedFields、extraKeys 和原始 source 路径；enabledFields 只有产品和全部已支持开关均可解释时才返回完整数组，否则为 null，不把缺失当成关闭。报告存在不证明自动导出 PDF。
 
 facts 用 presence=missing/null/value 区分字段缺失、显式null和有值；标量保留 rawValue，归一化失败不把字符串数字当成有效枚举。两张分段表也带 presence，空数组不会变成 null。false、0 保留原值。出现未解释的扩展字段会报告 extraKeys/warnings，不解释其执行行为。
 
@@ -89,6 +89,8 @@ requirements 至少包含一个字段，仅支持：
 | lowPressureDoseCm3StpPerG                                          | 当前模式已启用的低压注气量，cm³(STP)/g                                                                                     |
 | lowPressureMinHours、lowPressureMaxHours                           | 当前模式已启用的最小/最大延时，小时                                                                                        |
 | pressureProgram                                                    | 有序数组，每段包含 start、end、step、intervalSeconds；同时必须给出 pressureMode                                            |
+
+另支持 `requirements.summaryReport`：enabledFields 为完整勾选列表，adsorptionPoresAtPP0、desorptionPoresAtPP0 为 0–1 数值；可比较其中任意已明确项，写入契约见 sam-create.md。
 
 tolerances 仅可为上述已请求的数值字段指定非负绝对公差；默认只容忍浮点计算误差。压力程序按段和顺序比较，不将两种不同分段表示擅自判定为同一执行点集。停用的压力表不能当成当前执行程序比较。
 

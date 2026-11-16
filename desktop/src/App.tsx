@@ -29,10 +29,10 @@ import { StartupScreen } from './components/StartupScreen/StartupScreen';
 import { ProcessingLabel } from './components/ProcessingLabel/ProcessingLabel';
 import { useSessions } from './hooks/useSessions';
 import { useChatController } from './hooks/useChatController';
+import { useMessageWindow } from './hooks/useMessageWindow';
 import { useBackendLifecycle, type BackendConnectionState } from './hooks/useBackendLifecycle';
 import { useQuestionSuggestions } from './hooks/useQuestionSuggestions';
 import { useInstrumentMonitor } from './hooks/useInstrumentMonitor';
-import { useMessageWindow } from './hooks/useMessageWindow';
 import './App.css';
 
 export function App() {
@@ -119,6 +119,9 @@ export function App() {
     refreshSessions,
     loadMore: loadMoreSessions,
     renameSession,
+    prepareSessionTitle,
+    generateSessionTitle,
+    clearSessionTitles,
   } = useSessions();
   const [showBottom, setShowBottom] = useState(false);
   const [requestHeight, setRequestHeight] = useState(0);
@@ -136,6 +139,7 @@ export function App() {
     sessionId,
     sessionIdRef,
     input,
+    draftIdentity,
     setInput,
     sending,
     approval,
@@ -150,8 +154,6 @@ export function App() {
     hasConversation,
     activity,
     historyError: chatError,
-    previewingOlder,
-    replyPreview,
     select,
     newSession,
     send,
@@ -163,6 +165,9 @@ export function App() {
     connected: connection === 'connected',
     capabilities,
     refreshSessions,
+    prepareSessionTitle,
+    generateSessionTitle,
+    clearSessionTitles,
     onError: setError,
     onNavigate: resetViewport,
     onSend: beforeSend,
@@ -220,12 +225,15 @@ export function App() {
     window.addEventListener('keydown', shortcut);
     return () => window.removeEventListener('keydown', shortcut);
   }, [settings, sidebar, initialized, newSession]);
-  useEffect(() => {
+  // Position newly committed history before paint.
+  useLayoutEffect(() => {
     if (stick.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
-  }, [sessionId, snapshot?.revision, settings, requestHeight]);
+  }, [sessionId, snapshot, page, requestHeight]);
 
   const composer = (
     <Composer
+      key={draftIdentity}
+      autoFocus={!sessionId}
       input={input}
       onInput={setInput}
       inputRef={inputRef}
@@ -485,9 +493,7 @@ export function App() {
                     此会话已结束，历史记录仍可查看。
                     <Button
                       onClick={() => {
-                        const draft = input;
                         newSession();
-                        setInput(draft);
                       }}
                     >
                       新建会话
@@ -495,6 +501,7 @@ export function App() {
                   </div>
                 )}
                 <MessageList
+                  key={`${backendIdentity}:${sessionId}`}
                   ref={scroll}
                   onScroll={() => {
                     const element = scroll.current!;
@@ -504,21 +511,12 @@ export function App() {
                     if (!stick.current) messageWindow.pin();
                   }}
                 >
-                  {(messageWindow.hasMore || previewingOlder) && (
-                    <Button
-                      variant="ghost"
-                      className="older-button"
+                  {messageWindow.hasMore && (
+                    <div
+                      className="message-list-sentinel"
                       ref={messageWindow.trigger}
-                      disabled={previewingOlder}
-                      onClick={messageWindow.loadMore}
-                    >
-                      {previewingOlder ? '正在同步更早的消息…' : '加载更早的消息'}
-                    </Button>
-                  )}
-                  {replyPreview && (
-                    <p className="history-preview-status" role="status">
-                      最近回复预览 · {chatError ? '上下文尚未同步' : '正在补齐上下文与过程'}
-                    </p>
+                      aria-hidden="true"
+                    />
                   )}
                   {!hasConversation && (
                     <Welcome

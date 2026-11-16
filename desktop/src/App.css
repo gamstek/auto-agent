@@ -130,11 +130,6 @@
 .chat-thread .conversation {
   padding-bottom: calc(22px + var(--chat-input-clearance, 0px));
 }
-.history-preview-status {
-  color: var(--text-muted);
-  font-size: 12px;
-  line-height: 1.6;
-}
 .content-toolbar {
   z-index: 4;
   height: 66px;

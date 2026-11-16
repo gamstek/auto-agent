@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { inspectSam } from './sam.js';
+import { applySummaryReport } from './summary-report.js';
 
 const fail = (code, message) => {
   throw Object.assign(new Error(message), { publicCode: code });
@@ -129,7 +130,7 @@ export async function writeSam(input, command) {
       : command === 'modify'
         ? ['path', 'product', 'expectedSha256']
         : ['path', 'product', 'sourcePath', 'expectedSha256'];
-  const optional = command === 'create' ? [] : ['changes', 'reportTypes'];
+  const optional = command === 'create' ? [] : ['changes', 'reportTypes', 'summaryReport'];
   if (
     required.some((k) => !Object.hasOwn(input, k)) ||
     Object.keys(input).some((k) => ![...required, ...optional].includes(k)) ||
@@ -137,14 +138,19 @@ export async function writeSam(input, command) {
     !['g5', 'g12'].includes(input.product)
   )
     fail('INVALID_INPUT', '需要绝对 SAM/SMP 路径、g5/g12 产品及命令要求的字段。');
-  if (command === 'modify' && input.changes === undefined && input.reportTypes === undefined)
-    fail('INVALID_INPUT', 'modify 需要 changes 或 reportTypes。');
   if (
-    input.reportTypes !== undefined &&
+    command === 'modify' &&
+    input.changes === undefined &&
+    input.reportTypes === undefined &&
+    input.summaryReport === undefined
+  )
+    fail('INVALID_INPUT', 'modify 需要 changes、reportTypes 或 summaryReport。');
+  if (
+    (input.reportTypes !== undefined || input.summaryReport !== undefined) &&
     object(input.changes) &&
     Object.hasOwn(input.changes, 'reports')
   )
-    fail('INVALID_INPUT', 'reportTypes 与 changes.reports 不能同时提供。');
+    fail('INVALID_INPUT', 'reportTypes/summaryReport 与 changes.reports 不能同时提供。');
   if (
     command !== 'create' &&
     (!/^[a-f0-9]{64}$/.test(input.expectedSha256) ||
@@ -255,7 +261,14 @@ export async function writeSam(input, command) {
     }
   }
   const normalizedFields = root.labType === 0 ? [] : ['labType'];
+  if (input.summaryReport !== undefined) applySummaryReport(root, input.summaryReport);
   root.labType = 0;
+  if (
+    command === 'create' &&
+    input.product === 'g5' &&
+    [5, 9].includes(root['analysis conditions']?.['analysis type'])
+  )
+    fail('UNSUPPORTED_ANALYSIS_TYPE', 'Climber 不支持新建微孔分析模板。');
   validate(root, input.product, Boolean(generated) || source?.status.state === 'new');
   const body = Buffer.from(JSON.stringify(root), 'utf16le').swap16();
   const header = Buffer.alloc(8);
@@ -277,7 +290,21 @@ export async function writeSam(input, command) {
     } finally {
       await handle.close();
     }
-    const summary = await inspectSam({ path: temporary, product: input.product });
+    const requestedSummary =
+      generated?.generation.requestedSettings.summaryReport ?? input.summaryReport;
+    const summary =
+      requestedSummary === undefined
+        ? await inspectSam({ path: temporary, product: input.product })
+        : await inspectSam(
+            {
+              path: temporary,
+              product: input.product,
+              requirements: { summaryReport: requestedSummary },
+            },
+            'compare',
+          );
+    if (requestedSummary !== undefined && summary.comparison.overall !== 'match')
+      fail('SUMMARY_REPORT_MISMATCH', '概要报告写入后读回与请求不一致，未发布目标文件。');
     const pendingInputs = [
       ...(root['sample name'] === '未命名样品' ? ['sampleName'] : []),
       ...(root.mass['sample mass'] > 0 ? [] : ['sampleMassG']),

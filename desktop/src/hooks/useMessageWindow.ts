@@ -12,7 +12,7 @@ export function useMessageWindow(
   active: boolean,
 ) {
   const [window, setWindow] = useState<{ key: string; firstId?: string }>({ key });
-  const trigger = useRef<HTMLButtonElement>(null);
+  const trigger = useRef<HTMLDivElement>(null);
   const pending = useRef<{
     key: string;
     anchor: HTMLElement | null;
@@ -84,5 +84,5 @@ export function useMessageWindow(
       observer?.disconnect();
     };
   }, [key, active, start, scroll, loadMore]);
-  return { messages: messages.slice(start), hasMore: start > 0, trigger, loadMore, pin };
+  return { messages: messages.slice(start), hasMore: start > 0, trigger, pin };
 }

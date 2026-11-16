@@ -1,3 +1,9 @@
+import {
+  readSummaryReport,
+  validateSummaryReport,
+  compareSummaryReport,
+} from './summary-report.js';
+
 export async function inspectSam(input, command = 'inspect') {
   const fs = await import('node:fs/promises');
   const { constants } = await import('node:fs');
@@ -72,11 +78,18 @@ export async function inspectSam(input, command = 'inspect') {
       !object(r) ||
       !Object.keys(r).length ||
       !Object.keys(r).every((k) =>
-        [...numericFields, ...textFields, 'lowPressureEnabled', 'pressureProgram'].includes(k),
+        [
+          ...numericFields,
+          ...textFields,
+          'lowPressureEnabled',
+          'pressureProgram',
+          'summaryReport',
+        ].includes(k),
       )
     )
       fail('INVALID_INPUT', 'requirements 必须包含已支持的对比字段，且不能为空。');
     for (const [key, value] of Object.entries(r)) {
+      if (key === 'summaryReport') validateSummaryReport(value);
       if (
         numericFields.includes(key) &&
         (!finite(value) || (key.startsWith('lowPressure') ? value < 0 : value <= 0))
@@ -464,13 +477,15 @@ export async function inspectSam(input, command = 'inspect') {
   if (Array.isArray(root.reports) && root.reports.length > 64)
     fail('OUTPUT_TOO_LARGE', '报告配置超过 64 项，未输出截断内容。');
 
+  const summaryReport = readSummaryReport(root, product);
   let comparison;
   if (command === 'compare') {
     const equal = (a, b, tolerance = 0) =>
       typeof a === 'number' && typeof b === 'number'
         ? Math.abs(a - b) <= tolerance + Number.EPSILON * Math.max(1, Math.abs(a), Math.abs(b)) * 8
         : a === b;
-    const checks = Object.entries(input.requirements).map(([field, expected]) => {
+    const checks = Object.entries(input.requirements).flatMap(([field, expected]) => {
+      if (field === 'summaryReport') return compareSummaryReport(summaryReport, expected);
       let actual = facts[field]?.value ?? null;
       let reason;
       let unsupported =
@@ -496,20 +511,22 @@ export async function inspectSam(input, command = 'inspect') {
               Object.entries(row).every(([k, v]) => equal(v, expected[i][k])),
             )
           : equal(actual, expected, input.tolerances?.[field] ?? 0);
-      return {
-        field,
-        expected,
-        actual,
-        status: unsupported
-          ? 'unsupported'
-          : actual === null
-            ? 'unknown'
-            : matches
-              ? 'match'
-              : 'mismatch',
-        ...(reason ? { reason } : {}),
-        ...(facts[field] ? { source: facts[field].source } : { source: [...base, 'pressures'] }),
-      };
+      return [
+        {
+          field,
+          expected,
+          actual,
+          status: unsupported
+            ? 'unsupported'
+            : actual === null
+              ? 'unknown'
+              : matches
+                ? 'match'
+                : 'mismatch',
+          ...(reason ? { reason } : {}),
+          ...(facts[field] ? { source: facts[field].source } : { source: [...base, 'pressures'] }),
+        },
+      ];
     });
     comparison = {
       overall: checks.some((c) => c.status === 'mismatch')
@@ -571,6 +588,7 @@ export async function inspectSam(input, command = 'inspect') {
           selected: typeof r?.options?.selected === 'boolean' ? r.options.selected : null,
         }))
       : null,
+    summaryReport,
     warnings,
     ...(comparison ? { comparison } : {}),
   };

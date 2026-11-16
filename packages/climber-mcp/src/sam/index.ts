@@ -40,7 +40,7 @@ export async function executeSamFile(raw: SamFileInput, signal?: AbortSignal) {
       });
     return result;
   } catch (cause) {
-    const error = cause as { publicCode?: string; message?: string };
+    const error = cause as { publicCode?: string; message?: string; writeOutcome?: string };
     const writing = samWrites.has(request.operation);
     return {
       error: {
@@ -50,7 +50,8 @@ export async function executeSamFile(raw: SamFileInput, signal?: AbortSignal) {
       operation: request.operation,
       ...(writing
         ? {
-            writeOutcome: started ? 'unknown' : 'not-started',
+            writeOutcome:
+              !started || error.writeOutcome === 'not-started' ? 'not-started' : 'unknown',
             targetPath: request.input.path ?? null,
             reconciliation:
               '先核对目标路径和 SHA-256，不自动重试。未指定新建路径时核对 profiles 返回的默认输出目录；取消不证明未写入或临时文件已清理。',

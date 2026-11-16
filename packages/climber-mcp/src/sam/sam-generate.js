@@ -2,11 +2,16 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
+import { applySummaryReport, readSummaryReport } from './summary-report.js';
 
 const fail = (code, message) => {
-  throw Object.assign(new Error(message), { publicCode: code });
+  throw Object.assign(new Error(message), { publicCode: code, writeOutcome: 'not-started' });
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const methodsByProduct = {
+  g5: ['bet', 'mesopore'],
+  g12: ['bet', 'mesopore', 'micropore'],
+};
 const text = (value) =>
   typeof value === 'string' &&
   value.trim().length > 0 &&
@@ -47,13 +52,16 @@ export async function samProfiles(input) {
         gasMnemonic: profile.gas,
         softwareVersion: profile.configuration.softwareVersion,
         clientVersion: profile.configuration.clientVersion,
-        methods: Object.keys(data.programs),
+        methods: Object.keys(data.programs).filter((method) =>
+          methodsByProduct[profile.product].includes(method),
+        ),
         origin: profile.origin,
         sourceEvidence: profile.sourceEvidence,
         reportTypes: profile.configuration.reports.map((report) => ({
           type: report.type,
           name: report.options.name,
         })),
+        summaryReport: readSummaryReport(profile.configuration, profile.product),
         defaults: {
           temperatureK:
             profile.configuration['analysis conditions']['p0 and temperature options'].temperature +
@@ -102,12 +110,15 @@ export async function generateSam(input) {
     'lowPressureMinHours',
     'lowPressureMaxHours',
     'reportTypes',
+    'summaryReport',
   ];
   if (
     Object.keys(settings).some((key) => !allowed.includes(key)) ||
     !['bet', 'mesopore', 'micropore'].includes(settings.analysisType)
   )
     fail('INVALID_INPUT', 'settings 需要 analysisType（bet/mesopore/micropore）及已支持的参数。');
+  if (!methodsByProduct[input.product].includes(settings.analysisType))
+    fail('UNSUPPORTED_ANALYSIS_TYPE', 'Climber 不支持微孔分析；可新建 BET 或介孔模板。');
   if (settings.gasMnemonic !== undefined && settings.gasMnemonic !== 'N2')
     fail(
       'UNSUPPORTED_PROFILE',
@@ -229,13 +240,7 @@ export async function generateSam(input) {
   root.labType = 0;
   const conditions = root['analysis conditions'];
   conditions['analysis type'] =
-    settings.analysisType === 'bet'
-      ? 0
-      : settings.analysisType === 'mesopore'
-        ? 1
-        : input.product === 'g5'
-          ? 5
-          : 10;
+    settings.analysisType === 'bet' ? 0 : settings.analysisType === 'mesopore' ? 1 : 10;
   conditions['isotherm collection'] = {
     ...conditions['isotherm collection'],
     ...structuredClone(program.collection),
@@ -311,6 +316,16 @@ export async function generateSam(input) {
           .filter((report) => report.options.selected === true)
           .map((report) => report.type));
   for (const report of root.reports) report.options.selected = selectedTypes.includes(report.type);
+  const summarySelected = root.reports.some(
+    (report) => report.type === 1 && report.options.selected,
+  );
+  if (summarySelected && settings.summaryReport === undefined)
+    fail(
+      'MISSING_SUMMARY_REPORT',
+      '勾选概要报告的新建模板须显式提供 settings.summaryReport，按《模板定义》的概要报告具体设置填写，不继承底座选项。',
+    );
+  if (settings.summaryReport !== undefined)
+    applySummaryReport(root, settings.summaryReport, summarySelected);
   let target = input.path;
   if (target === undefined) {
     target = path.join(outputDirectory(), `${settings.analysisType}-${randomUUID()}.SAM`);
@@ -354,6 +369,7 @@ export async function generateSam(input) {
         'lowPressureMinHours',
         'lowPressureMaxHours',
         'reportTypes',
+        'summaryReport',
       ].filter((key) => settings[key] === undefined),
       pendingInputs,
       sampleInputsComplete: pendingInputs.length === 0,
