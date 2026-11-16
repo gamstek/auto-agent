@@ -32,8 +32,14 @@ export async function prepareHostRuntime(project: string) {
       )
     )
       continue;
-    const response = await fetch(artifact.url);
-    if (!response.ok) throw new Error(`Host runtime download failed: ${response.status}`);
+    const response = await fetch(artifact.url, {
+      headers: { 'User-Agent': 'auto-agent-host-runtime (https://github.com/gamstek/auto-agent)' },
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!response.ok)
+      throw new Error(
+        `Host runtime download failed: ${name}: HTTP ${response.status} ${response.statusText} (${artifact.url})`,
+      );
     const bytes = Buffer.from(await response.arrayBuffer());
     if (digest(bytes) !== artifact.sha256)
       throw new Error(`Host runtime checksum mismatch: ${name}`);

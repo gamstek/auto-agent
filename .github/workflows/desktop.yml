@@ -45,6 +45,11 @@ jobs:
           cache: pnpm
       - uses: dtolnay/rust-toolchain@stable
       - run: pnpm install --frozen-lockfile
+      - uses: actions/cache@v4
+        with:
+          path: corax/assets/host
+          key: host-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('corax/lib/host/runtime.ts', 'scripts/prepare-host.ts') }}
+      - run: pnpm prepare:host
       - run: pnpm run typecheck
       - run: pnpm test
       - run: pnpm --filter auto-agent-desktop run prepare:runtime
