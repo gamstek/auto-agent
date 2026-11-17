@@ -1417,6 +1417,12 @@ test('long conversations render a recent page and load earlier messages on upwar
   });
   expect(paintOffsets.length).toBeGreaterThan(0);
   expect(paintOffsets.every((offset) => Math.abs(offset) <= 1)).toBe(true);
+  // Wait for native selection synchronization before testing user scrolling.
+  // The first history paint intentionally precedes current-session readiness.
+  const composer = page.getByRole('textbox', { name: '输入消息' });
+  await composer.fill('分页读取验证');
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
+  await composer.fill('');
   const first = page.locator('.corax-message').first();
   const anchor = await first.getAttribute('data-message-id');
   await page.evaluate(() => {
@@ -2563,6 +2569,8 @@ test('knowledge compilation waits for applied settings and never replays an unce
 test('knowledge workspace uses wide columns and real published links for keyboard-accessible reading', async ({
   page,
 }, testInfo) => {
+  // Compare layout bounds without sampling different frames of the page transition.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.setViewportSize({ width: 1600, height: 1000 });
   await nativeDesktop(page);
   await page.goto('/');
