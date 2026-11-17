@@ -1,7 +1,8 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { createHash } from 'node:crypto';
-import { fileURLToPath } from 'node:url';
+import { pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 import {
   mcpTools,
@@ -95,14 +96,23 @@ export async function callClimber(
     env.CLIMBER_TIMEOUT_MS = String(config.climber.timeoutMs);
     env.CLIMBER_STATE_DIR = join(config.dataDir, 'climber');
   }
+  // Authored workflow steps can execute in Corax's relocated development host.
+  // Resolve fixed public entry points from the actual application, not this chunk.
+  const project =
+    process.env.AUTO_AGENT_PROJECT_ROOT ?? process.env.CORAX_PROJECT_ROOT ?? process.cwd();
+  let loader: string;
+  let cli: string;
+  try {
+    const require = createRequire(join(project, 'package.json'));
+    loader = pathToFileURL(require.resolve('tsx')).href;
+    cli = require.resolve('@auto-agent/climber-mcp/cli');
+  } catch {
+    return failure('MCP_UNAVAILABLE', '应用的 Climber MCP 或 tsx 入口不可用，未发送请求。');
+  }
   const transport = new StdioClientTransport({
     command: process.execPath,
-    args: [
-      '--import',
-      import.meta.resolve('tsx'),
-      fileURLToPath(import.meta.resolve('@auto-agent/climber-mcp/cli')),
-    ],
-    cwd: process.env.AUTO_AGENT_PROJECT_ROOT ?? process.cwd(),
+    args: ['--import', loader, cli],
+    cwd: project,
     env,
     stderr: 'pipe',
     maxBufferSize: 256 * 1024,

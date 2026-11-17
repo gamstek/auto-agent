@@ -94,11 +94,21 @@ for (const mode of [
       deviceBusy: false,
       simulation: true,
     };
+    let monitorReads = 0;
+    let tracking = false;
+    let monitorReported = false;
+    let monitorStatusSequence: {
+      health: Record<string, unknown>;
+      task: Record<string, unknown>;
+    }[] = [];
     const vendor = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
       async fetch(request) {
         const path = new URL(request.url).pathname;
+        if (tracking && path.endsWith('/status')) monitorReads++;
+        if (path.endsWith('/status') && monitorStatusSequence.length)
+          return Response.json({ ok: true, data: monitorStatusSequence.shift() });
         if (request.method === 'GET')
           return Response.json({
             ok: true,
@@ -194,6 +204,15 @@ for (const mode of [
           max_tokens?: number;
           stream?: boolean;
         };
+        monitorReported ||= body.messages.some((message) => {
+          const text =
+            typeof message.content === 'string' ? message.content : JSON.stringify(message.content);
+          return (
+            text.includes('<task_result') &&
+            text.includes('LOCAL-BATCH') &&
+            /"status"\s*:\s*"completed"/.test(text)
+          );
+        });
         const suggesting = body.messages.some(
           (message) =>
             message.role === 'system' && String(message.content).includes('<question_suggestions>'),
@@ -516,7 +535,7 @@ for (const mode of [
         expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
           'framework',
         );
-      for (const name of ['bash', 'write_file'])
+      for (const name of ['bash', 'write_file', 'climber_monitor'])
         expect(information.tools.static.find((tool) => tool.name === name)?.owner.kind).toBe(
           'application',
         );
@@ -674,6 +693,169 @@ for (const mode of [
       expect(device.task.batchId).toBe('LOCAL-BATCH');
       expect(device.task.state).toBe('RUNNING');
       expect((await fetch(`${host}/desktop/devices`)).status).toBe(401);
+      nextCall = calls.length;
+      calls.push({
+        name: 'climber_monitor',
+        arguments: {
+          batchId: 'LOCAL-BATCH',
+          experimentIds: ['LOCAL-EXP'],
+          simulation: true,
+          intervalSeconds: 5,
+          timeoutHours: 1,
+        },
+      });
+      tracking = true;
+      const monitoring = await client.sessions.create({ message: '后台跟踪已启动的模拟批次。' });
+      const monitoringId = monitoring.session.state.sessionId;
+      const trackingDeadline = Date.now() + 20000;
+      while (monitorReads === 0 && Date.now() < trackingDeadline) await Bun.sleep(100);
+      expect(
+        monitorReads,
+        JSON.stringify(
+          (await monitoring.session.snapshot()).events.filter(
+            (event) => event.type === 'task.settled',
+          ),
+        ),
+      ).toBeGreaterThan(0);
+      const trackingActivity = await client.fetch('/desktop/activity', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessions: [{ id: monitoringId, after: null }] }),
+      });
+      expect((await trackingActivity.json()).sessions[0]).toMatchObject({ busy: true });
+      // The ordinary assistant reply and a later user turn must not end the task.
+      const beforeFollowup = (await monitoring.session.snapshot()).events.filter(
+        (event) => event.type === 'message.completed',
+      ).length;
+      const followup = await sendWhenReady(monitoring.session, '继续正常对话，不改变仪器任务。');
+      let replies = beforeFollowup;
+      while (replies <= beforeFollowup && Date.now() < trackingDeadline) {
+        await Bun.sleep(100);
+        replies = (await monitoring.session.snapshot()).events.filter(
+          (event) => event.type === 'message.completed',
+        ).length;
+      }
+      expect(replies).toBeGreaterThan(beforeFollowup);
+      task = { ...task!, state: 'COMPLETED' };
+      let tracked;
+      do {
+        const events = (await monitoring.session.snapshot()).events;
+        tracked = events.find(
+          (event) => event.type === 'task.settled' && event.data.name === 'climber_monitor',
+        );
+        if (tracked) break;
+        await Bun.sleep(100);
+      } while (Date.now() < trackingDeadline);
+      expect(tracked?.type).toBe('task.settled');
+      if (tracked?.type === 'task.settled') {
+        expect(tracked.data.status).toBe('completed');
+        expect(tracked.data.output).toMatchObject({
+          status: 'completed',
+          batchId: 'LOCAL-BATCH',
+          experimentIds: ['LOCAL-EXP'],
+        });
+      }
+      expect(monitorReads).toBeGreaterThanOrEqual(2);
+      expect((await followup.result()).message).toContain('Wiki 已连接');
+      expect(monitorReported).toBe(true);
+      expect(writes).toHaveLength(2);
+      // Cancelling the native task must never issue a device stop or a new write.
+      task = { ...task!, batchId: 'MONITOR-CANCEL', state: 'RUNNING' };
+      nextCall = calls.length;
+      calls.push({
+        name: 'climber_monitor',
+        arguments: {
+          batchId: 'MONITOR-CANCEL',
+          experimentIds: ['LOCAL-EXP'],
+          simulation: true,
+          intervalSeconds: 5,
+          timeoutHours: 1,
+        },
+      });
+      const readsBeforeCancel = monitorReads;
+      const cancelledMonitor = await client.sessions.create({
+        message: '只读跟踪取消测试，不改变设备状态。',
+      });
+      const cancelDeadline = Date.now() + 10000;
+      while (monitorReads === readsBeforeCancel && Date.now() < cancelDeadline)
+        await Bun.sleep(100);
+      expect(monitorReads).toBeGreaterThan(readsBeforeCancel);
+      await cancelledMonitor.session.cancel();
+      await cancelledMonitor.response.result();
+      const cancelSnapshot = await cancelledMonitor.session.snapshot();
+      expect(
+        cancelSnapshot.events.some(
+          (event) => event.type === 'task.settled' && event.data.status === 'cancelled',
+        ),
+      ).toBe(true);
+      const readsAfterCancel = monitorReads;
+      await Bun.sleep(5500);
+      expect(monitorReads).toBe(readsAfterCancel);
+      expect(task.state).toBe('RUNNING');
+      expect(writes).toHaveLength(2);
+      task = { ...task, batchId: 'MONITOR-TIMEOUT' };
+      nextCall = calls.length;
+      calls.push({
+        name: 'climber_monitor',
+        arguments: {
+          batchId: 'MONITOR-TIMEOUT',
+          experimentIds: ['LOCAL-EXP'],
+          simulation: true,
+          intervalSeconds: 5,
+          timeoutHours: 0.0005,
+        },
+      });
+      const timedMonitor = await client.sessions.create({
+        message: '只读跟踪达到时限，不改变设备状态。',
+      });
+      await Promise.race([
+        timedMonitor.response.result(),
+        Bun.sleep(15000).then(() => {
+          throw new Error('Monitor did not respect its deadline');
+        }),
+      ]);
+      const timedSnapshot = await timedMonitor.session.snapshot();
+      const timed = timedSnapshot.events.find((event) => event.type === 'task.settled');
+      expect(timed?.type).toBe('task.settled');
+      if (timed?.type === 'task.settled')
+        expect(timed.data.output).toMatchObject({ status: 'timeout', batchId: 'MONITOR-TIMEOUT' });
+      expect(task.state).toBe('RUNNING');
+      expect(writes).toHaveLength(2);
+      const learnedTask = {
+        batchId: 'MONITOR-LEARNED',
+        state: 'RUNNING',
+        experiments: [{ experimentId: 'LOCAL-EXP' }],
+      };
+      const learnedRun = {
+        ...learnedTask,
+        experiments: [{ experimentId: 'LOCAL-EXP', deviceRunId: 0 }],
+      };
+      monitorStatusSequence = [
+        { health: { deviceConnected: true }, task: learnedTask },
+        { health: { deviceConnected: true, simulation: true }, task: learnedRun },
+        {
+          health: { deviceConnected: true, simulation: false },
+          task: { ...learnedRun, state: 'COMPLETED' },
+        },
+      ];
+      nextCall = calls.length;
+      calls.push({
+        name: 'climber_monitor',
+        arguments: { batchId: 'MONITOR-LEARNED', experimentIds: ['LOCAL-EXP'], intervalSeconds: 5 },
+      });
+      const learned = await client.sessions.create({
+        message: '跟踪期间保留后来才出现的真实身份信息。',
+      });
+      await learned.response.result();
+      const learnedResult = (await learned.session.snapshot()).events.find(
+        (event) => event.type === 'task.settled',
+      );
+      expect(learnedResult?.type).toBe('task.settled');
+      if (learnedResult?.type === 'task.settled')
+        expect(learnedResult.data.output).toMatchObject({ status: 'identity_mismatch', checks: 3 });
+      expect(monitorStatusSequence).toHaveLength(0);
+      expect(writes).toHaveLength(2);
+      tracking = false;
       if (profiling) {
         await probe('sessionList', '/corax/v1/session?limit=50&offset=0');
         await probe(
@@ -987,7 +1169,31 @@ for (const mode of [
       expect(writes).toHaveLength(2);
       const savedApproval = await (await activeClient.fetch('/desktop/approval')).json();
       expect(savedApproval.mode).toBe('once');
+      task = { ...task!, batchId: 'MONITOR-RESTART', state: 'RUNNING' };
+      tracking = true;
+      const restartReads = monitorReads;
+      nextCall = calls.length;
+      calls.push({
+        name: 'climber_monitor',
+        arguments: {
+          batchId: 'MONITOR-RESTART',
+          experimentIds: ['LOCAL-EXP'],
+          simulation: true,
+          intervalSeconds: 5,
+        },
+      });
+      const durableMonitor = await activeClient.sessions.create({
+        message: '进程重启后继续只读跟踪同一批次。',
+      });
+      const restartDeadline = Date.now() + 30000;
+      while (monitorReads === restartReads && Date.now() < restartDeadline) await Bun.sleep(100);
+      expect(monitorReads).toBeGreaterThan(restartReads);
+      const beforeRestart = await durableMonitor.session.snapshot();
+      const originalTask = beforeRestart.events.find((event) => event.type === 'task.started');
+      expect(originalTask?.type).toBe('task.started');
+      expect(beforeRestart.events.some((event) => event.type === 'task.settled')).toBe(false);
       await stop();
+      task = { ...task!, state: 'COMPLETED' };
       const preferenceToken = crypto.randomUUID();
       env.AUTO_AGENT_TOKEN = preferenceToken;
       child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
@@ -1002,6 +1208,57 @@ for (const mode of [
       expect(restoredPolicy.mode).toBe(savedApproval.mode);
       expect(restoredPolicy.revision).toBe(0);
       expect(restoredPolicy.configRevision).toBe(savedApproval.configRevision);
+      const restoredMonitor = restored.sessions.attach(durableMonitor.session.state.sessionId);
+      let resumedTask;
+      do {
+        resumedTask = (await restoredMonitor.snapshot()).events.find(
+          (event) => event.type === 'task.settled',
+        );
+        if (resumedTask) break;
+        await Bun.sleep(100);
+      } while (Date.now() < restartDeadline);
+      expect(resumedTask?.type).toBe('task.settled');
+      if (resumedTask?.type === 'task.settled') {
+        expect(resumedTask.data.status).toBe('completed');
+        expect(resumedTask.data.output).toMatchObject({
+          status: 'completed',
+          batchId: 'MONITOR-RESTART',
+        });
+        if (originalTask?.type === 'task.started')
+          expect(resumedTask.data.taskId).toBe(originalTask.data.taskId);
+      }
+      expect(writes).toHaveLength(2);
+      tracking = false;
+      if (mode === 'start') {
+        await stop();
+        const disabled = await Bun.file(config).json();
+        disabled.climber.enabled = false;
+        await writeFile(config, JSON.stringify(disabled));
+        child = Bun.spawn(command, { cwd: project, env, stdout: 'pipe', stderr: 'pipe' });
+        errors = new Response(child.stderr).text();
+        const offline = new Client({
+          host: await ready(),
+          auth: { basic: { username: 'auto-agent', password: preferenceToken } },
+        });
+        nextCall = calls.length;
+        calls.push({
+          name: 'climber_monitor',
+          arguments: { batchId: 'MONITOR-TIMEOUT', experimentIds: ['LOCAL-EXP'] },
+        });
+        tracking = true;
+        const offlineReads = monitorReads;
+        const unavailable = await offline.sessions.create({ message: '未启用时不得访问厂家。' });
+        await unavailable.response.result();
+        const offlineTask = (await unavailable.session.snapshot()).events.find(
+          (event) => event.type === 'task.settled',
+        );
+        expect(offlineTask?.type).toBe('task.settled');
+        if (offlineTask?.type === 'task.settled')
+          expect(offlineTask.data.output).toMatchObject({ status: 'configuration_changed' });
+        expect(monitorReads).toBe(offlineReads);
+        expect(writes).toHaveLength(2);
+        tracking = false;
+      }
     } finally {
       releaseKnowledge();
       const stderr = await stop();

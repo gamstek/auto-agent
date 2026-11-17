@@ -102,6 +102,16 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 `ChatInputDock` 位于 Composer 上方，ResizeObserver 的高度反馈只增加消息容器底部留白，防止覆盖最后一条内容。`ChatInputRequest` 只处理待交互请求，单选/自由回答 form 与 Composer 的提交按钮通过原生 form ID 关联。普通发送、回答、停止共用 32px 圆形按钮位置，不混淆批准动作。审批有独立批准/拒绝按钮与可展开的实际参数。历史直接使用已有 ChatTool，不增设已批准/已回答记录块；未知响应不自动重放。
 
+### 仪器长任务的原生后台跟踪
+
+`tools/climber_monitor.ts` 静态注册 `defineWorkflowTool({ task })`，每次 step 在访问厂家前验证启用状态和目标。Corax 0.1.1 不支持动态 workflow 工具；`disableTool()` 是构建时排除，不用于生产运行时配置开关。该工具作为静态只读编排保留，Climber 禁用时返回 configuration_changed 且不访问厂家；四项动态厂家设备工具仍仅在启用时提供。不增加厂家 MCP 接口，不替换现有登记/启动，也不实现尚未接入的完整自动化。
+
+`lib/climber/monitor-workflow.ts` 的入口使用 `"use workflow"`，轮询间隔使用 Corax 支持的 `workflow` 公共模块的持久化 `sleep`；每次 MCP 查询、配置读取及时间戳采集都在 `"use step"` 中。以配置数据/厂家地址的摘要绑定目标，不持久化另一份配置或任务数据库。`lib/climber/monitor.ts` 校验同一 batchId、完整实验集合、已知厂家运行 ID 及模拟标记，后两项首次实际出现后即固定；只认可新鲜匹配的 COMPLETED。状态异常、身份缺失/替换、读失败、配置变化及超时均结束跟踪并保留实际证据，不自动重开或重试写入。
+
+任务回执、taskId、事件、结果投递、取消和恢复全部归 Corax。助手普通回复已可显示时，原生 turn 仍可能处于 `turn.waiting(on=tasks)`；不得把 `MessageResponse.result()` 的最终完成当作首条回复或后台任务受理条件。后续用户消息通过原生 admission 继续对话；`desktop/activity` 已将原生 working task 计入 busy，设置重启/更新继续遵守 idle-safe。无每次查询的模型调用，也不增加后台聊天会话或桌面调度器。
+
+Skill 要求明确启动成功后再创建一次跟踪，复用原批次与实验身份。取消任务只取消只读观察；应用关闭会中断本机工作，重启恢复仍受有效原生快照限制，不能宣称离线无人值守或设备已停止。
+
 ## 构建、安装与验证脚本
 
 - `desktop/scripts/prepare-runtime.ts`：构建与部署 `desktop/src-tauri/runtime` 资源，不执行用户目录清理。

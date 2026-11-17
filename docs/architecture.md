@@ -26,6 +26,7 @@ Corax authored 内容位于独立 workspace 包 `corax/`，下表中的 agent、
 | sandbox.ts / lib/host               | 公开 Corax Host Provider、Node 原生进程与真实文件 I/O |
 | tools/wiki.ts                       | Agent 通用 Wiki：知识、只读证据与显式摄入             |
 | tools/climber.ts                    | MCP 契约驱动的动态 SAM/Climber 工具                   |
+| tools/climber_monitor.ts            | Corax 原生后台任务，只读跟踪已启动的 Climber 批次     |
 | channels/corax.ts                   | 原生 HTTP 与认证                                      |
 | channels/desktop.ts                 | 官方 reducer/句柄支持的忙闲检查                       |
 | channels/instruments.ts             | 认证的仪器只读投影，禁止设备写入                      |
@@ -64,6 +65,8 @@ Climber 的研发别称为 G5，SiCOPE 的研发别称为 G12；命名对应关�
 Corax 动态工具 → 官方 MCP SDK stdio 客户端 → 当前 Node + 固定 tsx loader → `@auto-agent/climber-mcp/cli`。Corax 的公开原生 MCP connection 只支持 HTTP/SSE；应用以公开 defineTool/defineDynamic 适配标准 stdio，不使用私有 SDK 或增加 HTTP 桥。工具定义与 schema 由 MCP 包导出，应用不复制厂家协议或 SAM 逻辑。
 
 sam_file 始终提供 profiles/inspect/compare/create/modify/save-as。配置 climber.enabled 与显式厂家 URL 后，才提供四项设备工具。每次调用拥有固定 stdio 子进程并在 finally 关闭，无连接时不阻塞启动；数据和预留由 MCP 保存在 dataDir/climber。稳定 session/call 身份经受信 MCP metadata 注入；模型不能提供这些字段，操作者 reconcile_operation 不进入 Agent 工具列表。
+
+应用侧静态编排工具 `climber_monitor` 用 `defineWorkflowTool({ task })` 和持久化 sleep 跟踪同一批次及实验身份，实际查询在 step 内验证 Climber 已启用后复用 get_status；禁用时不访问厂家。普通回复不结束跟踪，完成结果通过原生任务回传；状态/身份异常、读失败、配置变化及超时结束跟踪。任务生命周期和持久化由 Corax 拥有，不新增设备接口、任务数据库或完整自动化引擎。取消跟踪不停止仪器，应用退出后的持续查询不作承诺，详见 [应用层边界](application-layer.md#仪器长任务的原生后台跟踪)。
 
 SAM 路径属于 MCP 执行宿主，使用其原生绝对路径，不能直接把 Shell 的 POSIX 别名当作厂家路径。默认输出为用户主目录下 Auto-Agent/templates；桌面发行版用随包 Node。SAM 调用限30秒，JSON 参数限16384字节，完整回执限60000字节；stdio 帧限256 KiB，诊断限16 KiB，不截断配置。MCP 子进程只传系统路径与固定部署参数，不继承凭据/用户加载钩子；Node 默认不自动读取 .env。设备预算覆盖状态前置检查与厂家写入各一次；失败/取消不自动重试，未知文件写先核对路径/哈希，未知设备写按原批次/操作核对。
 

@@ -93,7 +93,12 @@ jobs:
           else
             flags+=(--latest)
           fi
-          gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes "${flags[@]}"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md "${flags[@]}"
+          else
+            gh release create "$GITHUB_REF_NAME" dist/* --verify-tag --title "$GITHUB_REF_NAME" --notes-file .github/release-notes.md --generate-notes "${flags[@]}"
+          fi
           channel=stable
           if [[ "$GITHUB_REF_NAME" == *-* ]]; then channel=beta; fi
           feed="desktop-$channel"
