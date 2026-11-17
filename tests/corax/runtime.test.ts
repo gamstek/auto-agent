@@ -62,7 +62,12 @@ for (const mode of [
   ...(process.env.AUTO_AGENT_TEST_RUNTIME ? ['packaged'] : []),
 ])
   test(`native Corax ${mode} exposes sessions, Wiki tools and host activity without a bridge`, async () => {
-    const temporary = await mkdtemp(join(tmpdir(), 'auto-agent-native-corax-'));
+    // GitHub Windows keeps the checkout/dependency links on D: but OS TEMP on C:.
+    // Its dedicated runner temp stays outside the workspace on the checkout drive,
+    // so the linked SDK can resolve authored workflow imports relative to its root.
+    const temporary = await mkdtemp(
+      join(process.env.RUNNER_TEMP ?? tmpdir(), 'auto-agent-native-corax-'),
+    );
     const root = resolve(import.meta.dirname, '../..');
     await prepareHostRuntime(join(root, 'corax'));
     // Relocate the payload outside the workspace so missing production dependencies
