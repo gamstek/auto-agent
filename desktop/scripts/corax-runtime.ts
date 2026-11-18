@@ -21,7 +21,18 @@ export async function verifyCoraxRuntime(runtime: string) {
     'dist/src/compiled/@workflow/world-local/LICENSE',
     'dist/src/execution/history-read-scope.js',
     'dist/src/corax-channel/session-title.js',
+    'dist/src/shared/host-paths.js',
   ])
     if (!(await stat(join(root, path))).isFile())
       throw new Error(`Corax runtime resource missing: ${path}`);
+  for (const [path, marker] of [
+    ['dist/src/shared/sandbox-session.d.ts', 'startCommand'],
+    ['dist/src/shared/sandbox-provider.d.ts', 'Pure resource metadata'],
+    ['dist/src/execution/sandbox/bash.js', 'runHostCommand'],
+    ['dist/src/execution/catalog/skills.js', 'Resource directory:'],
+    ['dist/src/execution/catalog/skills.js', 'implementation.paths?.skills'],
+    ['dist/src/execution/sandbox/ripgrep-probe.js', 'session.paths?.workspace'],
+  ])
+    if (!(await readFile(join(root, path), 'utf8')).includes(marker))
+      throw new Error(`Corax runtime is missing the native-host compatibility patch: ${path}`);
 }

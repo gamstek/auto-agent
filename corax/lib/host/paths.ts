@@ -23,23 +23,19 @@ export function toShellPath(value: string): string {
 /** Corax resource aliases resolve to installed resources; other paths are native host paths. */
 export function hostPath(value: string, paths: HostPaths): string {
   let path = value.replaceAll('\\', '/');
-  for (const prefix of [
-    '$HOME/.agents/skills',
-    '/workspace/skills',
-    '/corax/resources/skills',
-    `${toShellPath(hostEnvironmentValue('HOME') || homedir())}/.agents/skills`,
-  ])
+  // Accept legacy slash-rooted drive aliases at the file I/O boundary only.
+  if (process.platform === 'win32' && /^\/[a-z]:\//i.test(path)) path = path.slice(1);
+  if (process.platform === 'win32' && /^\/[a-z](?:\/|$)/i.test(path))
+    path = `${path[1].toUpperCase()}:${path.slice(2) || '/'}`;
+  const home = toShellPath(hostEnvironmentValue('HOME') || homedir());
+  for (const prefix of ['$HOME/.agents/skills', '/workspace/skills', '/corax/resources/skills'])
     if (path === prefix || path.startsWith(`${prefix}/`))
       return resolve(paths.skills, `.${path.slice(prefix.length)}`);
   if (path === '/workspace' || path.startsWith('/workspace/'))
     return resolve(paths.workspace, `.${path.slice('/workspace'.length)}`);
   if (path === '/tmp' || path.startsWith('/tmp/'))
     return resolve(tmpdir(), `.${path.slice('/tmp'.length)}`);
-  if (path === '$HOME' || path.startsWith('$HOME/'))
-    path = homedir().replaceAll('\\', '/') + path.slice(5);
+  if (path === '$HOME' || path.startsWith('$HOME/')) path = home + path.slice(5);
   if (path === '~' || path.startsWith('~/')) path = homedir().replaceAll('\\', '/') + path.slice(1);
-  if (process.platform === 'win32' && /^\/[a-z]:\//i.test(path)) path = path.slice(1);
-  if (process.platform === 'win32' && /^\/[a-z](?:\/|$)/i.test(path))
-    path = `${path[1].toUpperCase()}:${path.slice(2) || '/'}`;
   return isAbsolute(path) ? resolve(path) : resolve(paths.workspace, path);
 }

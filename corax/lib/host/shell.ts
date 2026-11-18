@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { delimiter, join, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
-import { hostPath, hostEnvironmentValue, toShellPath, type HostPaths } from './paths';
+import { hostEnvironmentValue, toShellPath } from './paths';
 import { hostRuntimeDirectory } from './runtime';
 
 function which(command: string) {
@@ -55,34 +55,4 @@ export function hostEnvironment(path: string, extra?: Record<string, string>) {
   for (const key of Object.keys(env))
     if (['AUTO_AGENT_TOKEN', 'AUTO_AGENT_API_KEY'].includes(key.toUpperCase())) delete env[key];
   return env;
-}
-
-function isResourceAlias(value: string) {
-  if (process.platform === 'win32' && /^\/[a-z](?::)?(?:\/|$)/i.test(value)) return true;
-  return [
-    '/workspace',
-    '/tmp',
-    '$HOME/.agents/skills',
-    `${toShellPath(hostEnvironmentValue('HOME') || homedir())}/.agents/skills`,
-  ].some((prefix) => value === prefix || value.startsWith(`${prefix}/`));
-}
-const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`;
-
-/** Adapt documented Corax filesystem path arguments, not shell programs or tool contracts. */
-export function bindHostPaths(command: string, paths: HostPaths) {
-  return command.replace(
-    /'([^']*)'|"([^"$`]*)"|(^|[\s;|&])((?:\/workspace|\/tmp|\/[a-z]:?)(?:\/[^\s;'"|&()]*)?)(?=$|[\s;|&])/gi,
-    (
-      match,
-      single: string | undefined,
-      double: string | undefined,
-      before: string | undefined,
-      bare: string | undefined,
-    ) => {
-      const path = single ?? double ?? bare;
-      return path && isResourceAlias(path)
-        ? `${before ?? ''}${quote(toShellPath(hostPath(path, paths)))}`
-        : match;
-    },
-  );
 }

@@ -95,7 +95,14 @@ impl Ownership {
     fn acquire(directory: &Path) -> Result<Self, String> {
         std::fs::create_dir_all(directory).map_err(|_| "无法创建 Corax 数据目录")?;
         let path = directory.join(".auto-agent-host.lock");
-        let contents = json!({"pid":std::process::id(),"token":uuid::Uuid::new_v4().to_string()}).to_string();
+        let executable = std::env::current_exe().map_err(|_| "无法确认当前进程路径")?;
+        let owner = json!({"pid":std::process::id(),"token":uuid::Uuid::new_v4().to_string(),"executable":dunce::simplified(&executable)});
+        #[cfg(windows)] let owner = {
+            let mut owner = owner;
+            owner["processStarted"] = Value::String(process_started(std::process::id())?.ok_or("无法确认当前进程身份")?);
+            owner
+        };
+        let contents = owner.to_string();
         for _ in 0..3 {
             match std::fs::OpenOptions::new().write(true).create_new(true).open(&path) {
                 Ok(mut file) => {
@@ -113,7 +120,7 @@ impl Ownership {
                     let previous = std::fs::read_to_string(&path).map_err(|_| "无法读取运行目录占用锁")?;
                     let owner: Value = serde_json::from_str(&previous).map_err(|_| "运行目录占用锁无效")?;
                     let pid = owner["pid"].as_u64().filter(|pid| *pid > 0 && *pid <= u32::MAX as u64).ok_or("运行目录占用锁无效")? as u32;
-                    if process_alive(pid)? { return Err("已有后端正在使用同一 Corax 数据目录".into()); }
+                    if owner_alive(pid, &owner)? { return Err("已有后端正在使用同一 Corax 数据目录".into()); }
                     if std::fs::read_to_string(&path).ok().as_deref() == Some(&previous) { std::fs::remove_file(&path).map_err(|_| "无法释放已退出进程的占用锁")?; }
                 },
                 Err(_) => return Err("无法取得运行目录占用锁".into()),
@@ -129,20 +136,58 @@ impl Drop for Ownership {
 }
 
 #[cfg(windows)]
-fn process_alive(pid: u32) -> Result<bool, String> {
-    use windows_sys::Win32::{Foundation::CloseHandle, System::Threading::{OpenProcess, GetExitCodeProcess, PROCESS_QUERY_LIMITED_INFORMATION}};
+fn process_started(pid: u32) -> Result<Option<String>, String> {
+    use windows_sys::Win32::{Foundation::{CloseHandle, FILETIME}, System::Threading::{OpenProcess, GetExitCodeProcess, GetProcessTimes, PROCESS_QUERY_LIMITED_INFORMATION}};
     unsafe {
         let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
-        if handle.is_null() { return Ok(std::io::Error::last_os_error().raw_os_error() != Some(87)); }
+        if handle.is_null() {
+            return if std::io::Error::last_os_error().raw_os_error() == Some(87) { Ok(None) }
+                else { Err("无法确认运行目录所属进程身份".into()) };
+        }
         let mut code = 0;
         let success = GetExitCodeProcess(handle, &mut code);
+        let mut times: [FILETIME; 4] = std::mem::zeroed();
+        let [created, exited, kernel, user] = &mut times;
+        let timed = GetProcessTimes(handle, created, exited, kernel, user);
         CloseHandle(handle);
-        if success == 0 { return Err("无法确认运行目录所属进程状态".into()); }
-        Ok(code == 259)
+        if success == 0 || timed == 0 { return Err("无法确认运行目录所属进程状态".into()); }
+        Ok((code == 259).then(|| format!("{}", ((times[0].dwHighDateTime as u64) << 32) | times[0].dwLowDateTime as u64)))
+    }
+}
+#[cfg(windows)]
+fn owner_alive(pid: u32, owner: &Value) -> Result<bool, String> {
+    let Some(started) = process_started(pid)? else { return Ok(false); };
+    if let Some(recorded) = owner.get("processStarted") {
+        return recorded.as_str().map(|value| value == started).ok_or_else(|| "运行目录占用锁无效".into());
+    }
+    // CLI locks also own this directory. Compare their published executable,
+    // never assume that a live owner must be another desktop process.
+    use windows_sys::Win32::{Foundation::CloseHandle, System::Threading::{OpenProcess, QueryFullProcessImageNameW, PROCESS_QUERY_LIMITED_INFORMATION}};
+    unsafe {
+        let handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+        if handle.is_null() { return Err("无法确认运行目录所属进程身份".into()); }
+        let mut buffer = vec![0u16; 32768];
+        let mut length = buffer.len() as u32;
+        let success = QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut length);
+        CloseHandle(handle);
+        if success == 0 { return Err("无法确认运行目录所属进程身份".into()); }
+        let executable = PathBuf::from(String::from_utf16_lossy(&buffer[..length as usize]));
+        if let Some(recorded) = owner.get("executable") {
+            let path = recorded.as_str().filter(|value| !value.is_empty()).ok_or("运行目录占用锁无效")?;
+            let actual = dunce::canonicalize(&executable).map_err(|_| "无法确认运行目录所属进程路径")?;
+            let expected = dunce::canonicalize(path).map_err(|_| "无法确认运行目录占用锁的进程路径")?;
+            return Ok(actual.to_string_lossy().eq_ignore_ascii_case(&expected.to_string_lossy()));
+        }
+        let current = std::env::current_exe().map_err(|_| "无法确认当前进程路径")?;
+        // Legacy CLI locks contain only PID/token. A live Node owner is
+        // ambiguous, so retain its lock conservatively rather than risk two
+        // backends. Legacy desktop builds can be installed at different paths.
+        Ok(executable.file_name().is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("node.exe")) ||
+            executable.file_name().zip(current.file_name()).is_some_and(|(a, b)| a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy())))
     }
 }
 #[cfg(not(windows))]
-fn process_alive(pid: u32) -> Result<bool, String> {
+fn owner_alive(pid: u32, _owner: &Value) -> Result<bool, String> {
     Ok(unsafe { libc::kill(pid as i32, 0) } == 0 || std::io::Error::last_os_error().raw_os_error() != Some(libc::ESRCH))
 }
 
@@ -929,6 +974,81 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
 #[cfg(test)] mod tests {
     use super::*;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    #[cfg(windows)]
+    #[test] fn ownership_cli_and_desktop_exclude_each_other_with_current_and_legacy_cli_locks() {
+        use std::io::BufRead;
+        let root = std::env::temp_dir().join(format!("auto-agent-ownership-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let project = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap();
+        let cli = |script: &str| {
+            let mut command = std::process::Command::new("node");
+            command.args(["--import", "tsx", "--input-type=module", "-e", script])
+                .current_dir(project).env("LOCK_DIRECTORY", &root);
+            command
+        };
+        for legacy in [false, true] {
+            let script = if legacy {
+                "import {writeFileSync,unlinkSync} from 'node:fs'; import {join} from 'node:path'; const path=join(process.env.LOCK_DIRECTORY,'.auto-agent-host.lock'); writeFileSync(path,JSON.stringify({pid:process.pid,token:'legacy-cli'}),{flag:'wx'}); console.log('ready'); process.stdin.resume(); process.stdin.on('end',()=>{unlinkSync(path);process.exit()})"
+            } else {
+                "import {ownCoraxRuntime} from 'auto-agent/config'; const release=ownCoraxRuntime(process.env.LOCK_DIRECTORY); console.log('ready'); process.stdin.resume(); process.stdin.on('end',()=>{release();process.exit()})"
+            };
+            let mut child = cli(script).stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).spawn().unwrap();
+            let mut line = String::new();
+            std::io::BufReader::new(child.stdout.take().unwrap()).read_line(&mut line).unwrap();
+            assert_eq!(line.trim(), "ready");
+            let before = std::fs::read(root.join(".auto-agent-host.lock")).unwrap();
+            let rejected = Ownership::acquire(&root).is_err();
+            let unchanged = std::fs::read(root.join(".auto-agent-host.lock")).unwrap() == before;
+            drop(child.stdin.take());
+            assert!(child.wait().unwrap().success());
+            assert!(rejected, "A live CLI must exclude desktop startup (legacy={legacy})");
+            assert!(unchanged, "Desktop must preserve the CLI lock");
+        }
+        let desktop = Ownership::acquire(&root).unwrap();
+        let before = std::fs::read(root.join(".auto-agent-host.lock")).unwrap();
+        let output = cli("import {ownCoraxRuntime} from 'auto-agent/config'; try {ownCoraxRuntime(process.env.LOCK_DIRECTORY); process.exitCode=2} catch(error) {if(!error.message.includes('Another backend')) throw error}").output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        assert_eq!(std::fs::read(root.join(".auto-agent-host.lock")).unwrap(), before);
+        drop(desktop);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test] fn ownership_recovers_legacy_pid_reused_by_another_executable() {
+        let mut unrelated = std::process::Command::new("cmd.exe").args(["/D", "/C", "set /p value="])
+            .stdin(Stdio::piped()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let root = std::env::temp_dir().join(format!("auto-agent-ownership-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join(".auto-agent-host.lock"), json!({"pid":unrelated.id(),"token":"legacy"}).to_string()).unwrap();
+        let recovered = Ownership::acquire(&root);
+        let still_running = unrelated.try_wait().unwrap().is_none();
+        let _ = unrelated.kill();
+        let _ = unrelated.wait();
+        assert!(still_running);
+        drop(recovered.unwrap());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test] fn ownership_recovers_reused_pid_but_preserves_live_and_legacy_owners() {
+        let root = std::env::temp_dir().join(format!("auto-agent-ownership-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join(".auto-agent-host.lock");
+        let stale = json!({"pid":std::process::id(),"token":"stale","processStarted":"0"}).to_string();
+        std::fs::write(&path, stale).unwrap();
+        let ownership = Ownership::acquire(&root).unwrap();
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(Ownership::acquire(&root).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), contents);
+        drop(ownership);
+        assert!(!path.exists());
+        let legacy = json!({"pid":std::process::id(),"token":"legacy"}).to_string();
+        std::fs::write(&path, &legacy).unwrap();
+        assert!(Ownership::acquire(&root).is_err());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), legacy);
+        std::fs::remove_dir_all(root).unwrap();
+    }
 
     #[test] fn node_launcher_accepts_canonical_windows_resource_paths() { tauri::async_runtime::block_on(async {
         let root = std::env::temp_dir().join(format!("auto-agent Node 量仔-{}", uuid::Uuid::new_v4()));

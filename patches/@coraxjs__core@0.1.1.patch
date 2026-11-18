@@ -114,6 +114,380 @@ index 0000000000000000000000000000000000000000..1a45a489e6be6e3d4db3b9c00134ff61
 +    }
 +  });
 +}
+diff --git a/dist/src/execution/catalog/skills.js b/dist/src/execution/catalog/skills.js
+index 412684511d937de5b272e6cdfdddf14c31b6dc04..b42d88db0b37295656e82fb4cb43eb4d1a41448c 100644
+--- a/dist/src/execution/catalog/skills.js
++++ b/dist/src/execution/catalog/skills.js
+@@ -1 +1,81 @@
+-import{closestNames}from"./rank.js";import{DynamicSkillManifestKey}from"#context/keys.js";import{skillTarget}from"#shared/action-request-name.js";import{SEARCH_TOOL_NAME,SKILL_ENTRY_NAME}from"#protocol/catalog-tools.js";import{toInputSchema}from"#tools/schema.js";import{stripSkillFrontmatter}from"#shared/skill-package.js";import{BundleKey}from"#runtime/sessions/runtime-context-keys.js";import{skillFilePath}from"#execution/skills/instructions.js";function sessionSkills(e){let t=new Map;for(let n of e?.get(BundleKey)?.resolvedAgent.skills??[])t.set(n.name,{deferred:n.deferred===!0,description:n.description,markdown:n.markdown,name:n.name,path:skillFilePath(n.name)});for(let n of Object.values(e?.get(DynamicSkillManifestKey)??{}).flat())t.set(n.name,{deferred:n.deferred===!0,description:n.description,markdown:stripSkillFrontmatter(n.markdown),name:n.name,path:n.revision===void 0?void 0:skillFilePath(n.name)});return t}const SKILL_LOAD_LABEL={start:e=>`Load skill${skillName(e)}`,complete:e=>`Loaded skill${skillName(e)}`};function skillName(e){let t=skillTarget(e);return t===void 0?``:` ${t}`}function createSkillLoader(e){return{description:`Loads a skill's instructions.`,execute:t=>{let n=e.get(t.name);if(n===void 0)throw Error(`No skill named "${t.name}".`);return n.markdown},frameworkTool:!0,inputSchema:SKILL_INPUT_SCHEMA,label:SKILL_LOAD_LABEL,name:SKILL_ENTRY_NAME}}function unknownSkillMessage(e,t,n,r){let i=closestNames(e,[...t.values()]),a=i.length>0?` Closest skills: ${i.join(`, `)}.`:r?` Find skills with ${SEARCH_TOOL_NAME}.`:``,o=n.find(t=>t.toLowerCase()===e.toLowerCase());return`No skill named "${e}".${a}${o===void 0?``:` "${o}" is a connection, not a skill. Find its tools with ${SEARCH_TOOL_NAME}({ query: "${o}__" }).`}`}const SKILL_INPUT_SCHEMA=toInputSchema({type:`object`,properties:{name:{type:`string`}},required:[`name`],additionalProperties:!1});export{createSkillLoader,sessionSkills,unknownSkillMessage};
+\ No newline at end of file
++import { closestNames } from "./rank.js";
++import { DynamicSkillManifestKey, SandboxKey } from "#context/keys.js";
++import { contextStorage } from '#context/container.js';
++import { getSandboxEnvironmentRuntime } from '#shared/sandbox-environment.js';
++import { isAbsolutePath, normalizePath } from '#shared/host-paths.js';
++import { skillTarget } from "#shared/action-request-name.js";
++import { SEARCH_TOOL_NAME, SKILL_ENTRY_NAME } from "#protocol/catalog-tools.js";
++import { toInputSchema } from "#tools/schema.js";
++import { stripSkillFrontmatter } from "#shared/skill-package.js";
++import { BundleKey } from "#runtime/sessions/runtime-context-keys.js";
++import { skillFilePath } from "#execution/skills/instructions.js";
++function sessionSkills(e) {
++  let t = new Map();
++  for (let n of e?.get(BundleKey)?.resolvedAgent.skills ?? [])
++    t.set(n.name, {
++      deferred: n.deferred === !0,
++      description: n.description,
++      markdown: n.markdown,
++      name: n.name,
++      path: skillFilePath(n.name),
++    });
++  for (let n of Object.values(e?.get(DynamicSkillManifestKey) ?? {}).flat())
++    t.set(n.name, {
++      deferred: n.deferred === !0,
++      description: n.description,
++      markdown: stripSkillFrontmatter(n.markdown),
++      name: n.name,
++      path: n.revision === void 0 ? void 0 : skillFilePath(n.name),
++    });
++  return t;
++}
++const SKILL_LOAD_LABEL = {
++  start: (e) => `Load skill${skillName(e)}`,
++  complete: (e) => `Loaded skill${skillName(e)}`,
++};
++function skillName(e) {
++  let t = skillTarget(e);
++  return t === void 0 ? `` : ` ${t}`;
++}
++function createSkillLoader(e) {
++  return {
++    description: `Loads a skill's instructions.`,
++    execute: (t) => {
++      let n = e.get(t.name);
++      if (n === void 0) throw Error(`No skill named "${t.name}".`);
++      if (n.path !== undefined) {
++        // Resource descriptions must not provision compute just to load instructions.
++        const environment = contextStorage.getStore()?.get(SandboxKey)?.environment;
++        const root = environment === undefined ? undefined :
++          getSandboxEnvironmentRuntime(environment).implementation.paths?.skills;
++        if (typeof root === 'string' && isAbsolutePath(root)) {
++          const directory = `${normalizePath(root).replace(/\/$/, '')}/${n.name}`;
++          return `Skill file: ${directory}/SKILL.md\nResource directory: ${directory}\nUse this resolved directory for relative references, file tools and shell commands. It takes precedence over the symbolic discovery path.\n\n${n.markdown}`;
++        }
++      }
++      return n.markdown;
++    },
++    frameworkTool: !0,
++    inputSchema: SKILL_INPUT_SCHEMA,
++    label: SKILL_LOAD_LABEL,
++    name: SKILL_ENTRY_NAME,
++  };
++}
++function unknownSkillMessage(e, t, n, r) {
++  let i = closestNames(e, [...t.values()]),
++    a =
++      i.length > 0
++        ? ` Closest skills: ${i.join(`, `)}.`
++        : r
++          ? ` Find skills with ${SEARCH_TOOL_NAME}.`
++          : ``,
++    o = n.find((t) => t.toLowerCase() === e.toLowerCase());
++  return `No skill named "${e}".${a}${o === void 0 ? `` : ` "${o}" is a connection, not a skill. Find its tools with ${SEARCH_TOOL_NAME}({ query: "${o}__" }).`}`;
++}
++const SKILL_INPUT_SCHEMA = toInputSchema({
++  type: `object`,
++  properties: { name: { type: `string` } },
++  required: [`name`],
++  additionalProperties: !1,
++});
++export { createSkillLoader, sessionSkills, unknownSkillMessage };
+diff --git a/dist/src/execution/sandbox/bash.js b/dist/src/execution/sandbox/bash.js
+index 2e80fa585722b54b4b0e2a3c0408c955bfb9c16d..d67e06e6b4e75ecc897db101772cce88f8269b2f 100644
+--- a/dist/src/execution/sandbox/bash.js
++++ b/dist/src/execution/sandbox/bash.js
+@@ -1,4 +1,103 @@
+-import{randomUUID}from"node:crypto";import{isCoraxDevEnvironment}from"#internal/application/dev-environment.js";import{shellQuote}from"#execution/sandbox/shell-quote.js";import{streamToBuffer}from"#execution/sandbox/stream-utils.js";import{MAX_OUTPUT_BYTES,truncateTail}from"#execution/sandbox/truncate-output.js";const BASH_YIELD_SECONDS=30;async function executeBashOnSandbox(e,t,n={}){let r=formatCommand(t.command);logDevelopmentSandboxCommand(`corax: starting sandbox command: ${r}`);let i=await withDevelopmentSandboxProgress(r,()=>runCommand(e,t.command,n.abortSignal));return logDevelopmentSandboxCommand(i.status===`running`?`corax: sandbox command still running as pid ${i.pid}: ${r}`:`corax: sandbox command finished (exit ${i.exitCode}): ${r}`),i}async function runCommand(e,t,n){n?.throwIfAborted();let r=randomUUID().slice(0,8),i=`/tmp/.corax/jobs/${r}`,a=new AbortController,cancel=()=>{a.abort(n?.reason),Promise.resolve(e.run({command:`kill -TERM -- -"$(cat ${shellQuote(i)}/pid 2>/dev/null)" 2>/dev/null; rm -rf ${shellQuote(i)}`})).catch(()=>{})};n?.addEventListener(`abort`,cancel,{once:!0});try{let n=await e.spawn({abortSignal:a.signal,command:launchCommand(t,i)}),o=Promise.all([readText(n.stdout),readText(n.stderr),n.wait()]).then(([e,t,{exitCode:n}])=>({exitCode:n,stderr:t,stdout:e})),s=await waitUpTo(o,3e4);if(s!==void 0)return completed(s.exitCode,s);let c=await claimRunningJob(e,i,r);if(c===void 0){let e=await o;return completed(e.exitCode,e)}return o.catch(()=>{}),c}finally{n?.removeEventListener(`abort`,cancel)}}function launchCommand(e,t){return[`if command -v bash >/dev/null 2>&1 && kill -0 "$$" 2>/dev/null; then`,`  set -- ${shellQuote(t)} ${shellQuote(e)}`,`  eval ${shellQuote(`d=$1
++import { randomUUID } from "node:crypto";
++import { isCoraxDevEnvironment } from "#internal/application/dev-environment.js";
++import { shellQuote } from "#execution/sandbox/shell-quote.js";
++import { streamToBuffer } from "#execution/sandbox/stream-utils.js";
++import {
++  MAX_OUTPUT_BYTES,
++  truncateTail,
++} from "#execution/sandbox/truncate-output.js";
++const BASH_YIELD_SECONDS = 30;
++async function executeBashOnSandbox(e, t, n = {}) {
++  let r = formatCommand(t.command);
++  logDevelopmentSandboxCommand(`corax: starting sandbox command: ${r}`);
++  let i = await withDevelopmentSandboxProgress(r, () =>
++    runCommand(e, t.command, n.abortSignal),
++  );
++  return (
++    logDevelopmentSandboxCommand(
++      i.status === `running`
++        ? `corax: sandbox command still running as pid ${i.pid}: ${r}`
++        : `corax: sandbox command finished (exit ${i.exitCode}): ${r}`,
++    ),
++    i
++  );
++}
++async function runCommand(e, t, n) {
++  n?.throwIfAborted();
++  if (e.startCommand !== undefined) return await runHostCommand(e, t, n);
++  let r = randomUUID().slice(0, 8),
++    i = `/tmp/.corax/jobs/${r}`,
++    a = new AbortController(),
++    cancel = () => {
++      (a.abort(n?.reason),
++        Promise.resolve(
++          e.run({
++            command: `kill -TERM -- -"$(cat ${shellQuote(i)}/pid 2>/dev/null)" 2>/dev/null; rm -rf ${shellQuote(i)}`,
++          }),
++        ).catch(() => {}));
++    };
++  n?.addEventListener(`abort`, cancel, { once: !0 });
++  try {
++    let n = await e.spawn({
++        abortSignal: a.signal,
++        command: launchCommand(t, i),
++      }),
++      o = Promise.all([readText(n.stdout), readText(n.stderr), n.wait()]).then(
++        ([e, t, { exitCode: n }]) => ({ exitCode: n, stderr: t, stdout: e }),
++      ),
++      s = await waitUpTo(o, 3e4);
++    if (s !== void 0) return completed(s.exitCode, s);
++    let c = await claimRunningJob(e, i, r);
++    if (c === void 0) {
++      let e = await o;
++      return completed(e.exitCode, e);
++    }
++    return (o.catch(() => {}), c);
++  } finally {
++    n?.removeEventListener(`abort`, cancel);
++  }
++}
++// The provider owns process trees/output files; Corax owns yielding and tool results.
++async function runHostCommand(sandbox, command, signal) {
++  const controller = new AbortController();
++  const cancel = () => controller.abort(signal?.reason);
++  signal?.addEventListener('abort', cancel, { once: true });
++  if (signal?.aborted) cancel();
++  try {
++    const child = await sandbox.startCommand({ command, abortSignal: controller.signal });
++    const finished = child.wait();
++    void finished.catch(() => {});
++    try {
++      const done = await waitUpTo(finished, BASH_YIELD_SECONDS * 1000);
++      const output = await child.readOutput(MAX_OUTPUT_BYTES);
++      const streams = formatStreams(output, output.omittedBytes);
++      if (done !== undefined) {
++        // Housekeeping must never replace a known command outcome with an error.
++        try { await child.cleanup(); } catch {}
++        return { ...streams, exitCode: done.exitCode, status: 'completed' };
++      }
++      return {
++        ...streams, status: 'running', pid: child.pid, outputDirectory: child.outputDirectory,
++        message: `The command is still running after ${BASH_YIELD_SECONDS} seconds as process ${child.pid}. ` +
++          `It keeps writing to ${child.outputDirectory}/stdout and ${child.outputDirectory}/stderr, ` +
++          `and writes its exit code to ${child.outputDirectory}/exit. ` +
++          `Read those files to check progress; stop this process tree with \`${child.stopCommand}\`.`,
++      };
++    } catch (error) {
++      await child.kill().catch(() => {});
++      await finished.catch(() => {});
++      await child.cleanup().catch(() => {});
++      throw error;
++    }
++  } finally {
++    signal?.removeEventListener('abort', cancel);
++  }
++}
++function launchCommand(e, t) {
++  return [
++    `if command -v bash >/dev/null 2>&1 && kill -0 "$$" 2>/dev/null; then`,
++    `  set -- ${shellQuote(t)} ${shellQuote(e)}`,
++    `  eval ${shellQuote(`d=$1
+ mkdir -p "$d" 2>/dev/null || { eval "$2"; exit; }
+ trap 'exit 0' USR1
+ echo "$$" > "$d/launcher"
+@@ -19,6 +118,102 @@ mkdir "$d/claimed" 2> /dev/null || exit 0
+ cat "$d/stdout"
+ cat "$d/stderr" >&2
+ rm -rf "$d"
+-exit "$code"`)}`,`fi`,`eval ${shellQuote(e)}`].join(`
+-`)}async function claimRunningJob(e,t,n){let r=`corax-bash:${n}`,i=await e.run({command:[`cd ${shellQuote(t)} 2>/dev/null && mkdir claimed 2>/dev/null || exit 0`,`kill -USR1 "$(cat launcher)" 2>/dev/null`,`printf '%s %s %s %s\\n' ${r} "$(cat pid)" "$(($(wc -c < stdout)))" "$(($(wc -c < stderr)))"`,`tail -c ${MAX_OUTPUT_BYTES} stdout`,`tail -c ${MAX_OUTPUT_BYTES} stderr >&2`].join(`
+-`)}),a=RegExp(`(?:^|\\n)${r} (\\d+) (\\d+) (\\d+)\\n`).exec(i.stdout);if(a===null)return;let o=Number(a[1]),s=i.stdout.slice(a.index+a[0].length),c={stderr:Math.max(0,Number(a[3])-Buffer.byteLength(i.stderr)),stdout:Math.max(0,Number(a[2])-Buffer.byteLength(s))};return{...formatStreams({stderr:i.stderr,stdout:s},c),message:`The command is still running after 30 seconds as process group ${o}; stdout and stderr show its output so far. It keeps writing to ${t}/stdout and ${t}/stderr, and writes its exit code to ${t}/exit when it finishes. Check on it with later commands such as \`tail ${t}/stdout\` or \`cat ${t}/exit\`, and stop it with \`kill -- -${o}\`.`,outputDirectory:t,pid:o,status:`running`}}async function readText(e){return new TextDecoder().decode(await streamToBuffer(e))}async function waitUpTo(e,t){let n;try{return await Promise.race([e,new Promise(e=>{n=setTimeout(()=>e(void 0),t)})])}finally{clearTimeout(n)}}function completed(e,t){return{...formatStreams(t),exitCode:e,status:`completed`}}function formatStreams(e,t={stderr:0,stdout:0}){let n=formatStream(`stdout`,e.stdout,t.stdout),r=formatStream(`stderr`,e.stderr,t.stderr);return{stderr:r.output,stdout:n.output,truncated:n.truncated||r.truncated}}function formatStream(e,t,n){let r=truncateTail(t);return!r.truncated&&n===0?{output:r.output,truncated:!1}:{output:`${n===0?`[${e} truncated: showing last ${r.outputLines} of ${r.totalLines} lines]`:`[${e} truncated: showing last ${r.outputLines} lines; earlier output omitted]`}\n${r.output}`,truncated:!0}}async function withDevelopmentSandboxProgress(e,t){if(!isCoraxDevEnvironment())return await t();let n=Date.now(),r=setInterval(()=>{logDevelopmentSandboxCommand(`corax: waiting for sandbox command (${Math.round((Date.now()-n)/1e3)}s elapsed): ${e}`)},5e3);r.unref?.();try{return await t()}catch(t){throw logDevelopmentSandboxCommand(`corax: sandbox command failed: ${e}`),t}finally{clearInterval(r)}}function logDevelopmentSandboxCommand(e){isCoraxDevEnvironment()&&console.log(e)}function formatCommand(e){let t=e.replaceAll(/\s+/g,` `).trim();return t.length<=240?t:`${t.slice(0,239)}…`}export{BASH_YIELD_SECONDS,executeBashOnSandbox};
+\ No newline at end of file
++exit "$code"`)}`,
++    `fi`,
++    `eval ${shellQuote(e)}`,
++  ].join(`
++`);
++}
++async function claimRunningJob(e, t, n) {
++  let r = `corax-bash:${n}`,
++    i = await e.run({
++      command: [
++        `cd ${shellQuote(t)} 2>/dev/null && mkdir claimed 2>/dev/null || exit 0`,
++        `kill -USR1 "$(cat launcher)" 2>/dev/null`,
++        `printf '%s %s %s %s\\n' ${r} "$(cat pid)" "$(($(wc -c < stdout)))" "$(($(wc -c < stderr)))"`,
++        `tail -c ${MAX_OUTPUT_BYTES} stdout`,
++        `tail -c ${MAX_OUTPUT_BYTES} stderr >&2`,
++      ].join(`
++`),
++    }),
++    a = RegExp(`(?:^|\\n)${r} (\\d+) (\\d+) (\\d+)\\n`).exec(i.stdout);
++  if (a === null) return;
++  let o = Number(a[1]),
++    s = i.stdout.slice(a.index + a[0].length),
++    c = {
++      stderr: Math.max(0, Number(a[3]) - Buffer.byteLength(i.stderr)),
++      stdout: Math.max(0, Number(a[2]) - Buffer.byteLength(s)),
++    };
++  return {
++    ...formatStreams({ stderr: i.stderr, stdout: s }, c),
++    message: `The command is still running after 30 seconds as process group ${o}; stdout and stderr show its output so far. It keeps writing to ${t}/stdout and ${t}/stderr, and writes its exit code to ${t}/exit when it finishes. Check on it with later commands such as \`tail ${t}/stdout\` or \`cat ${t}/exit\`, and stop it with \`kill -- -${o}\`.`,
++    outputDirectory: t,
++    pid: o,
++    status: `running`,
++  };
++}
++async function readText(e) {
++  return new TextDecoder().decode(await streamToBuffer(e));
++}
++async function waitUpTo(e, t) {
++  let n;
++  try {
++    return await Promise.race([
++      e,
++      new Promise((e) => {
++        n = setTimeout(() => e(void 0), t);
++      }),
++    ]);
++  } finally {
++    clearTimeout(n);
++  }
++}
++function completed(e, t) {
++  return { ...formatStreams(t), exitCode: e, status: `completed` };
++}
++function formatStreams(e, t = { stderr: 0, stdout: 0 }) {
++  let n = formatStream(`stdout`, e.stdout, t.stdout),
++    r = formatStream(`stderr`, e.stderr, t.stderr);
++  return {
++    stderr: r.output,
++    stdout: n.output,
++    truncated: n.truncated || r.truncated,
++  };
++}
++function formatStream(e, t, n) {
++  let r = truncateTail(t);
++  return !r.truncated && n === 0
++    ? { output: r.output, truncated: !1 }
++    : {
++        output: `${n === 0 ? `[${e} truncated: showing last ${r.outputLines} of ${r.totalLines} lines]` : `[${e} truncated: showing last ${r.outputLines} lines; earlier output omitted]`}\n${r.output}`,
++        truncated: !0,
++      };
++}
++async function withDevelopmentSandboxProgress(e, t) {
++  if (!isCoraxDevEnvironment()) return await t();
++  let n = Date.now(),
++    r = setInterval(() => {
++      logDevelopmentSandboxCommand(
++        `corax: waiting for sandbox command (${Math.round((Date.now() - n) / 1e3)}s elapsed): ${e}`,
++      );
++    }, 5e3);
++  r.unref?.();
++  try {
++    return await t();
++  } catch (t) {
++    throw (
++      logDevelopmentSandboxCommand(`corax: sandbox command failed: ${e}`),
++      t
++    );
++  } finally {
++    clearInterval(r);
++  }
++}
++function logDevelopmentSandboxCommand(e) {
++  isCoraxDevEnvironment() && console.log(e);
++}
++function formatCommand(e) {
++  let t = e.replaceAll(/\s+/g, ` `).trim();
++  return t.length <= 240 ? t : `${t.slice(0, 239)}…`;
++}
++export { BASH_YIELD_SECONDS, executeBashOnSandbox };
+diff --git a/dist/src/execution/sandbox/require-sandbox.js b/dist/src/execution/sandbox/require-sandbox.js
+index 93439b0b63e5748a805fd5b9a807f628856472bd..135da1e6b1e33bb9434ab3e9bf6ee1125ba810ad 100644
+--- a/dist/src/execution/sandbox/require-sandbox.js
++++ b/dist/src/execution/sandbox/require-sandbox.js
+@@ -1 +1,11 @@
+-import{resolveSandboxModelPath}from"#shared/skill-paths.js";async function resolveAbsoluteFilePath(e,t){let n=await resolveSandboxModelPath({path:t,sandbox:e});if(!n.startsWith(`/`))throw Error(`filePath must be an absolute path. Received: "${t}". Use an absolute path such as /workspace/foo.ts or a path beginning with $HOME/.`);return n}export{resolveAbsoluteFilePath};
+\ No newline at end of file
++import { resolveSandboxModelPath } from "#shared/skill-paths.js";
++import { isAbsolutePath } from '#shared/host-paths.js';
++async function resolveAbsoluteFilePath(e, t) {
++  let n = await resolveSandboxModelPath({ path: t, sandbox: e });
++  if (!isAbsolutePath(n))
++    throw Error(
++      `filePath must be an absolute path. Received: "${t}". Use an absolute path such as /workspace/foo.ts or a path beginning with $HOME/.`,
++    );
++  return e.resolvePath(n);
++}
++export { resolveAbsoluteFilePath };
+diff --git a/dist/src/execution/sandbox/ripgrep-probe.js b/dist/src/execution/sandbox/ripgrep-probe.js
+index 349220654efd99e2c37980e70de9d36476d88505..097de0fe1d5f5462ff5f4d926f549e52e55caa95 100644
+--- a/dist/src/execution/sandbox/ripgrep-probe.js
++++ b/dist/src/execution/sandbox/ripgrep-probe.js
+@@ -1 +1,9 @@
+-async function ripgrepIsAvailable(e){try{let t=await e.run({command:`command -v rg >/dev/null 2>&1 || exit 127; rg --line-number --color=never --hidden --glob '!.git/*' --max-count 1 -- '__corax_ripgrep_probe_never_matches__' /workspace`});return(t.exitCode===0||t.exitCode===1)&&t.stderr.trim().length===0}catch{return!1}}export{ripgrepIsAvailable};
+\ No newline at end of file
++import { shellQuote } from '#execution/sandbox/shell-quote.js';
++async function ripgrepIsAvailable(session) {
++  try {
++    const workspace = session.paths?.workspace ?? session.resolvePath('/workspace');
++    const result = await session.run({ command: `command -v rg >/dev/null 2>&1 || exit 127; rg --line-number --color=never --hidden --glob '!.git/*' --max-count 1 -- '__corax_ripgrep_probe_never_matches__' ${shellQuote(workspace)}` });
++    return (result.exitCode === 0 || result.exitCode === 1) && result.stderr.trim().length === 0;
++  } catch { return false; }
++}
++export { ripgrepIsAvailable };
+diff --git a/dist/src/execution/tools/file-state.js b/dist/src/execution/tools/file-state.js
+index 57528fa795debab6be971d7b4aeb069cfdac3b68..78f622a7dce98698515bc525007c87b702776686 100644
+--- a/dist/src/execution/tools/file-state.js
++++ b/dist/src/execution/tools/file-state.js
+@@ -1 +1,29 @@
+-import{createHash}from"node:crypto";import{posix}from"node:path";import{ContextKey}from"#context/key.js";const ReadFileStateKey=new ContextKey(`corax.readFile`);function normalizeModelPath(e){return posix.normalize(e)}function buildReadFileTargetKey(e){return e}function createReadFileStamp(e){let t=createHash(`sha256`).update(e.content,`utf8`).digest(`hex`);return{byteLength:Buffer.byteLength(e.content,`utf8`),contentHash:t,filePath:e.filePath}}function setReadFileStamp(e,t,n){let r=e.ensure(ReadFileStateKey,()=>({byTarget:{}}));e.set(ReadFileStateKey,{byTarget:{...r.byTarget,[t]:n}})}export{ReadFileStateKey,buildReadFileTargetKey,createReadFileStamp,normalizeModelPath,setReadFileStamp};
+\ No newline at end of file
++import { createHash } from "node:crypto";
++import { normalizePath } from '#shared/host-paths.js';
++import { ContextKey } from "#context/key.js";
++const ReadFileStateKey = new ContextKey(`corax.readFile`);
++function normalizeModelPath(e) {
++  return normalizePath(e);
++}
++function buildReadFileTargetKey(e) {
++  return e;
++}
++function createReadFileStamp(e) {
++  let t = createHash(`sha256`).update(e.content, `utf8`).digest(`hex`);
++  return {
++    byteLength: Buffer.byteLength(e.content, `utf8`),
++    contentHash: t,
++    filePath: e.filePath,
++  };
++}
++function setReadFileStamp(e, t, n) {
++  let r = e.ensure(ReadFileStateKey, () => ({ byTarget: {} }));
++  e.set(ReadFileStateKey, { byTarget: { ...r.byTarget, [t]: n } });
++}
++export {
++  ReadFileStateKey,
++  buildReadFileTargetKey,
++  createReadFileStamp,
++  normalizeModelPath,
++  setReadFileStamp,
++};
 diff --git a/dist/src/public/channels/corax.js b/dist/src/public/channels/corax.js
 index b489a6210a1028b4119282f4d3660b3f4b8b721d..10f9e2396d63ff8fc5ebcbef7eeb87d0adc7531c 100644
 --- a/dist/src/public/channels/corax.js
@@ -129,3 +503,154 @@ index b489a6210a1028b4119282f4d3660b3f4b8b721d..10f9e2396d63ff8fc5ebcbef7eeb87d0
 +  const channel = nativeCoraxChannel(input);
 +  return { ...channel, routes: [...channel.routes, createSessionTitleRoute(input)] };
 +}
+diff --git a/dist/src/shared/host-paths.js b/dist/src/shared/host-paths.js
+new file mode 100644
+index 0000000000000000000000000000000000000000..eb9c2f5c5c16a61f9ba6ec5806d1a203beaece1c
+--- /dev/null
++++ b/dist/src/shared/host-paths.js
+@@ -0,0 +1,12 @@
++import { posix, win32 } from 'node:path';
++
++// Paths belong to the provider, which may run on a different OS than Corax.
++export function isWindowsPath(path) {
++  return /^[a-z]:[\\/]/i.test(path) || /^(?:\\\\|\/\/)[^\\/]+[\\/][^\\/]+/.test(path);
++}
++export function isAbsolutePath(path) {
++  return !/[\0\r\n]/.test(path) && (path.startsWith('/') || isWindowsPath(path));
++}
++export function normalizePath(path) {
++  return isWindowsPath(path) ? win32.normalize(path).replaceAll('\\', '/') : posix.normalize(path);
++}
+diff --git a/dist/src/shared/sandbox-provider.d.ts b/dist/src/shared/sandbox-provider.d.ts
+index 0f334acf97fc1848488532912b46b9fe207379eb..c7ceaf9d97e41fa747f68d704c5e779fa866e6c1 100644
+--- a/dist/src/shared/sandbox-provider.d.ts
++++ b/dist/src/shared/sandbox-provider.d.ts
+@@ -77,6 +77,8 @@ export interface SandboxProviderHandle<Session extends SandboxSession = SandboxS
+     onSandboxStop(): Promise<void>;
+ }
+ export interface SandboxProviderImplementation<OpenOptions extends object | undefined, PreparedArtifact extends SandboxPreparedArtifact, SessionState, Session extends SandboxSession = SandboxSession> {
++    /** Pure resource metadata, readable before prepare/start/resume; never opens compute. */
++    readonly paths?: SandboxSession["paths"];
+     /**
+      * Permanently releases resources owned by a durable session after its terminal outcome.
+      * Implementations must be idempotent because the cleanup step may retry.
+diff --git a/dist/src/shared/sandbox-session.d.ts b/dist/src/shared/sandbox-session.d.ts
+index c66993ee74076347b8beb2a8bce7406e1cd2509d..acfce69cecbd5b0208bd41a1d4cc05e92c3f05cc 100644
+--- a/dist/src/shared/sandbox-session.d.ts
++++ b/dist/src/shared/sandbox-session.d.ts
+@@ -77,6 +77,23 @@ export interface SandboxRemovePathOptions {
+  *
+  */
+ export interface SandboxSession extends Pick<AiSdkSandbox, "run" | "spawn" | "readFile" | "readBinaryFile" | "readTextFile" | "writeFile" | "writeBinaryFile" | "writeTextFile"> {
++    /** Real provider paths, shared by file tools and commands. */
++    readonly paths?: { readonly home?: string; readonly skills?: string; readonly workspace?: string };
++    /** Provider-owned process trees and output files, without a Unix shell launcher.
++     * Corax links cancellation until the tool returns; yielded work remains provider-owned.
++     */
++    startCommand?(options: SandboxSpawnOptions): Promise<{
++        readonly pid: number;
++        readonly outputDirectory: string;
++        readonly stopCommand: string;
++        wait(): Promise<{ exitCode: number }>;
++        kill(): Promise<void>;
++        readOutput(maxBytes: number): Promise<{
++            stdout: string; stderr: string;
++            omittedBytes: { stdout: number; stderr: number };
++        }>;
++        cleanup(): Promise<void>;
++    }>;
+     /**
+      * Anchors a sandbox-relative path to `/workspace` and returns the
+      * resulting absolute path.
+diff --git a/dist/src/shared/skill-paths.js b/dist/src/shared/skill-paths.js
+index 52c1544d5c7ce8d5baf4c45b9fb1304f86a0e6b7..f541fd51fff0293881307e2c8c998e755a55f5f4 100644
+--- a/dist/src/shared/skill-paths.js
++++ b/dist/src/shared/skill-paths.js
+@@ -1,2 +1,84 @@
+-const MODEL_HOME_ROOT=`$HOME`,MODEL_SKILL_ROOT=`${MODEL_HOME_ROOT}/.agents/skills`,FALLBACK_SKILL_ROOT=`/workspace/skills`,sandboxHomeCache=new WeakMap;async function resolveSandboxSkillRoot(e){return await resolveSandboxModelPath({path:MODEL_SKILL_ROOT,sandbox:e.sandbox})}async function resolveSandboxModelPath(e){if(!isModelHomePath(e.path))return e.path;let t=await resolveSandboxHome(e.sandbox);if(t!==null){let n=e.path.slice(5);return n.length===0?t:`${t===`/`?``:t}${n}`}return isModelSkillPath(e.path)?`${FALLBACK_SKILL_ROOT}${e.path.slice(MODEL_SKILL_ROOT.length)}`:e.path}async function resolveSandboxSkillWritePath(e){return formatSkillPath({name:e.name,relativePath:e.relativePath,root:await resolveSandboxSkillRoot({sandbox:e.sandbox})})}function formatSkillPath(e){return`${e.root}/${e.name}/${e.relativePath}`}async function resolveSandboxHome(e){let t=sandboxHomeCache.get(e);if(t!==void 0)return await t;let n=probeSandboxHome(e);return sandboxHomeCache.set(e,n),await n}async function probeSandboxHome(e){try{let t=await e.run({command:`printf '%s\\n' "$HOME"`});if(t.exitCode!==0)return null;let n=t.stdout.trim();return isUsableSandboxHome(n)?normalizeSandboxHome(n):null}catch{return null}}function isModelHomePath(e){return e===MODEL_HOME_ROOT||e.startsWith(`${MODEL_HOME_ROOT}/`)}function isModelSkillPath(e){return e===`$HOME/.agents/skills`||e.startsWith(`$HOME/.agents/skills/`)}function isUsableSandboxHome(e){return e.length>0&&e.startsWith(`/`)&&!e.includes(`\0`)&&!e.includes(`
+-`)&&!e.includes(`\r`)}function normalizeSandboxHome(e){return e===`/`?e:e.replace(/\/+$/,``)}export{FALLBACK_SKILL_ROOT,MODEL_SKILL_ROOT,resolveSandboxModelPath,resolveSandboxSkillRoot,resolveSandboxSkillWritePath};
+\ No newline at end of file
++import { isAbsolutePath, normalizePath } from '#shared/host-paths.js';
++const MODEL_HOME_ROOT = `$HOME`,
++  MODEL_SKILL_ROOT = `${MODEL_HOME_ROOT}/.agents/skills`,
++  FALLBACK_SKILL_ROOT = `/workspace/skills`,
++  sandboxHomeCache = new WeakMap();
++async function resolveSandboxSkillRoot(e) {
++  if (e.sandbox.paths?.skills !== undefined) return normalizePath(e.sandbox.paths.skills);
++  return await resolveSandboxModelPath({
++    path: MODEL_SKILL_ROOT,
++    sandbox: e.sandbox,
++  });
++}
++async function resolveSandboxModelPath(e) {
++  if (e.sandbox.paths?.skills !== undefined) {
++    for (const root of [MODEL_SKILL_ROOT, FALLBACK_SKILL_ROOT, '/corax/resources/skills']) {
++      if (e.path === root || e.path.startsWith(`${root}/`))
++        return `${normalizePath(e.sandbox.paths.skills)}${e.path.slice(root.length)}`;
++    }
++  }
++  if (!isModelHomePath(e.path)) return e.path;
++  let t = await resolveSandboxHome(e.sandbox);
++  if (t !== null) {
++    let n = e.path.slice(5);
++    return n.length === 0 ? t : `${t.replace(/\/$/, '')}${n}`;
++  }
++  return isModelSkillPath(e.path)
++    ? `${FALLBACK_SKILL_ROOT}${e.path.slice(MODEL_SKILL_ROOT.length)}`
++    : e.path;
++}
++async function resolveSandboxSkillWritePath(e) {
++  return formatSkillPath({
++    name: e.name,
++    relativePath: e.relativePath,
++    root: await resolveSandboxSkillRoot({ sandbox: e.sandbox }),
++  });
++}
++function formatSkillPath(e) {
++  return `${e.root}/${e.name}/${e.relativePath}`;
++}
++async function resolveSandboxHome(e) {
++  if (e.paths?.home !== undefined)
++    return isUsableSandboxHome(e.paths.home) ? normalizeSandboxHome(e.paths.home) : null;
++  let t = sandboxHomeCache.get(e);
++  if (t !== void 0) return await t;
++  let n = probeSandboxHome(e);
++  return (sandboxHomeCache.set(e, n), await n);
++}
++async function probeSandboxHome(e) {
++  try {
++    let t = await e.run({ command: `printf '%s\\n' "$HOME"` });
++    if (t.exitCode !== 0) return null;
++    let n = t.stdout.trim();
++    return isUsableSandboxHome(n) ? normalizeSandboxHome(n) : null;
++  } catch {
++    return null;
++  }
++}
++function isModelHomePath(e) {
++  return e === MODEL_HOME_ROOT || e.startsWith(`${MODEL_HOME_ROOT}/`);
++}
++function isModelSkillPath(e) {
++  return e === `$HOME/.agents/skills` || e.startsWith(`$HOME/.agents/skills/`);
++}
++function isUsableSandboxHome(e) {
++  return (
++    e.length > 0 &&
++    isAbsolutePath(e) &&
++    !e.includes(`\0`) &&
++    !e.includes(`
++`) &&
++    !e.includes(`\r`)
++  );
++}
++function normalizeSandboxHome(e) {
++  const path = normalizePath(e);
++  return path === '/' || /^[a-z]:\/$/i.test(path) ? path : path.replace(/\/+$/, '');
++}
++export {
++  FALLBACK_SKILL_ROOT,
++  MODEL_SKILL_ROOT,
++  resolveSandboxModelPath,
++  resolveSandboxSkillRoot,
++  resolveSandboxSkillWritePath,
++};

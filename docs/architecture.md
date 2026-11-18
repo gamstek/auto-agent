@@ -72,7 +72,7 @@ SAM 路径属于 MCP 执行宿主，使用其原生绝对路径，不能直接�
 
 ## 宿主环境
 
-`sandbox.ts` 用公开 defineSandbox/defineSandboxProvider 选择真实 Host。Bash/read_file/write_file/glob/grep 保留 Corax 原生执行器；适配只发生在 Provider 的进程和文件 I/O 边界。Node 直接 spawn 本机进程；Windows 使用随包 BusyBox-w32 与 ripgrep，Unix 使用宿主 Bash 或 `/bin/sh`，不依赖用户安装 Git Bash，不使用 JustBash。工作目录 dataDir/workspace 为真实文件目录，继承 PATH 等宿主变量并过滤应用私有凭据，Skill 资源路径映射到当前应用资源；关闭句柄只停止自己持有的命令，不删除工作文件。构建时准备固定版本和 SHA256 校验的 Windows 执行组件、对应源码和许可，运行包允许列表包含 assets/host；正式启动不联网下载组件。
+`sandbox.ts` 用公开 defineSandbox/defineSandboxProvider 选择真实 Host。Bash/read_file/write_file/glob/grep 保留 Corax 原生执行器；操作员批准的 pnpm 补丁为 SandboxSession 补齐 paths/startCommand 宿主契约，适配发生在 Provider 的进程和文件 I/O 边界。Node 直接 spawn 本机进程；Windows 使用随包 BusyBox-w32 与 ripgrep，Unix 使用宿主 Bash 或 `/bin/sh`，不依赖用户安装 Git Bash，不使用 JustBash。工作目录 dataDir/workspace 为真实文件目录，继承 PATH/HOME 等宿主变量并过滤应用私有凭据。Skill 激活返回真实资源目录，文件与命令访问同一份资源；不以正则改写 Shell 源码模拟文件系统挂载。原生命令后台回执仍归 Corax，Host 负责进程树与流式输出，不使用 BusyBox 不支持的 USR1 作业控制。关闭句柄只停止自己持有的命令，不删除工作文件。构建时准备固定版本和 SHA256 校验的 Windows 执行组件、对应源码和许可，运行包允许列表包含 assets/host；正式启动不联网下载组件。
 
 ## 配置与发布
 

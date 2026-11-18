@@ -22,7 +22,7 @@ catalogs:
 
 patchedDependencies:
   '@coraxjs/core@0.1.1':
-    hash: 841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451
+    hash: 142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6
     path: patches/@coraxjs__core@0.1.1.patch
 
 importers:
@@ -43,7 +43,7 @@ importers:
         version: link:packages/llm-wiki
       '@coraxjs/core':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
+        version: 0.1.1(patch_hash=142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -97,7 +97,7 @@ importers:
         version: link:../packages/llm-wiki
       '@coraxjs/core':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
+        version: 0.1.1(patch_hash=142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6)(ai@7.0.137(zod@4.6.5))
       '@modelcontextprotocol/sdk':
         specifier: 'catalog:'
         version: 1.32.2(@cfworker/json-schema@4.1.4)(zod@4.6.5)
@@ -131,7 +131,7 @@ importers:
         version: link:../packages/desktop-protocol
       '@coraxjs/core':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
+        version: 0.1.1(patch_hash=142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6)(ai@7.0.137(zod@4.6.5))
       '@tauri-apps/api':
         specifier: ^2.0.0
         version: 2.12.4
@@ -208,7 +208,7 @@ importers:
     dependencies:
       '@coraxjs/core':
         specifier: 0.1.1
-        version: 0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))
+        version: 0.1.1(patch_hash=142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6)(ai@7.0.137(zod@4.6.5))
     devDependencies:
       typescript:
         specifier: 'catalog:'
@@ -2696,7 +2696,7 @@ snapshots:
   '@cfworker/json-schema@4.1.4':
     optional: true
 
-  '@coraxjs/core@0.1.1(patch_hash=841f8cb7089b0fd672d0988064fb09d94e7c3dcc9431ea5962ea9180e37f8451)(ai@7.0.137(zod@4.6.5))':
+  '@coraxjs/core@0.1.1(patch_hash=142b1ea8093692d9a5ec6f5bf12f59f8b7e445ab05d3aa89d5fc8259b6b0a2e6)(ai@7.0.137(zod@4.6.5))':
     dependencies:
       ai: 7.0.137(zod@4.6.5)
       just-bash: 3.1.0

@@ -2,32 +2,35 @@ import { spawn } from 'node:child_process';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { Readable } from 'node:stream';
+import { homedir } from 'node:os';
 import type { SandboxSession, SandboxProcess } from '@coraxjs/core/sandbox';
-import { hostPath, hostEnvironmentValue, type HostPaths } from './paths';
-import { bindHostPaths, hostShell, hostEnvironment } from './shell';
+import { hostPath, hostEnvironmentValue, toShellPath, type HostPaths } from './paths';
+import { hostShell, hostEnvironment } from './shell';
+import { startHostCommand } from './command';
 
 export async function createHostSession(paths: HostPaths) {
   await mkdir(paths.workspace, { recursive: true });
   const processes = new Set<SandboxProcess>();
+  const pending = new Set<Promise<unknown>>();
   const session: SandboxSession = {
+    paths: {
+      home: toShellPath(hostEnvironmentValue('HOME') || homedir()),
+      workspace: toShellPath(paths.workspace),
+      skills: toShellPath(paths.skills),
+    },
     resolvePath: (path) => hostPath(path, paths),
+    startCommand: (options) => startHostCommand(session, options, pending),
     async spawn(options) {
       options.abortSignal?.throwIfAborted();
       const windows = process.platform === 'win32';
       const shell = hostShell(paths.project);
-      const child = spawn(
-        shell.executable,
-        [...shell.args, bindHostPaths(options.command, paths)],
-        {
-          cwd: options.workingDirectory
-            ? hostPath(options.workingDirectory, paths)
-            : paths.workspace,
-          env: hostEnvironment(shell.path, options.env),
-          windowsHide: true,
-          detached: !windows,
-          stdio: ['ignore', 'pipe', 'pipe'],
-        },
-      );
+      const child = spawn(shell.executable, [...shell.args, options.command], {
+        cwd: options.workingDirectory ? hostPath(options.workingDirectory, paths) : paths.workspace,
+        env: hostEnvironment(shell.path, options.env),
+        windowsHide: true,
+        detached: !windows,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      });
       let stopped = false;
       const kill = async () => {
         if (stopped || child.exitCode !== null || !child.pid) return;
@@ -160,6 +163,7 @@ export async function createHostSession(paths: HostPaths) {
         }),
       );
       processes.clear();
+      await Promise.allSettled([...pending]);
     },
   };
 }

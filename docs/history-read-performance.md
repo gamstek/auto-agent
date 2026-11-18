@@ -4,7 +4,7 @@
 
 全部 workspace 消费方固定使用正式发布的 `@coraxjs/core@0.1.1`。
 依赖通过 pnpm 10.15.1 和共享锁文件安装，不使用本地 SDK link。历史性能修复已在发布包内，
-不再使用旧扫描补丁；当前仅有单独的[会话重命名补丁](session-rename.md)。
+不再使用旧扫描补丁；当前 pnpm 补丁包含[会话重命名](session-rename.md)和[原生 Host 兼容](corax-development.md)，不修改历史扫描或读取并发。
 
 Corax 内嵌官方 `vercel/workflow@c11fc40013681fef9afe0b315b1d22284579bbe0`
 的 SQLite Local World（上游 PR #5235）。原生运行数据位于

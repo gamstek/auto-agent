@@ -5,6 +5,7 @@ import {
 } from '@coraxjs/core/sandbox/provider';
 import { getRuntimeConfig } from '../config';
 import { createHostSession } from './session';
+import { toShellPath } from './paths';
 
 async function open(context: SandboxProviderSessionContext) {
   const session = await createHostSession({
@@ -25,6 +26,13 @@ export const HostSandbox = defineSandboxProvider<undefined, undefined, null, nul
   name: 'host',
   environment() {
     return {
+      // Metadata only: use the launcher/CLI project root, not bundled module
+      // locations. Skill discovery must not require opening a host session.
+      get paths() {
+        const project =
+          process.env.AUTO_AGENT_PROJECT_ROOT ?? process.env.CORAX_PROJECT_ROOT ?? process.cwd();
+        return { skills: toShellPath(join(project, 'skills')) };
+      },
       async prepare() {
         return null;
       },

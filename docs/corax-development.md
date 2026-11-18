@@ -40,6 +40,12 @@ lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI �
 
 sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 Node 原生进程/文件 I/O，不替换 Corax 原生工具；glob/grep 通过公开导出启用。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 使用应用附带的原生 BusyBox-w32 POSIX Shell 和 ripgrep，不需要 Git Bash；Unix 使用宿主 Bash 或 `/bin/sh`。`pnpm prepare:host` 下载并校验固定版本组件及源码/许可，CLI dev/build 与桌面开发入口自动调用，运行包直接携带 assets/host，正式启动不下载组件。
 
+操作员批准的 `patches/@coraxjs__core@0.1.1.patch` 在原有会话重命名修复之外补齐 Host 契约，通过 pnpm patchedDependencies 和共享锁文件应用，不修改独立 Corax 仓库或手改已安装 SDK。`SandboxProviderImplementation.paths` 是无需 prepare/start/resume 即可读取的纯资源元数据；Host 根据启动器传入的项目根目录提供 skills，不根据构建机模块路径定位。Skill 激活只读取该元数据并返回实际 `Skill file` 和 `Resource directory`，不调用 SandboxAccess.get、不启动执行环境；其他 Provider 未提供元数据时仍直接返回已有正文。`SandboxSession.paths` 提供已打开会话的真实 home/workspace/skills；相对参考文档以激活结果目录为基准，文件工具和 Shell 指向同一份资源。原生文件/搜索工具接受 Windows 盘符及 UNC 绝对路径，保留对应归一化语义；`$HOME` 保持真实宿主值，ripgrep 探测使用实际 workspace。
+
+Host 的 `startCommand` 仅负责原生命令进程树与磁盘流式输出。原生 bash 执行器仍拥有 30 秒 yield、结果格式、输出截断与调用取消语义，通过 Provider 回收进程而不在 BusyBox 上套用 USR1/Unix 作业控制脚本。已知命令结果取得后，临时输出清理是 best-effort；清理失败不替换退出码或输出，不触发取消或重执行。已返回 running 的命令继续运行，stdout/stderr/exit 位于该命令独立临时目录；关闭 Provider 停止其拥有的进程并等待输出收尾。Shell 源码原样执行，不再使用 `bindHostPaths` 正则改写；`$HOME/.agents/skills` 等符号别名只由文件 API 解析，Shell 使用激活结果给出的真实资源路径。用户目录中真实的同名 Skill 文件不会被原生路径访问重定向。`tests/node/corax-host-compat.test.ts` 验证补丁与原生工具链，`tests/node/host.test.ts` 验证宿主进程和长命令。glob 的 limit 只限制返回数量，搜索权限错误仍按原生契约返回。
+
+CLI 与桌面共用 `.auto-agent-host.lock`，新记录包含 pid/token/executable；Windows 桌面另记 OS 进程创建时间。桌面校验 CLI 所记录的实际可执行文件身份，不以“不是桌面程序”认定锁失效；旧格式存活 Node 所有者保守视为占用。`ownership_cli_and_desktop_exclude_each_other_with_current_and_legacy_cli_locks` 使用真实 Node CLI 锁验证双向互斥，测试目录与用户数据隔离。
+
 ## 构建与验证
 
 pnpm build 在 Node 下生成 corax/.output；prepare:runtime 按 corax/package.json 的白名单部署 auto-agent 包、依赖、资料、Node 和安装专用 reset-data 到 desktop/src-tauri/runtime。发布目录保持平铺的应用布局，不嵌套第二层 corax；pnpm 使用共享锁文件和 hoisted 普通目录布局，发布校验拒绝目录链接。产物使用官方 node-server preset，由随包 Node 执行。

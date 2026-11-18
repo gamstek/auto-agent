@@ -10,7 +10,9 @@ export function coraxDataDirectory(dataDir: string) {
 export function ownCoraxRuntime(directory: string): () => void {
   const path = join(directory, '.auto-agent-host.lock');
   const token = crypto.randomUUID();
-  const contents = JSON.stringify({ pid: process.pid, token });
+  // Both CLI and desktop publish their executable identity. Windows desktop
+  // owners additionally record the OS creation time when it is available.
+  const contents = JSON.stringify({ pid: process.pid, token, executable: process.execPath });
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
       writeFileSync(path, contents, { flag: 'wx', mode: 0o600 });

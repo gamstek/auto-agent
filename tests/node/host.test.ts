@@ -9,6 +9,72 @@ import bash from '@coraxjs/core/tools/bash';
 import { createHostSession } from '../../corax/lib/host/session';
 import { toShellPath } from '../../corax/lib/host/paths';
 
+const quote = (value: string) => `'${toShellPath(value).replaceAll("'", "'\\''")}'`;
+
+test('native tools resolve HOME and installed skill references without searching the user profile', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent home 量仔-'));
+  const home = join(root, 'home');
+  const skills = join(root, 'installed-skills');
+  const reference = 'device-automation/references/automation.md';
+  const originalHome = process.env.HOME;
+  process.env.HOME = home;
+  await mkdir(join(home, '.agents/skills/device-automation/references'), { recursive: true });
+  await mkdir(join(skills, 'device-automation/references'), { recursive: true });
+  await writeFile(join(home, 'home.txt'), 'home fixture');
+  await writeFile(join(home, '.agents/skills', reference), 'unrelated user skill');
+  await writeFile(join(skills, reference), '# Installed automation reference');
+  const host = await createHostSession({ workspace: join(root, 'workspace'), skills });
+  try {
+    const context = { getSandbox: async () => host.sandbox } as never;
+    const probe = await host.sandbox.run({ command: 'printf \'%s\\n\' "$HOME"' });
+    assert.equal(probe.exitCode, 0, probe.stderr);
+    assert.equal(probe.stdout.trim(), toShellPath(home));
+    const homeRead = await host.sandbox.run({ command: 'cat "$HOME/home.txt"' });
+    assert.equal(homeRead.exitCode, 0, homeRead.stderr);
+    assert.equal(homeRead.stdout, 'home fixture');
+    for (const path of ['$HOME', toShellPath(home), home]) {
+      const files = await glob.execute!({ path, pattern: 'home.txt' }, context);
+      assert.ok('count' in files);
+      assert.equal(files.count, 1);
+    }
+    for (const path of [
+      '$HOME/.agents/skills/device-automation',
+      toShellPath(join(skills, 'device-automation')),
+      '/workspace/skills/device-automation',
+      '/corax/resources/skills/device-automation',
+    ]) {
+      const files = await glob.execute!({ path, pattern: '**/*.md' }, context);
+      assert.ok('count' in files);
+      assert.equal(files.count, 1);
+      const matches = await grep.execute!({ path, pattern: 'Installed automation' }, context);
+      assert.ok('matchCount' in matches);
+      assert.equal(matches.matchCount, 1);
+      assert.equal(
+        await host.sandbox.readTextFile({ path: `${path}/references/automation.md` }),
+        '# Installed automation reference',
+      );
+    }
+    const raw = await bash.execute!({ command: `cat ${quote(join(skills, reference))}` }, context);
+    assert.ok('status' in raw && raw.status === 'completed');
+    assert.equal(raw.exitCode, 0, raw.stderr);
+    assert.equal(raw.stderr, '');
+    assert.equal(raw.stdout, '# Installed automation reference');
+    const literal = await bash.execute!({ command: "printf '%s' '/workspace/skills'" }, context);
+    assert.ok('status' in literal && literal.status === 'completed');
+    assert.equal(literal.stdout, '/workspace/skills', 'Shell source must not be rewritten');
+    assert.equal(
+      await host.sandbox.readTextFile({ path: join(home, '.agents/skills', reference) }),
+      'unrelated user skill',
+      'Real host paths must agree with Shell instead of redirecting user files',
+    );
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+    await host.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('native host environment runs real programs and shares native files with Corax aliases', async () => {
   const root = await mkdtemp(join(tmpdir(), 'auto-agent host 量仔-'));
   const workspace = join(root, 'workspace'),
@@ -23,8 +89,7 @@ test('native host environment runs real programs and shares native files with Co
     });
     assert.equal(await readFile(join(workspace, 'nested/file.txt'), 'utf8'), 'native-shared-file');
     const shell = await host.sandbox.run({
-      command:
-        'cat \'/workspace/nested/file.txt\'; printf \'\\n%s|%s|%s\' "$HOST_TEST_SENTINEL" "${AUTO_AGENT_TOKEN-unset}" "${AUTO_AGENT_API_KEY-unset}"',
+      command: `cat ${quote(join(workspace, 'nested/file.txt'))}; printf '\\n%s|%s|%s' "$HOST_TEST_SENTINEL" "\${AUTO_AGENT_TOKEN-unset}" "\${AUTO_AGENT_API_KEY-unset}"`,
       env: {
         HOST_TEST_SENTINEL: 'full-host-environment',
         AUTO_AGENT_TOKEN: 'private-fixture',
@@ -92,7 +157,7 @@ test('Corax native glob and grep execute against real host files without Git Bas
       {
         pattern: 'needle 量仔',
         glob: '*.txt',
-        path: `${process.platform === 'win32' ? '/' : ''}${toShellPath(root)}`,
+        path: toShellPath(root),
       },
       context,
     );
@@ -163,6 +228,36 @@ test('host cancellation stops only the owned command and keeps host files', asyn
   }
 });
 
+test('native bash cancellation terminates its process tree without Unix signal scripts', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'auto-agent-native-cancel-'));
+  const host = await createHostSession({ workspace: root, skills: root });
+  try {
+    const abort = new AbortController();
+    const execution = Promise.resolve(
+      bash.execute!(
+        {
+          command: `${quote(process.execPath)} -e 'require("node:fs").writeFileSync("native.pid", String(process.pid)); setInterval(() => {}, 1000)'`,
+        },
+        { getSandbox: async () => host.sandbox, abortSignal: abort.signal } as never,
+      ),
+    );
+    void execution.catch(() => {});
+    let pid = 0;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      pid = Number(await readFile(join(root, 'native.pid'), 'utf8').catch(() => ''));
+      if (pid) break;
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    assert.ok(pid > 0);
+    abort.abort(new Error('native fixture cancellation'));
+    await assert.rejects(execution, /native fixture cancellation/);
+    assert.throws(() => process.kill(pid, 0), /ESRCH/);
+  } finally {
+    await host.close();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test(
   'Corax native long commands retain their running-job output on the real host',
   { timeout: 45000 },
@@ -170,12 +265,20 @@ test(
     const root = await mkdtemp(join(tmpdir(), 'auto-agent-host-job-'));
     const host = await createHostSession({ workspace: root, skills: root });
     try {
-      const result = await bash.execute!({ command: 'sleep 32; printf LONG-HOST-JOB-OK' }, {
-        getSandbox: async () => host.sandbox,
-      } as never);
+      const abort = new AbortController();
+      const result = await bash.execute!(
+        { command: 'sleep 32; printf LONG-HOST-JOB-OK; printf JOB-STDERR >&2' },
+        {
+          getSandbox: async () => host.sandbox,
+          abortSignal: abort.signal,
+        } as never,
+      );
       assert.ok('status' in result);
       assert.equal(result.status, 'running');
       if (result.status !== 'running') return;
+      assert.doesNotMatch(result.stderr, /USR1|invalid signal/);
+      // Native tool completion/steering must not cancel a command already yielded.
+      abort.abort(new Error('tool call ended after yielding'));
       for (let attempt = 0; attempt < 50; attempt++) {
         if ((await host.sandbox.readTextFile({ path: `${result.outputDirectory}/exit` })) !== null)
           break;
@@ -188,6 +291,10 @@ test(
       assert.equal(
         await host.sandbox.readTextFile({ path: `${result.outputDirectory}/stdout` }),
         'LONG-HOST-JOB-OK',
+      );
+      assert.equal(
+        await host.sandbox.readTextFile({ path: `${result.outputDirectory}/stderr` }),
+        'JOB-STDERR',
       );
       await host.sandbox.removePath({ path: result.outputDirectory, recursive: true, force: true });
     } finally {

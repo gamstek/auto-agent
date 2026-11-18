@@ -80,6 +80,7 @@ for (const mode of [
     let usedGrep = false;
     let usedOutsideHostFile = false;
     let usedSkillReference = false;
+    let usedSkillResourceDirectory = false;
     let usedRelocatedResource = false;
     let usedResumedHost = false;
     const memoryFact = '用户偏好以三条短句总结。MEMORY-FIXTURE-PREFERENCE';
@@ -311,6 +312,9 @@ for (const mode of [
           usedOutsideHostFile ||=
             output.includes('HOST-OUTSIDE-OK') && output.includes('totalLines');
           usedSkillReference ||= output.includes('methods.md') && output.includes('totalLines');
+          usedSkillResourceDirectory ||= output.includes(
+            `Resource directory: ${project.replaceAll('\\', '/')}/skills/device-automation`,
+          );
           usedRelocatedResource ||= output.includes('HOST-INSTALLED-RESOURCE-OK');
           usedResumedHost ||= output.includes('RESUMED-HOST');
         }
@@ -618,6 +622,7 @@ for (const mode of [
       expect(usedOutsideHostFile).toBe(true);
       expect(await Bun.file(outsideHostFile).text()).toBe('HOST-OUTSIDE-OK');
       expect(usedSkillReference).toBe(true);
+      expect(usedSkillResourceDirectory).toBe(true);
       expect(usedRelocatedResource).toBe(true);
       expect(await Bun.file(join(temporary, 'workspace/host-fixture.txt')).text()).toBe(
         'HOST-FILE-UPDATED',
