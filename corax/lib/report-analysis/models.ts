@@ -1,0 +1,49 @@
+import { join } from 'node:path';
+import { parseKernel } from './kernel';
+import { readLocalFile } from './pdf';
+
+// G12 integration export at d9be1a5bdd08489d1d28b53833a6887fe5cc747e.
+const checksums = {
+  model001: '772A36A104036B0C60AD14E150E2B9D09BACD1D251A5E1BF82D191460DA85FFB',
+  model002: '9F8906074781F4D0941152B83C6654BFD65C21039DDA41BF12B35415EB926007',
+  model003: 'D5B8B984BEDA48CB50AC4E27F985794738DCB9B133A17C643CF70688A981B34B',
+  model004: '28EFE437ACD4526E6E336F595F1F112586783501E05CA36CFE5798BADA9F9563',
+  model102: '906083C27B37F61B18065A0ECA3186BD0C9708AB8B34823F6A947B41F540D68D',
+  model202: '33946EA7958FB13A1200B61D75081A557CF405B297164491FAE1DE8A5A047762',
+  modelQ001: '7CBADD63A5700708E2D7DAB10EEF428E728451E6641985B3D3AFA00D65990DFA',
+  modelQ002: 'CC2EC600EB866B37C19BB5E2E598ED6C87DDECE9803D313813A0118D7F2AED37',
+  modelQ003: 'EF22D710AFC2171E9E4032DAA414F981CCAB068EAC5F3CA81E3A8E59EABE9D3C',
+  modelQ004: '148CA2E9FAD871076A9B6DC1E7880626C66ADD1233FB0944C18D42CE088ACF1C',
+  modelQ005: 'E7CDC113C64925E5D037DBE9ED228A5E44EF2494FE0390C57D2089DA86F77CAE',
+  modelQ006: '40C7692E94CD3FD5E11DE83632ED54C4171CCB97AE267D6B2E29FD5DF888FE6D',
+  modelQ007: 'BEF55D9B5B7871556F81A5C8250EAADD605A0D64565148BDEF857E5257218F51',
+  modelQ101: 'F24C44210F998741756D83A56205A406AAE7E2494BF237760B627CE097354F36',
+  modelQ102: '1E74C20572CA6D3A060B49700E22650FE3C8CC3C834516CDC5AEA23B1F8030C4',
+} as const;
+
+type ModelId = keyof typeof checksums;
+export const modelIds = Object.freeze(Object.keys(checksums) as ModelId[]);
+
+export async function loadModel(
+  modelId: ModelId,
+  projectRoot = process.env.AUTO_AGENT_PROJECT_ROOT ??
+    process.env.CORAX_PROJECT_ROOT ??
+    process.cwd(),
+) {
+  if (!Object.hasOwn(checksums, modelId)) throw new Error(`未知的内置 NLDFT 模型：${modelId}`);
+  const kernel = parseKernel(
+    await readLocalFile(
+      join(projectRoot, 'assets/nldft', `${modelId}.mod`),
+      '.mod',
+      8 * 1024 * 1024,
+    ),
+  );
+  if (kernel.sha256.toUpperCase() !== checksums[modelId]) {
+    throw new Error(`内置 NLDFT 模型校验失败：${modelId}`);
+  }
+  return { ...kernel, modelId };
+}
+
+export async function verifyNldftAssets(projectRoot: string) {
+  for (const id of modelIds) await loadModel(id, projectRoot);
+}

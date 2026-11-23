@@ -34,6 +34,24 @@ async function sendWhenReady(session: ClientSession, message: string) {
   }
 }
 
+function reportPdf() {
+  const stream = 'BT /F1 12 Tf 20 70 Td (SiCOPE) Tj ET\n';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>',
+    `<< /Length ${stream.length} >>\nstream\n${stream}endstream`,
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((object, i) => {
+    const offset = pdf.length;
+    pdf += `${i + 1} 0 obj\n${object}\nendobj\n`;
+    return `${String(offset).padStart(10, '0')} 00000 n \n`;
+  });
+  return `${pdf}xref\n0 6\n0000000000 65535 f \n${offsets.join('')}trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${pdf.length}\n%%EOF\n`;
+}
+
 async function completeApproved(
   session: ClientSession,
   response: MessageResponse,
@@ -75,6 +93,7 @@ for (const mode of [
     const project = join(temporary, mode === 'development' ? 'workspace/corax' : 'project');
     let usedWiki = false;
     let usedHost = false;
+    let parsedReport = false;
     let usedHostFile = false;
     let usedGlob = false;
     let usedGrep = false;
@@ -129,6 +148,12 @@ for (const mode of [
       },
     });
     const outsideHostFile = join(temporary, 'outside-host-fixture.txt');
+    const reportPath = join(temporary, 'SiCOPE report.pdf');
+    await writeFile(reportPath, reportPdf());
+    const imagePath = join(temporary, 'conversation-image.png');
+    const imageBase64 =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2XcAAAAASUVORK5CYII=';
+    await writeFile(imagePath, Buffer.from(imageBase64, 'base64'));
     const outsideModelPath = `${process.platform === 'win32' ? '/' : ''}${outsideHostFile.replaceAll('\\', '/')}`;
     const calls: { name: string; arguments: Record<string, unknown> }[] = [
       { name: 'memory__save_memory', arguments: { text: memoryFact } },
@@ -176,6 +201,8 @@ for (const mode of [
         },
       },
       { name: 'wiki', arguments: { action: 'catalog', collection: 'knowledge' } },
+      { name: 'report_analysis', arguments: { action: 'analyze', reportPath } },
+      { name: 'read_file', arguments: { filePath: imagePath } },
       { name: 'sam_file', arguments: { operation: 'profiles', input: { product: 'g5' } } },
       { name: 'climber_get_health', arguments: {} },
       { name: 'climber_get_status', arguments: {} },
@@ -304,6 +331,7 @@ for (const mode of [
         );
         for (const message of body.messages.filter((message) => message.role === 'tool')) {
           const output = JSON.stringify(message.content);
+          parsedReport ||= output.includes('reportSha256') && output.includes('pointCount');
           usedHost ||=
             output.includes('HOST-SHELL-OK') && output.includes('native-host-environment');
           usedHostFile ||= output.includes('HOST-FILE-OK');
@@ -390,6 +418,7 @@ for (const mode of [
         'lib',
         'tools',
         'channels',
+        'hooks',
         'skills',
         'package.json',
       ])
@@ -409,10 +438,19 @@ for (const mode of [
         '@modelcontextprotocol/sdk',
         'tsx',
         'shelljs',
+        'pdfjs-dist',
+        'image-size',
       ]) {
         const target = join(project, 'node_modules', name);
         await mkdir(dirname(target), { recursive: true });
-        await symlink(await realpath(join(root, 'node_modules', name)), target, 'junction');
+        const dependencyRoot = ['pdfjs-dist', 'image-size'].includes(name)
+          ? join(root, 'corax')
+          : root;
+        await symlink(
+          await realpath(join(dependencyRoot, 'node_modules', name)),
+          target,
+          'junction',
+        );
       }
       if (mode === 'development') {
         const workspace = dirname(project);
@@ -616,6 +654,27 @@ for (const mode of [
       expect(result.message).toContain('Wiki 已连接');
       expect(usedWiki).toBe(true);
       expect(usedHost).toBe(true);
+      expect(parsedReport).toBe(true);
+      const nativeHistory = await client.fetch(
+        `/corax/v1/session/${session.state.sessionId}/stream?startIndex=0&follow=false`,
+      );
+      const events = (await nativeHistory.text())
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      const mediaIndex = events.findIndex(
+        (event) =>
+          event.type === 'action.result' &&
+          event.data.result.toolName === 'read_file' &&
+          JSON.stringify(event.data.result.output).includes('conversation-image.png'),
+      );
+      expect(mediaIndex).toBeGreaterThan(-1);
+      await rm(imagePath);
+      const chatImage = await client.fetch(
+        `/desktop/chat-media?session=${session.state.sessionId}&index=${mediaIndex}&slot=0`,
+      );
+      expect(chatImage.status).toBe(200);
+      expect(await chatImage.json()).toEqual({ mediaType: 'image/png', base64: imageBase64 });
       expect(usedHostFile).toBe(true);
       expect(usedGlob).toBe(true);
       expect(usedGrep).toBe(true);

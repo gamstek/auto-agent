@@ -1,4 +1,4 @@
-import { memo, useCallback, useState } from 'react';
+import { Fragment, memo, useCallback, useState } from 'react';
 import { ListCollapse } from 'lucide-react';
 import type {
   CoraxMessage,
@@ -7,7 +7,7 @@ import type {
   ChatTurnDetails,
   CoraxMessagePart,
 } from '@auto-agent/desktop-protocol';
-import { messageText } from '@auto-agent/desktop-protocol';
+import { mediaFile, messageText } from '@auto-agent/desktop-protocol';
 import { MarkdownAnswer } from '../MarkdownAnswer/MarkdownAnswer';
 import { Avatar } from '../Avatar/Avatar';
 import { ResponseActions } from '../ResponseActions/ResponseActions';
@@ -16,6 +16,8 @@ import { ChatToolGroup } from '../ChatToolGroup/ChatToolGroup';
 import { ChatProgress } from '../ChatProgress/ChatProgress';
 import { ProcessingLabel } from '../ProcessingLabel/ProcessingLabel';
 import { chatEntries } from '../../lib/chat-entries';
+import { ChatImagePreview } from '../ChatImagePreview/ChatImagePreview';
+import { messageMedia } from '../../lib/chat-media-items';
 import { native } from '../../bridge';
 import './ChatMessage.css';
 
@@ -53,7 +55,6 @@ export const ChatMessage = memo(
     const turn = message.metadata?.turnId ? conversation.turns[message.metadata.turnId] : undefined;
     const terminal = stopped || (!!turn && turn.status !== 'active');
     const active = message.role === 'assistant' && !terminal && turn?.status === 'active';
-    const showProcess = details ? (processExpanded ?? active) : true;
     const complete = message.metadata?.status === 'complete' || terminal;
     const text = messageText(message);
     const textParts = message.parts.flatMap((part, index) =>
@@ -88,6 +89,22 @@ export const ChatMessage = memo(
       Object.values(conversation.inputs).some(
         (input) => input.turnId === message.metadata?.turnId && input.status === 'open',
       );
+    const mediaItems = messageMedia(message, callStates, sessionId);
+    const mediaCalls = new Set(mediaItems.map((item) => item.callId));
+    const lastMediaIndex = message.parts.reduce(
+      (last, part, index) =>
+        part.type === 'dynamic-tool' && mediaCalls.has(part.toolCallId) ? index : last,
+      -1,
+    );
+    const pendingTools = message.parts.some(
+      (part) =>
+        part.type === 'dynamic-tool' &&
+        ['running', 'awaiting-input'].includes(callStates[part.toolCallId]?.status ?? ''),
+    );
+    const mediaDelivered = mediaItems.length > 0 && !pendingTools && !waiting;
+    const showProcess = details
+      ? (processExpanded ?? (active && !mediaDelivered))
+      : !mediaDelivered;
     const entries = chatEntries(message.parts, details?.compactions ?? []);
 
     function renderPart(part: Exclude<CoraxMessagePart, { type: 'dynamic-tool' }>) {
@@ -138,8 +155,11 @@ export const ChatMessage = memo(
               )}
             </div>
           );
-        case 'file':
+        case 'file': {
+          const media = mediaFile(part);
+          if (media?.kind === 'data') return <ChatImagePreview media={media} />;
           return <div className="chat-file">附件：{part.filename ?? part.mediaType}</div>;
+        }
         case 'step-start':
           return null;
       }
@@ -164,23 +184,38 @@ export const ChatMessage = memo(
             />
           )}
           {entries.map((entry) => {
-            if (entry.kind === 'tools')
+            if (entry.kind === 'tools') {
+              const groupCalls = new Set(entry.parts.map((part) => part.toolCallId));
               return (
-                <div
-                  key={`tools:${entry.parts[0]!.toolCallId}`}
-                  className="chat-entry"
-                  hidden={!showProcess}
-                >
-                  <ChatToolGroup
-                    parts={entry.parts}
-                    conversation={conversation}
-                    calls={callStates}
-                    openCalls={openCalls}
-                    onToggleCall={toggleCall}
-                    paused={paused}
-                  />
-                </div>
+                <Fragment key={`tools:${entry.parts[0]!.toolCallId}`}>
+                  <div className="chat-entry" hidden={!showProcess}>
+                    <ChatToolGroup
+                      parts={entry.parts}
+                      conversation={conversation}
+                      calls={callStates}
+                      openCalls={openCalls}
+                      onToggleCall={toggleCall}
+                      paused={paused}
+                    />
+                  </div>
+                  {mediaItems
+                    .filter((item) => groupCalls.has(item.callId))
+                    .map(({ id, media, route }) => (
+                      <ChatImagePreview
+                        key={id}
+                        media={media}
+                        route={route}
+                        gallery={() => {
+                          const items = conversation.messages
+                            .flatMap((message) => messageMedia(message, callStates, sessionId))
+                            .filter((item) => item.media.mediaType.startsWith('image/'));
+                          return { items, index: items.findIndex((item) => item.id === id) };
+                        }}
+                      />
+                    ))}
+                </Fragment>
               );
+            }
             if (entry.kind === 'compaction')
               return (
                 <div key={entry.id} className="chat-entry chat-compaction" hidden={!showProcess}>
@@ -189,7 +224,13 @@ export const ChatMessage = memo(
                 </div>
               );
             const { part, index } = entry;
-            const answer = message.role === 'assistant' && finalText.has(index);
+            const answer =
+              message.role === 'assistant' &&
+              (finalText.has(index) ||
+                (!complete &&
+                  part.type === 'text' &&
+                  lastMediaIndex >= 0 &&
+                  index > lastMediaIndex));
             const visible =
               message.role === 'user' ||
               !hasProcess ||
@@ -207,11 +248,15 @@ export const ChatMessage = memo(
               </div>
             );
           })}
-          {active && !paused && !waiting && (!liveParts || (hasProcess && !showProcess)) && (
-            <div className="chat-processing" role="status">
-              <ProcessingLabel text="正在处理" />
-            </div>
-          )}
+          {active &&
+            !paused &&
+            !waiting &&
+            !mediaDelivered &&
+            (!liveParts || (hasProcess && !showProcess)) && (
+              <div className="chat-processing" role="status">
+                <ProcessingLabel text="正在处理" />
+              </div>
+            )}
           {linkError && <p role="alert">{linkError}</p>}
           {message.role === 'assistant' && complete && text && (
             <ResponseActions

@@ -6,6 +6,7 @@ import { startProcess } from '../../scripts/shared/process';
 import { preparePublishedTree } from './runtime-tree';
 import { verifyCoraxRuntime } from './corax-runtime';
 import { hostRuntimeDirectory } from 'auto-agent/host-runtime';
+import { verifyNldftAssets } from 'auto-agent/nldft-models';
 
 const root = resolve(import.meta.dirname, '../..');
 if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64')
@@ -74,6 +75,7 @@ if (process.platform === 'win32') {
 }
 const deployed = JSON.parse(await readFile(join(output, 'package.json'), 'utf8'));
 await verifyCoraxRuntime(output);
+await verifyNldftAssets(output);
 if (deployed.name !== 'auto-agent')
   throw new Error('Packaged runtime must preserve the auto-agent session identity');
 if (!deployed.dependencies?.['@coraxjs/core'])

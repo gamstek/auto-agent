@@ -392,6 +392,17 @@ async function nativeDesktop(
         }
         if (command === 'backend_request') {
           testState.requests.push(args.path);
+          if (
+            args.path.startsWith('/chat-media?session=') &&
+            /&slot=0(?:&load=1)?$/.test(args.path)
+          ) {
+            return {
+              mediaType: 'image/png',
+              base64:
+                (window as any).__imageFixture ??
+                'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2XcAAAAASUVORK5CYII=',
+            };
+          }
           if (args.path === '/approval') {
             if (args.method === 'GET')
               return { generation: testState.generation, ...testState.approvalPolicy };
@@ -2008,6 +2019,210 @@ test('a long turn commits its question and completed reply together without a pa
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
+});
+
+test('native image results are visible on history replay with tool details collapsed', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const id = 'wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB';
+    const history = (window as any).__desktopFixture.histories[id];
+    const data = { turnId: 'turn-1', sequence: 0, stepIndex: 0 };
+    const meta = { id: 'published-chat-image', at: '2026-11-11T00:00:00Z' };
+    const canvas = document.createElement('canvas');
+    canvas.width = 1600;
+    canvas.height = 900;
+    (window as any).__imageFixture = canvas.toDataURL().split(',')[1];
+    const reply = history.find((entry: any) => entry.type === 'message.completed');
+    reply.data.message = '交付 `C:\\reports\\等温线图.png` 和 `C:\\reports\\第二张.png`';
+    history.splice(
+      history.findIndex((entry: any) => entry.type === 'message.completed'),
+      0,
+      {
+        type: 'action.result',
+        data: {
+          ...data,
+          status: 'completed',
+          result: {
+            kind: 'tool-result',
+            callId: 'plot',
+            toolName: 'read_file',
+            output: {
+              path: 'C:/reports/等温线图.png',
+              file: { mediaType: 'image/png', size: 68, width: 1, height: 1 },
+            },
+          },
+        },
+        meta,
+      },
+      {
+        type: 'action.result',
+        data: {
+          ...data,
+          status: 'completed',
+          result: {
+            kind: 'tool-result',
+            callId: 'plot-2',
+            toolName: 'read_file',
+            output: {
+              path: 'C:/reports/第二张.png',
+              file: { mediaType: 'image/png', size: 68, width: 1, height: 1 },
+            },
+          },
+        },
+        meta: { ...meta, id: 'published-chat-image-2' },
+      },
+      {
+        type: 'action.result',
+        data: {
+          ...data,
+          status: 'completed',
+          result: {
+            kind: 'tool-result',
+            callId: 'draft-plot',
+            toolName: 'read_file',
+            output: {
+              path: 'C:/reports/旧图.png',
+              file: { mediaType: 'image/png', size: 68, width: 1, height: 1 },
+            },
+          },
+        },
+        meta: { ...meta, id: 'draft-plot' },
+      },
+    );
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const image = page.getByRole('img', { name: '等温线图.png' });
+  await expect(image).toBeVisible();
+  await expect(page.locator('.chat-image-preview + .chat-answer-part')).toContainText('交付');
+  await expect
+    .poll(() => image.evaluate((node) => (node as HTMLImageElement).naturalWidth))
+    .toBe(1600);
+  await expect(page.getByRole('img', { name: '旧图.png' })).toHaveCount(0);
+  const preview = page.getByRole('button', { name: '放大查看：等温线图.png' });
+  await preview.click();
+  const dialog = page.getByRole('dialog');
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: '下一张' }).click();
+  await expect(dialog.getByRole('img', { name: '第二张.png' })).toBeVisible();
+  await page.keyboard.press('ArrowLeft');
+  await expect(dialog.getByRole('img', { name: '等温线图.png' })).toBeVisible();
+  await dialog.getByRole('button', { name: '原始大小' }).click();
+  await dialog.getByRole('button', { name: '放大图片' }).click();
+  await expect(dialog.getByText('125%')).toBeVisible();
+  const canvas = dialog.locator('.chat-image-canvas');
+  const picture = dialog.getByRole('img', { name: '等温线图.png' });
+  const { x, y, width, height } = (await canvas.boundingBox())!;
+  await page.mouse.move(x + width / 2, y + height / 2);
+  await page.mouse.down();
+  await page.mouse.move(x + width / 2 + 55, y + height / 2 + 35);
+  await page.mouse.up();
+  await expect(picture).toHaveCSS('transform', 'matrix(1, 0, 0, 1, 55, 35)');
+  await dialog.locator('.chat-image-canvas').hover();
+  await page.mouse.wheel(0, -200);
+  await expect(dialog.getByText('186%')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(preview).toBeFocused();
+  await expect(page.locator('.chat-entry[hidden]').filter({ hasText: 'Read File' })).toHaveCount(1);
+});
+
+test('streaming text follows an available image and finished tool details collapse', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const history = (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'];
+    history.splice(history.findIndex((event: any) => event.type === 'message.completed'));
+    const data = { turnId: 'turn-1', sequence: 0, stepIndex: 0 };
+    const add = (type: string, fields: object) =>
+      history.push({
+        type,
+        data: { ...data, ...fields },
+        meta: { id: `streaming-image-${history.length}`, at: '2026-11-11T00:00:00Z' },
+      });
+    add('reasoning.appended', { reasoningDelta: '正在检查生成图' });
+    add('action.result', {
+      status: 'completed',
+      result: {
+        kind: 'tool-result',
+        toolName: 'read_file',
+        callId: 'stream-image',
+        output: {
+          path: 'C:/reports/图.png',
+          file: { mediaType: 'image/png', size: 68, width: 1, height: 1 },
+        },
+      },
+    });
+    add('message.appended', { stepIndex: 1, messageDelta: '这是图的说明' });
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  await expect(page.getByRole('img', { name: '图.png' })).toBeVisible();
+  const imageMessage = page
+    .locator('.corax-message')
+    .filter({ has: page.getByRole('img', { name: '图.png' }) });
+  await expect(imageMessage.getByRole('button', { name: '处理过程' })).toHaveAttribute(
+    'aria-expanded',
+    'false',
+  );
+  await expect(imageMessage.locator('.chat-image-preview + .chat-answer-part')).toHaveText(
+    '这是图的说明',
+  );
+  await expect(imageMessage.locator('.chat-processing')).toHaveCount(0);
+});
+
+test('remote media in history loads only after explicit user action', async ({ page }) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const history = (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'];
+    history.splice(
+      history.findIndex((event: any) => event.type === 'message.completed'),
+      0,
+      {
+        type: 'action.result',
+        data: {
+          turnId: 'turn-1',
+          sequence: 0,
+          stepIndex: 0,
+          status: 'completed',
+          result: {
+            kind: 'tool-result',
+            toolName: 'render',
+            callId: 'remote-image',
+            output: {
+              attachments: [
+                {
+                  type: 'image-url',
+                  mediaType: 'image/png',
+                  filename: '网络图.png',
+                  url: 'http://localhost:8765/plot.png',
+                },
+              ],
+            },
+          },
+        },
+        meta: { id: 'remote-image-event', at: '2026-11-11T00:00:00Z' },
+      },
+    );
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const load = page.getByRole('button', { name: '加载远程图片' });
+  await expect(load).toBeVisible();
+  await expect(page.getByText('http://localhost:8765', { exact: true })).toBeVisible();
+  const requests = () =>
+    page.evaluate(() =>
+      (window as any).__desktopTest.requests.filter((route: string) =>
+        route.startsWith('/chat-media?'),
+      ),
+    );
+  expect(await requests()).toEqual([]);
+  await load.click();
+  await expect(page.getByRole('img', { name: '网络图.png' })).toBeVisible();
+  expect(await requests()).toEqual([expect.stringMatching(/&slot=0&load=1$/)]);
 });
 
 test('cold history synchronizes with a single canonical read', async ({ page }) => {

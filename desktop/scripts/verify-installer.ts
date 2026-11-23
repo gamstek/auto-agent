@@ -5,6 +5,7 @@ import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { startProcess } from '../../scripts/shared/process';
 import { verifyCoraxRuntime } from './corax-runtime';
+import { verifyNldftAssets } from 'auto-agent/nldft-models';
 
 // Extract rather than execute NSIS: verification must never touch the developer's
 // registry, installed application or ~/.auto-agent data-layout marker.
@@ -39,6 +40,7 @@ try {
   ])
     assert.ok((await stat(join(runtime, resource))).isFile(), `Missing installed ${resource}`);
   await verifyCoraxRuntime(runtime);
+  await verifyNldftAssets(runtime);
   for (const obsolete of ['backend', 'auto-agent-backend.exe', 'runtime/bun.exe'])
     await assert.rejects(stat(join(extracted, obsolete)), { code: 'ENOENT' });
 

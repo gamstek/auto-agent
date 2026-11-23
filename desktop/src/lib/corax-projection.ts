@@ -1,5 +1,6 @@
 import { conversationReducer, toolCallState, type MessageStreamEvent } from '@coraxjs/core/client';
 import type { ChatSnapshot, ChatCallState, ChatTurnDetails } from '@auto-agent/desktop-protocol';
+import { toolMedia } from '@auto-agent/desktop-protocol';
 import { yieldToHost } from './yield-to-host';
 
 /** In-memory UI projection of native events. No transport, credentials or history storage. */
@@ -11,6 +12,7 @@ export class CoraxProjection {
   private connectionError?: string;
   private admitted = false;
   private turnDetails: Record<string, ChatTurnDetails> = Object.create(null);
+  private mediaIndexes = new Map<string, number>();
 
   constructor(readonly id: string) {}
 
@@ -36,6 +38,7 @@ export class CoraxProjection {
     this.error = undefined;
     this.connectionError = undefined;
     this.turnDetails = Object.create(null);
+    this.mediaIndexes.clear();
     this.admitted = admitted;
   }
 
@@ -110,8 +113,10 @@ export class CoraxProjection {
           streaming: !this.closed && !this.connectionError,
         });
         if (!call) throw new Error(`Corax 缺少工具状态：${part.toolCallId}`);
+        const mediaEventIndex = this.mediaIndexes.get(part.toolCallId);
         calls[part.toolCallId] = {
           status: call.status,
+          ...(mediaEventIndex === undefined ? {} : { mediaEventIndex }),
           ...(call.errorText ? { errorText: call.errorText } : {}),
           ...(call.errorCode ? { errorCode: call.errorCode } : {}),
         };
@@ -133,6 +138,15 @@ export class CoraxProjection {
 
   private apply(event: MessageStreamEvent) {
     this.state = conversationReducer.reduce(this.state, event);
+    if (
+      event.type === 'action.result' &&
+      event.data.status === 'completed' &&
+      event.data.result.kind === 'tool-result'
+    ) {
+      const { callId, toolName, output } = event.data.result;
+      if (toolMedia(toolName, output).some((media) => media.kind !== 'data'))
+        this.mediaIndexes.set(callId, this.revision);
+    }
     const at = Date.parse(event.meta.at);
     if (Number.isFinite(at)) {
       if (event.type === 'turn.started')

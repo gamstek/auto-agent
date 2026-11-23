@@ -38,6 +38,7 @@ export interface ChatTurnDetails {
 }
 
 export interface ChatCallState {
+  mediaEventIndex?: number;
   status: ToolCallStatus;
   errorText?: string;
   errorCode?: string;

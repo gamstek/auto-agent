@@ -9,16 +9,19 @@
     "sandbox.ts",
     "memory.ts",
     "channels",
+    "hooks",
     "tools",
     "lib",
     "skills",
     "assets/host",
+    "assets/nldft",
     ".output"
   ],
   "exports": {
     "./config": "./lib/config/index.ts",
     "./config/paths": "./lib/config/paths.ts",
     "./host-runtime": "./lib/host/runtime.ts",
+    "./nldft-models": "./lib/report-analysis/models.ts",
     "./wiki": "./lib/wiki/index.ts",
     "./wiki/ingest": "./lib/wiki/ingest.ts",
     "./wiki/reference": "./lib/wiki/reference.ts"
@@ -37,6 +40,8 @@
     "@coraxjs/core": "0.1.1",
     "@modelcontextprotocol/sdk": "catalog:",
     "ai": "7.0.137",
+    "image-size": "2.0.2",
+    "pdfjs-dist": "5.6.205",
     "shelljs": "^0.10.0",
     "tsx": "^4.23.15",
     "zod": "catalog:"

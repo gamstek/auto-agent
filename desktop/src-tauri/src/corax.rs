@@ -435,7 +435,9 @@ async fn request_status(state: &Desktop, backend: &Connection, method: &str, pat
     let mut value: Value = response.json().await.map_err(|_| "Corax 返回了无法解析的响应")?;
     timing.mark("body", json!({"status":status.as_u16()}));
     #[cfg(debug_assertions)] if started.elapsed() > Duration::from_millis(250) { eprintln!("[desktop-http] method={method} elapsed_ms={} status={}", started.elapsed().as_millis(), status.as_u16()); }
-    redact(&mut value, &backend.secrets);
+    if !path.starts_with("/desktop/chat-media?") || !status.is_success() {
+        redact(&mut value, &backend.secrets);
+    }
     Ok((status, value))
 }
 
@@ -519,6 +521,15 @@ pub fn allowed_request(method: &str, path: &str) -> bool {
     if method == "GET" && route == "/session" { return true; }
     if method == "POST" && route == "/session" { return true; }
     if method == "GET" && path == "/devices" { return true; }
+    if method == "GET" && route == "/chat-media" {
+        return path.strip_prefix("/chat-media?session=").is_some_and(|query| {
+            let Some((session, rest)) = query.split_once("&index=") else { return false; };
+            let Some((index, slot)) = rest.split_once("&slot=") else { return false; };
+            let slot = slot.strip_suffix("&load=1").unwrap_or(slot);
+            valid_session_id(session) && (1..=10).contains(&index.len()) && index.bytes().all(|b| b.is_ascii_digit()) &&
+                (1..=2).contains(&slot.len()) && slot.bytes().all(|b| b.is_ascii_digit())
+        });
+    }
     if method == "POST" && path == "/devices/climber/refresh" { return true; }
     if method == "POST" && path == "/suggestions" { return true; }
     if ["GET", "POST"].contains(&method) && path == "/approval" { return true; }
@@ -781,6 +792,10 @@ pub async fn backend_request(app: tauri::AppHandle, state: State<'_, Desktop>, m
     }
     if path == "/devices" || path == "/devices/climber/refresh" {
         return request(&state, &backend, &method, &format!("/desktop{path}"), if method == "POST" { Some(json!({})) } else { None }).await.map_err(Value::from);
+    }
+    if path.starts_with("/chat-media?") {
+        return request_status(&state, &backend, "GET", &format!("/desktop{path}"), None).await
+            .map_err(Value::from).and_then(|(status, value)| if status.is_success() { Ok(value) } else { Err("聊天附件不可用".into()) });
     }
     // Advisory model generation reserves in-flight work, but must never hold
     // the chat dispatch lock or delay ordinary message admission.
@@ -1143,6 +1158,13 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     }
     fn state() -> Desktop {
         Desktop { root: PathBuf::new(), config_path: PathBuf::new(), backend: Mutex::new(None), config_writes: Mutex::new(()), owned_tree: SyncMutex::new(None), client: reqwest::Client::builder().no_proxy().timeout(Duration::from_secs(2)).build().unwrap(), pending_apply: AtomicBool::new(false), exiting: AtomicBool::new(false) }
+    }
+    #[test] fn chat_media_requests_accept_only_native_event_coordinates() {
+        let route = "/chat-media?session=wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB&index=12&slot=0";
+        assert!(allowed_request("GET", route));
+        assert!(!allowed_request("POST", route));
+        assert!(!allowed_request("GET", &format!("{route}&path=C:/private.png")));
+        assert!(!allowed_request("GET", "/chat-media?session=C:/private.png&index=12&slot=0"));
     }
     #[test] fn read_transport_failures_are_not_reported_as_ambiguous_writes() {
         for (method, path) in [("GET", "/corax/v1/session?limit=100"), ("POST", "/desktop/activity"), ("POST", "/desktop/knowledge/read"), ("POST", "/desktop/devices/climber/refresh")] {
