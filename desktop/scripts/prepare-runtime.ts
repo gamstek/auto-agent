@@ -1,4 +1,4 @@
-import { copyFile, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, mkdir, rm, stat, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import { pnpmCommand } from '../../scripts/shared/pnpm';
@@ -7,10 +7,16 @@ import { preparePublishedTree } from './runtime-tree';
 import { verifyCoraxRuntime } from './corax-runtime';
 import { hostRuntimeDirectory } from 'auto-agent/host-runtime';
 import { verifyNldftAssets } from 'auto-agent/nldft-models';
+import { prepareMacosNode } from './prepare-macos-node';
 
 const root = resolve(import.meta.dirname, '../..');
-if (!['win32', 'linux'].includes(process.platform) || process.arch !== 'x64')
-  throw new Error('Prepare the desktop runtime natively on Windows or Linux x64');
+const macos = process.platform === 'darwin';
+const signRuntime = macos && process.env.AUTO_AGENT_SIGN_MACOS_RUNTIME === '1';
+const supported = macos
+  ? ['arm64', 'x64'].includes(process.arch)
+  : ['win32', 'linux'].includes(process.platform) && process.arch === 'x64';
+if (!supported)
+  throw new Error('Prepare the desktop runtime natively on Windows/Linux x64 or macOS x64/arm64');
 if (process.versions.bun || Number(process.versions.node.split('.')[0]) < 24)
   throw new Error('Prepare the desktop runtime with Node.js 24+');
 const output = join(root, 'desktop/src-tauri/runtime');
@@ -28,23 +34,39 @@ await mkdir(dirname(output), { recursive: true });
 // or credentials are copied: corax/package.json files is the application allowlist.
 // Use pnpm's frozen shared-lockfile deployment with ordinary package directories.
 // NSIS does not preserve the junctions in an isolated node_modules layout.
-await pnpm(['--filter', 'auto-agent', 'deploy', '--prod', '--config.node-linker=hoisted', output]);
-await build({
-  entryPoints: [join(root, 'desktop/src-tauri/installer/reset-data.ts')],
-  outfile: join(output, 'install-reset.mjs'),
-  platform: 'node',
-  target: 'node24',
-  format: 'esm',
-  bundle: true,
-});
-await copyFile(process.execPath, join(output, process.platform === 'win32' ? 'node.exe' : 'node'));
+await pnpm([
+  '--filter',
+  'auto-agent',
+  'deploy',
+  '--prod',
+  '--config.node-linker=hoisted',
+  // Signing must not modify files shared with the pnpm store.
+  ...(signRuntime ? ['--config.package-import-method=copy'] : []),
+  output,
+]);
+if (process.platform === 'win32') {
+  await build({
+    entryPoints: [join(root, 'desktop/src-tauri/installer/reset-data.ts')],
+    outfile: join(output, 'install-reset.mjs'),
+    platform: 'node',
+    target: 'node24',
+    format: 'esm',
+    bundle: true,
+  });
+}
+if (macos) await prepareMacosNode();
+else {
+  const nativeNode = join(output, process.platform === 'win32' ? 'node.exe' : 'node');
+  await copyFile(process.execPath, nativeNode);
+  if (process.platform !== 'win32') await chmod(nativeNode, 0o755);
+}
 const license = await fetch(
   `https://raw.githubusercontent.com/nodejs/node/v${process.versions.node}/LICENSE`,
 );
 if (!license.ok) throw new Error('Could not retrieve the license for the bundled Node.js runtime');
 await writeFile(join(output, 'NODE-LICENSE'), await license.text());
 for (const path of [
-  'install-reset.mjs',
+  ...(process.platform === 'win32' ? ['install-reset.mjs'] : []),
   '.output/server/index.mjs',
   'skills/device-automation/assets/library.sqlite',
   'node_modules/@auto-agent/climber-mcp/src/cli.ts',
@@ -95,6 +117,14 @@ if (
 // PATH launchers and dependency source maps are deployment/debugging artifacts,
 // not runtime inputs. Keep sources, declarations, licenses and native/WASM assets.
 const sourceMapBytes = await preparePublishedTree(output);
+if (signRuntime) {
+  const signing = startProcess(
+    '/bin/bash',
+    [join(import.meta.dirname, 'sign-macos-runtime.sh'), output],
+    { cwd: root, stdio: 'inherit' },
+  );
+  if (await signing.exited) throw new Error('Could not sign the macOS runtime dependencies');
+}
 // Retire the previous generated resource directory after a successful deployment.
 await rm(join(root, 'desktop/src-tauri/backend'), { recursive: true, force: true });
 console.log(`Removed ${(sourceMapBytes / 1048576).toFixed(2)} MiB of dependency source maps`);

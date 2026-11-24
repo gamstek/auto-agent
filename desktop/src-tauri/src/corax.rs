@@ -270,7 +270,11 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     let token = uuid::Uuid::new_v4().to_string();
     let project = if cfg!(debug_assertions) { Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("corax") }
         else { app.path().resource_dir().map_err(|_| "无法定位应用资源")?.join("runtime") };
-    let runtime = if cfg!(debug_assertions) { PathBuf::from("node") } else { project.join(if cfg!(windows) { "node.exe" } else { "node" }) };
+    let runtime = if cfg!(debug_assertions) { PathBuf::from("node") }
+        else if cfg!(target_os = "macos") {
+            let executable = std::env::current_exe().map_err(|_| "无法定位应用可执行文件")?;
+            executable.parent().ok_or("无法定位应用的 Node 运行时")?.join("auto-agent-node")
+        } else { project.join(if cfg!(windows) { "node.exe" } else { "node" }) };
     let listener = std::net::TcpListener::bind("127.0.0.1:0").map_err(|_| "无法分配本机端口")?;
     let url = format!("http://127.0.0.1:{}", listener.local_addr().map_err(|_| "无法读取本机端口")?.port());
     let port = listener.local_addr().unwrap().port().to_string();

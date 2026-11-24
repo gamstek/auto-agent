@@ -69,12 +69,13 @@ Bash 和 `write_file` 复用 Corax 原有执行器，附加原生审批；SAM �
 
 ## 后端资源与安装器
 
-```powershell
-pnpm prepare:runtime
+```sh
 pnpm build:desktop
 ```
 
-prepare-runtime 白名单部署 Corax 产物、生产依赖与技能（含 device-automation/assets 下的历史证据）到 `src-tauri/runtime`，编译安装器专用 reset-data，并附带 Node 与许可证。依赖通过 pnpm 共享锁文件部署为普通目录，避免 NSIS 丢失目录链接。用户 LLM Wiki、.env 和凭据不会打包。发布模式使用随包 Node 直接启动标准 corax start，MCP 复用同一 Node 及固定 tsx loader。
+在仓库根运行构建命令。Tauri 自动准备运行时并构建前端。Windows x64 输出 `src-tauri/target/release/bundle/nsis/` 下的安装器；macOS 使用本机架构的 Node.js 24+、Rust 和 Xcode 命令行工具，输出 `src-tauri/target/release/bundle/dmg/` 下的 `_aarch64.dmg`（Apple Silicon）或 `_x64.dmg`（Intel）。
+
+`prepare-runtime` 按白名单部署 Corax 产物、生产依赖与技能（含 device-automation/assets 下的历史证据）到 `src-tauri/runtime`，并附带 Node 许可证。Windows 在运行时目录放置 `node.exe` 并编译安装器专用 `reset-data`；macOS 把 Node 作为 `Contents/MacOS/auto-agent-node` 打进应用，运行时位于 `Contents/Resources/runtime`。用户 LLM Wiki、`.env` 和凭据不会打包。发布模式使用随包 Node 直接启动标准 `corax start`，MCP 复用同一 Node 及固定 `tsx` loader。
 
 在仓库根目录执行 `pnpm test:installer` 可使用 7-Zip 解包实际安装包，在隔离目录验证生产启动及 Wiki/SAM/MCP，并验证同布局覆盖安装清除旧 `backend` 和 `auto-agent-backend.exe`、保留用户数据。该检查不运行安装器，不更改真实安装目录或注册表。
 
@@ -85,6 +86,16 @@ Workspace 启用 `injectWorkspacePackages`，支持 pnpm 基于共享锁文件�
 “工具”展示 Auto-Agent 当前注册的工具与动态工具，过滤 Corax 框架内置项；“技能”展示 Corax 官方运行信息中的实际目录。Climber 动态工具复用模型注册时的同一份配置化定义。内置项为只读状态，不提供禁用操作。Rust 只投影名称、说明和来源，不向 WebView 转发完整提示词、技能正文、schema 或内部文件绑定。“知识库”支持分别选择文件和文件夹；“数据目录”展示解析后的应用 dataDir 根目录，Corax 数据位于其 corax 子目录。
 
 Windows currentUser NSIS 安装仅在默认旧目录没有 corax-node-llm-wiki-v1 标识时清理并初始化，后续同布局安装保留数据；正常启动和开发不会清理个人目录。
+
+## macOS 发布
+
+CI 在 Apple Silicon 和 Intel runner 上分别构建并挂载 DMG 验证。默认是仅供 CI 验证的 ad-hoc 签名。要把两个 DMG 都附到版本 Release，将 GitHub 仓库变量 `AUTO_AGENT_RELEASE_MACOS` 设为 `true`，配置下列 Actions secrets，再推送 `v*` 标签：
+
+- `APPLE_CERTIFICATE`：Base64 编码的 Developer ID Application `.p12`，包含证书和私钥；`APPLE_CERTIFICATE_PASSWORD` 为其导出密码。
+- `APPLE_SIGNING_IDENTITY`：证书的完整 `Developer ID Application: …` 名称。
+- `APPLE_ID`、`APPLE_PASSWORD`、`APPLE_TEAM_ID`：Apple 账户、公证用的 App 专用密码和团队 ID。
+
+发布先签名 Corax 的原生依赖，再由 Tauri 签名应用和 DMG，并公证应用。两个架构的产物验证均通过后才上传正式 DMG。从 DMG 把 `Auto-Agent.app` 拖到 Applications 即可安装；升级时退出应用，再用新版本替换。
 
 ## 更新
 

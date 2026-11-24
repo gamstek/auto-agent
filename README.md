@@ -167,12 +167,14 @@ dataDir/
 
 Rust 直接使用 Node 启动标准 `corax dev/start` 并连接其认证 HTTP/NDJSON。React 使用官方 reducer。没有额外应用 HTTP 桥接或 `auto-agent-backend.exe`。
 
-`pnpm prepare:runtime` 将 Corax 产物、生产依赖、内置仪器资源、Node/许可证和安装初始化脚本部署到 `desktop/src-tauri/runtime`；`pnpm build:desktop` 在 Windows 构建 NSIS 安装包。依赖使用共享锁文件部署为普通目录，发布树不得包含目录链接。打包白名单不包含用户配置、凭据或运行数据库。
+`pnpm build:desktop` 在 Windows x64 构建 NSIS 安装包，在原生 Apple Silicon 或 Intel 环境分别构建 macOS DMG（目标系统 macOS 13.5+）。Tauri 自动调用 `pnpm prepare:runtime`，将 Corax 产物、生产依赖、内置仪器资源和 Node 许可证部署到 `desktop/src-tauri/runtime`。Windows 在该目录附带 Node 和安装初始化脚本；macOS 在 `.app` 的 `Contents/MacOS` 附带 Node。发布树不含目录链接、用户配置、凭据或运行数据库。
 
 Windows 构建后运行 `pnpm test:installer`（需安装 7-Zip），解包实际 NSIS 产物并在隔离目录验证启动、Wiki、SAM、MCP 和旧应用资源清理；验证不执行安装器，不接触个人安装目录和用户数据。
 
+macOS 构建后可从仓库根运行 `DMG_ARCH=aarch64 bash .github/scripts/verify-macos-dmg.sh`（Intel 使用 `DMG_ARCH=x64`），只读挂载 DMG，核验应用和内置 Node 的架构及签名，并用本地测试服务验证包内运行时。正式 DMG 的签名和公证设置见 [桌面构建文档](desktop/README.md#macos-发布)。
+
 本 Beta 当前布局标识为 `corax-node-llm-wiki-v1`。Windows 安装器对没有此标识的默认旧 `~/.auto-agent` 执行一次重置，旧配置、会话及该目录中的资料会清除，安装前需保留的内容应备份。同布局后续安装保留数据；开发启动不执行此清理，也不追踪外部 dataDir。
 
-Rust updater 使用固定 stable/Beta GitHub feed，下载并校验签名后才停止空闲后端。发布需要更新公钥与签名私钥；用户在“关于与诊断”检查并安装更新。未配置公钥的开发构建不可更新。
+Windows x64 的 Rust updater 使用固定 stable/Beta GitHub feed，下载并校验签名后才停止空闲后端。发布需要更新公钥与签名私钥；用户在“关于与诊断”检查并安装更新。未配置公钥的开发构建不可更新。macOS 使用 Release 上对应架构的 DMG 手动更新。
 
 更多：[架构](docs/architecture.md)、[应用接入层](docs/application-layer.md)、[提示词职责](docs/prompts.md)、[桌面](desktop/README.md)。

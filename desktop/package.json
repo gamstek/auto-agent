@@ -1,6 +1,6 @@
 {
   "name": "auto-agent-desktop",
-  "version": "2.0.0-beta.8",
+  "version": "2.0.0-beta.9",
   "private": true,
   "type": "module",
   "scripts": {
@@ -11,7 +11,7 @@
     "build": "pnpm run typecheck && vite build",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.tools.json",
     "tauri": "tauri",
-    "dev:desktop": "node --import tsx ../scripts/prepare-host.ts && tauri dev",
+    "dev:desktop": "node --import tsx ../scripts/prepare-host.ts && node --import tsx scripts/prepare-macos-node.ts && tauri dev",
     "build:desktop": "tauri build",
     "build:release": "node --import tsx scripts/release.ts",
     "prepare:runtime": "node --import tsx scripts/prepare-runtime.ts"

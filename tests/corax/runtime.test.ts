@@ -501,7 +501,9 @@ for (const mode of [
           : fileURLToPath(import.meta.resolve('@coraxjs/core/bin'));
     const runtime =
       mode === 'packaged'
-        ? join(project, process.platform === 'win32' ? 'node.exe' : 'node')
+        ? process.env.AUTO_AGENT_TEST_NODE
+          ? resolve(process.env.AUTO_AGENT_TEST_NODE)
+          : join(project, process.platform === 'win32' ? 'node.exe' : 'node')
         : Bun.which('node')!;
     if (mode === 'start') {
       const build = Bun.spawn([runtime, cli, 'build'], {

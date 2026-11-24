@@ -61,23 +61,16 @@ try {
   await assert.rejects(stat(join(extracted, 'backend')), { code: 'ENOENT' });
   await assert.rejects(stat(join(extracted, 'auto-agent-backend.exe')), { code: 'ENOENT' });
 
-  // Exercise the actual Rust launcher with canonicalized Windows paths, the
-  // bundled Node and inherited host environment (not just the test harness).
+  // Run the Rust suite once, including the launcher test against the extracted runtime.
   const launcher = startProcess(
     'cargo',
-    [
-      'test',
-      '--manifest-path',
-      'desktop/src-tauri/Cargo.toml',
-      '--locked',
-      'corax::tests::node_launcher_accepts_canonical_windows_resource_paths',
-    ],
+    ['test', '--manifest-path', 'desktop/src-tauri/Cargo.toml', '--locked'],
     { cwd: root, env: { ...process.env, AUTO_AGENT_TEST_RUNTIME: runtime }, stdio: 'inherit' },
   );
   assert.equal(
     await launcher.exited,
     0,
-    'Rust could not launch the bundled Node with Windows paths',
+    'Desktop Rust tests failed against the extracted installer runtime',
   );
 
   // The existing fake-model/vendor scenario relocates the extracted runtime again
