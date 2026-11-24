@@ -1,6 +1,6 @@
 import { defineTool } from '@coraxjs/core/tools';
 import writeFile from '@coraxjs/core/tools/write_file';
-import { requestApproval } from '../lib/approval';
+import { requestApproval } from '../lib/approval/policy';
 
 export default defineTool({
   ...writeFile,

@@ -5,8 +5,8 @@ import { join } from 'node:path';
 import { createServer } from 'node:http';
 import test from 'node:test';
 import { toolMedia } from '@auto-agent/desktop-protocol';
-import { readChatMedia, snapshotChatMedia } from '../../corax/lib/chat-media';
-import { downloadChatImage } from '../../corax/lib/chat-image-download';
+import { readChatMedia, snapshotChatMedia } from '../../corax/lib/media/attachments';
+import { downloadMedia } from '../../corax/lib/media/download';
 
 const base64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+X2XcAAAAASUVORK5CYII=';
@@ -35,8 +35,8 @@ test('attachment downloads follow same-origin redirects and stop before a differ
     const address = origin.address();
     assert.ok(address && typeof address === 'object');
     const url = `http://127.0.0.1:${address.port}`;
-    assert.equal((await downloadChatImage(`${url}/same`, 1024)).bytes.toString('base64'), base64);
-    await assert.rejects(downloadChatImage(`${url}/other`, 1024), /其他来源/);
+    assert.equal((await downloadMedia(`${url}/same`, 1024)).bytes.toString('base64'), base64);
+    await assert.rejects(downloadMedia(`${url}/other`, 1024), /其他来源/);
     assert.equal(otherRequests, 0);
   } finally {
     origin.close();

@@ -1,8 +1,7 @@
-import { generateText, wrapLanguageModel } from 'ai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { generateText } from 'ai';
 import { z } from 'zod';
-import type { AppConfig } from './config';
-import { modelErrorMiddleware } from './model';
+import type { AppConfig } from '../config/schema';
+import { createConfiguredModel } from '../model/client';
 
 export const sessionTitleInput = z.object({ content: z.string().trim().min(1).max(6000) }).strict();
 const output = z
@@ -25,16 +24,8 @@ const system = `<session_summary>
 
 type Complete = (config: AppConfig, content: string, signal: AbortSignal) => Promise<string>;
 async function completeTitle(config: AppConfig, content: string, signal: AbortSignal) {
-  const provider = createOpenAICompatible({
-    name: 'session-title',
-    baseURL: config.baseURL,
-    apiKey: process.env.AUTO_AGENT_API_KEY,
-  });
   const result = await generateText({
-    model: wrapLanguageModel({
-      model: provider.chatModel(config.model),
-      middleware: modelErrorMiddleware,
-    }),
+    model: createConfiguredModel(config, 'session-title'),
     system,
     prompt: JSON.stringify({ content }),
     maxOutputTokens: Math.min(config.maxOutputTokens, 512),

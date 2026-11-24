@@ -1,6 +1,7 @@
 import { join } from 'node:path';
 import { parseKernel } from './kernel';
-import { readLocalFile } from './pdf';
+import { readLocalFile } from '../read-file';
+import { analysisProjectRoot, loadAdsCatalog, loadModelCatalog } from './resources';
 
 // G12 integration export at d9be1a5bdd08489d1d28b53833a6887fe5cc747e.
 const checksums = {
@@ -21,16 +22,14 @@ const checksums = {
   modelQ102: '1E74C20572CA6D3A060B49700E22650FE3C8CC3C834516CDC5AEA23B1F8030C4',
 } as const;
 
-type ModelId = keyof typeof checksums;
+export type ModelId = keyof typeof checksums;
 export const modelIds = Object.freeze(Object.keys(checksums) as ModelId[]);
 
-export async function loadModel(
-  modelId: ModelId,
-  projectRoot = process.env.AUTO_AGENT_PROJECT_ROOT ??
-    process.env.CORAX_PROJECT_ROOT ??
-    process.cwd(),
-) {
+export async function loadModel(modelId: ModelId, projectRoot = analysisProjectRoot()) {
   if (!Object.hasOwn(checksums, modelId)) throw new Error(`未知的内置 NLDFT 模型：${modelId}`);
+  const catalog = await loadModelCatalog(projectRoot);
+  const configuration = catalog.entries.get(modelId);
+  if (!configuration) throw new Error(`RepCalcModel.xml 未配置模型：${modelId}`);
   const kernel = parseKernel(
     await readLocalFile(
       join(projectRoot, 'assets/nldft', `${modelId}.mod`),
@@ -41,9 +40,39 @@ export async function loadModel(
   if (kernel.sha256.toUpperCase() !== checksums[modelId]) {
     throw new Error(`内置 NLDFT 模型校验失败：${modelId}`);
   }
-  return { ...kernel, modelId };
+  if (configuration.gas !== kernel.gas) throw new Error(`模型配置与模型核的气体不一致：${modelId}`);
+  return { ...kernel, modelId, configuration, configurationSha256: catalog.sha256 };
 }
 
 export async function verifyNldftAssets(projectRoot: string) {
   for (const id of modelIds) await loadModel(id, projectRoot);
+  const profiles = await loadAdsCatalog(projectRoot);
+  if (profiles.length !== 30) throw new Error('G12 吸附质物性资源不完整。');
+}
+
+export function modelInfo({
+  modelId,
+  label,
+  gas,
+  temperatureK,
+  branch,
+  sha256,
+  configuration,
+  configurationSha256,
+  widths,
+  pressures,
+}: Awaited<ReturnType<typeof loadModel>>) {
+  return {
+    modelId,
+    label,
+    gas,
+    temperatureK,
+    branch,
+    sha256,
+    configuration,
+    configurationSha256,
+    binCount: widths.length,
+    poreWidthRangeAngstrom: [widths[0], widths.at(-1)],
+    pressureRange: [pressures[0], pressures.at(-1)],
+  };
 }

@@ -1,6 +1,6 @@
 import { defineTool } from '@coraxjs/core/tools';
 import bash from '@coraxjs/core/tools/bash';
-import { requestApproval } from '../lib/approval';
+import { requestApproval } from '../lib/approval/policy';
 
 // Keep the native schema and executor; Corax owns the approval pause and resume.
 export default defineTool({

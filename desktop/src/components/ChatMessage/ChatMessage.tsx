@@ -18,6 +18,8 @@ import { ProcessingLabel } from '../ProcessingLabel/ProcessingLabel';
 import { chatEntries } from '../../lib/chat-entries';
 import { ChatImagePreview } from '../ChatImagePreview/ChatImagePreview';
 import { messageMedia } from '../../lib/chat-media-items';
+import { toolLocalFiles } from '../../lib/local-files';
+import { LocalFileLink } from '../LocalFileLink/LocalFileLink';
 import { native } from '../../bridge';
 import './ChatMessage.css';
 
@@ -114,7 +116,7 @@ export const ChatMessage = memo(
             <div className="user-text">{part.text}</div>
           ) : (
             <div data-streaming={part.state === 'streaming' && !terminal}>
-              <MarkdownAnswer text={part.text} />
+              <MarkdownAnswer text={part.text} localFiles />
             </div>
           );
         case 'reasoning':
@@ -186,6 +188,11 @@ export const ChatMessage = memo(
           {entries.map((entry) => {
             if (entry.kind === 'tools') {
               const groupCalls = new Set(entry.parts.map((part) => part.toolCallId));
+              const files = [
+                ...new Map(
+                  entry.parts.flatMap(toolLocalFiles).map((file) => [file.path, file]),
+                ).values(),
+              ];
               return (
                 <Fragment key={`tools:${entry.parts[0]!.toolCallId}`}>
                   <div className="chat-entry" hidden={!showProcess}>
@@ -198,6 +205,13 @@ export const ChatMessage = memo(
                       paused={paused}
                     />
                   </div>
+                  {files.length > 0 && (
+                    <div className="chat-file-artifacts">
+                      {files.map((file) => (
+                        <LocalFileLink key={file.path} file={file} />
+                      ))}
+                    </div>
+                  )}
                   {mediaItems
                     .filter((item) => groupCalls.has(item.callId))
                     .map(({ id, media, route }) => (

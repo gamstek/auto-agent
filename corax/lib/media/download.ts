@@ -8,7 +8,7 @@ function imageUrl(value: string | URL) {
   return url;
 }
 
-export async function downloadChatImage(value: string, maxBytes: number, signal?: AbortSignal) {
+export async function downloadMedia(value: string, maxBytes: number, signal?: AbortSignal) {
   const deadline = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(10_000)])
     : AbortSignal.timeout(10_000);

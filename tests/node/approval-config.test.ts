@@ -10,7 +10,7 @@ import { ensureConfig } from '../../corax/lib/config';
 
 const execute = promisify(execFile);
 async function run(config: string, script: string) {
-  const module = new URL('../../corax/lib/approval.ts', import.meta.url).href;
+  const module = new URL('../../corax/lib/approval/policy.ts', import.meta.url).href;
   const configModule = new URL('../../corax/lib/config/index.ts', import.meta.url).href;
   const source = `import fs from 'node:fs';
     const {approvalSetting,setApprovalSetting}=await import(${JSON.stringify(module)});

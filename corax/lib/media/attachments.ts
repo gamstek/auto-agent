@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { imageSize } from 'image-size';
 import type { ChatMedia } from '@auto-agent/desktop-protocol';
-import { downloadChatImage } from './chat-image-download';
+import { downloadMedia } from './download';
 
 const maxBytes = 8 * 1024 * 1024;
 const localPath = (path: string) =>
@@ -88,7 +88,7 @@ export async function readChatMedia(
   const bytes =
     media.kind === 'file'
       ? await readLocalMedia(snapshotPath(options.dataDir, options.id), media.size)
-      : (await downloadChatImage(media.url, maxBytes, options.signal)).bytes;
+      : (await downloadMedia(media.url, maxBytes, options.signal)).bytes;
   assertMediaBytes(media, bytes);
   return { mediaType: media.mediaType, base64: bytes.toString('base64') };
 }

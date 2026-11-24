@@ -1,1 +1,4 @@
 corax/assets/nldft/*.mod binary
+"corax/assets/g12/Adsorptive Properties/*.ADS" binary
+# Preserve upstream bytes for the pinned G12 model catalog checksum.
+corax/assets/g12/RepCalcModel.xml -text -whitespace

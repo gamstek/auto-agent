@@ -10,7 +10,7 @@ import {
   referenceInput,
 } from '../lib/wiki/reference';
 import { getRuntimeConfig } from '../lib/config';
-import { requestApproval } from '../lib/approval';
+import { requestApproval } from '../lib/approval/policy';
 
 const [catalog, search, read, source, resolve] = llmWikiInput.options;
 const collection = z.enum(['knowledge', 'reference']).default('knowledge');

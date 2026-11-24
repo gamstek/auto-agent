@@ -1,11 +1,10 @@
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
-import { generateText, wrapLanguageModel } from 'ai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { generateText } from 'ai';
 import { discoverText, type IngestModel, type IngestResult } from '@auto-agent/llm-wiki';
 import type { AppConfig } from '../config/schema';
 import { openLlmWiki, referenceSource } from './index';
-import { modelErrorMiddleware } from '../model';
+import { createConfiguredModel } from '../model/client';
 
 export interface KnowledgeProgress {
   phase: 'discovering' | 'checking' | 'analysis' | 'generation' | 'publishing';
@@ -76,13 +75,9 @@ export async function ingestLlmWiki(
       note: '没有可摄入的纯文本，未调用模型。',
     };
   const key = process.env.AUTO_AGENT_API_KEY;
-  const provider = createOpenAICompatible({
-    name: 'llm-wiki',
-    baseURL: config.baseURL,
-    apiKey: key,
-  });
   const maxPromptBytes = (config.maxInputTokens - config.maxOutputTokens - 4096) * 2;
   if (maxPromptBytes < 8192) throw new Error('模型输入容量不足以执行 LLM Wiki 摄入');
+  const languageModel = createConfiguredModel(config, 'llm-wiki');
   const model: IngestModel = {
     label: config.model,
     identity: wikiModelIdentity(config),
@@ -92,10 +87,7 @@ export async function ingestLlmWiki(
       if (Buffer.byteLength(system + prompt) > maxPromptBytes)
         throw new Error('摄入上下文超出当前输入预算，请拆分资料或提升容量');
       const result = await generateText({
-        model: wrapLanguageModel({
-          model: provider.chatModel(config.model),
-          middleware: modelErrorMiddleware,
-        }),
+        model: languageModel,
         system,
         prompt,
         maxOutputTokens: config.maxOutputTokens,

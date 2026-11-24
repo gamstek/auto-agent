@@ -1,4 +1,5 @@
-import { kernelResponse, type Kernel, type Point } from './kernel';
+import { kernelResponse, type Kernel } from '../g12/kernel';
+import type { Point } from '../isotherm';
 import { setImmediate } from 'node:timers/promises';
 
 export const nldftMethod = 'g12-kernel-discrete-nnls-v1';

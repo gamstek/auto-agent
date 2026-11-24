@@ -5,6 +5,7 @@ mod configuration;
 mod corax;
 mod chat_debug;
 mod shutdown;
+mod local_files;
 use corax::{CoraxRuntime, start, stop, has_active_work};
 use shutdown::request_exit;
 
@@ -224,7 +225,7 @@ fn main() {
             "launcher-exit" => request_exit(app.clone()),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, shutdown::exit_app])
+        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, local_files::local_file_action, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, shutdown::exit_app])
         .run(tauri::generate_context!()).expect("Unable to start desktop application");
 }
 

@@ -24,6 +24,7 @@ async function nativeDesktop(
     const histories: Record<string, any[]> = { [sessionId]: records };
     const testState = {
       requests: [] as string[],
+      fileActions: [] as { path: string; action: string }[],
       renames: [] as { id: string; title: string }[],
       sessionTitles: {} as Record<string, string>,
       failRename: false,
@@ -388,6 +389,10 @@ async function nativeDesktop(
               }),
             0,
           );
+          return;
+        }
+        if (command === 'local_file_action') {
+          testState.fileActions.push({ path: args.path, action: args.action });
           return;
         }
         if (command === 'backend_request') {
@@ -2019,6 +2024,81 @@ test('a long turn commits its question and completed reply together without a pa
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
   await expect(page.getByText('会话一的回复', { exact: true })).toBeVisible();
   await expect(page.getByText('会话一的问题', { exact: true })).toBeVisible();
+});
+
+test('chat file results and local links offer explicit desktop file actions', async ({ page }) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.evaluate(() => {
+    const history = (window as any).__desktopFixture.histories['wrun_01M6JWQZ0A0QH6MERWTZ96Z7TB'];
+    const reply = history.find((entry: any) => entry.type === 'message.completed');
+    reply.data.message =
+      '结果在 [报告目录](file:///C:/Reports)。[明细.csv](<C:/Reports/with space/明细.csv>)。\n\n`/usr/bin/env python script.py` 和 `/v1/models`\n\n```text\nC:/Reports/example.pdf\n```';
+    history.splice(history.indexOf(reply), 0, {
+      type: 'action.result',
+      data: {
+        turnId: 'turn-1',
+        sequence: 0,
+        stepIndex: 0,
+        status: 'completed',
+        result: {
+          kind: 'tool-result',
+          callId: 'supplement-report',
+          toolName: 'report_analysis',
+          output: JSON.stringify({ supplementPdf: 'C:/Reports/补充报告.pdf' }),
+        },
+      },
+      meta: { id: 'supplement-report-event', at: '2026-11-11T00:00:00Z' },
+    });
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async (text: string) => {
+          (window as any).__copiedFilePath = text;
+        },
+      },
+    });
+  });
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const pdf = page.getByRole('button', { name: '补充报告.pdf' });
+  await expect(pdf).toBeVisible();
+  expect(await page.evaluate(() => (window as any).__desktopTest.fileActions)).toEqual([]);
+  await pdf.focus();
+  await page.keyboard.press('ArrowDown');
+  await expect(page.getByRole('menuitem', { name: '打开文件' })).toBeFocused();
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Enter');
+  expect(await page.evaluate(() => (window as any).__desktopTest.fileActions)).toEqual([
+    { path: 'C:/Reports/补充报告.pdf', action: 'reveal' },
+  ]);
+  await expect(pdf).toBeFocused();
+  const folder = page.getByRole('button', { name: '报告目录' });
+  const box = (await folder.boundingBox())!;
+  const click = { x: Math.round(box.x + 12), y: Math.round(box.y + 9) };
+  await page.mouse.click(click.x, click.y);
+  await expect
+    .poll(async () => {
+      const menu = await page.getByRole('menu').boundingBox();
+      return menu ? { x: Math.round(menu.x), y: Math.round(menu.y) } : null;
+    })
+    .toEqual(click);
+  await page.getByRole('menuitem', { name: '打开', exact: true }).click();
+  expect(await page.evaluate(() => (window as any).__desktopTest.fileActions.at(-1))).toEqual({
+    path: 'C:/Reports',
+    action: 'open',
+  });
+  await page.getByRole('button', { name: '明细.csv' }).click();
+  await page.getByRole('menuitem', { name: '复制路径' }).click();
+  expect(await page.evaluate(() => (window as any).__copiedFilePath)).toBe(
+    'C:/Reports/with space/明细.csv',
+  );
+  await expect(
+    page.locator('.markdown code').filter({ hasText: '/usr/bin/env python script.py' }),
+  ).toBeVisible();
+  await expect(page.locator('.markdown code').filter({ hasText: '/v1/models' })).toBeVisible();
+  await expect(page.getByText('已复制路径', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'example.pdf' })).toHaveCount(0);
+  await expect(page.locator('.markdown pre')).toContainText('C:/Reports/example.pdf');
 });
 
 test('native image results are visible on history replay with tool details collapsed', async ({

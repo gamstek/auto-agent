@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { configSchema } from 'auto-agent/config';
-import { SessionTitleService, sessionTitleInput } from '../../corax/lib/session-title';
+import { SessionTitleService, sessionTitleInput } from '../../corax/lib/conversation/title';
 
 const config = configSchema.parse({ model: 'local' });
 

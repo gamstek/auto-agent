@@ -1,0 +1,52 @@
+.local-file-link {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.local-file-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 3px 8px;
+  border: 1px solid var(--control-border);
+  border-radius: 7px;
+  background: var(--control-bg);
+  color: var(--accent-selected-text);
+  font: inherit;
+  font-size: 0.9em;
+  cursor: pointer;
+}
+
+.local-file-trigger:hover,
+.local-file-trigger[aria-expanded='true'] {
+  background: var(--accent-selected);
+}
+.local-file-trigger:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.local-file-trigger svg {
+  flex: none;
+}
+.local-file-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-file-feedback {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.chat-file-artifacts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 6px 0;
+}

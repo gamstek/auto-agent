@@ -1,7 +1,7 @@
 import { defineChannel, POST } from '@coraxjs/core/channels';
 import { z } from 'zod';
 import { getRuntimeConfig } from '../lib/config';
-import { questionSuggestions, recentSessionsSchema } from '../lib/suggestions';
+import { questionSuggestions, recentSessionsSchema } from '../lib/conversation/suggestions';
 
 const input = z.object({ sessions: recentSessionsSchema }).strict();
 

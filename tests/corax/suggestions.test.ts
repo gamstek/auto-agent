@@ -1,7 +1,10 @@
 import { expect, test } from 'bun:test';
 import type { MessageStreamEvent } from '@coraxjs/core/client';
 import { configSchema } from 'auto-agent/config';
-import { QuestionSuggestionService, type SuggestionContext } from '../../corax/lib/suggestions';
+import {
+  QuestionSuggestionService,
+  type SuggestionContext,
+} from '../../corax/lib/conversation/suggestions';
 
 const questions = [
   '多孔碳材料进行吸附测试前需要确认哪些条件？',

@@ -7,7 +7,7 @@ function explainModelError(error: unknown): unknown {
   return error;
 }
 
-/** Describe actual provider failures; never infer a key requirement from a model or URL. */
+/** Explain authentication or authorization failures reported by the provider. */
 export const modelErrorMiddleware: LanguageModelMiddleware = {
   specificationVersion: 'v4',
   async wrapGenerate({ doGenerate }) {

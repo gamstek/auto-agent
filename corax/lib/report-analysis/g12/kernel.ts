@@ -1,7 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type Branch = 'adsorption' | 'desorption';
-export type Point = { pp0: number; uptake: number };
+import { stpVolumePerMmol, type Point } from '../isotherm';
 export type Kernel = ReturnType<typeof parseKernel>;
 
 const gasTemperature = /^(N2|Ar|CO2|H2)\s*\(\s*(\d+(?:\.\d+)?)\s*K\s*\)/i;
@@ -94,6 +93,6 @@ export function kernelResponse(kernel: Kernel, pressure: number) {
     const b = points[hi];
     const f = lo === hi ? 0 : Math.log(pressure / a.pp0) / Math.log(b.pp0 / a.pp0);
     // G12 converts kernel density to STP uptake per cm³ of pore volume.
-    return 22.414 * (a.uptake + f * (b.uptake - a.uptake));
+    return stpVolumePerMmol * (a.uptake + f * (b.uptake - a.uptake));
   });
 }

@@ -9,7 +9,7 @@ import { mcpTools } from '@auto-agent/climber-mcp/contracts';
 import { callClimber } from '../lib/climber';
 import { climberToolCatalog } from '../lib/climber/catalog';
 import { getRuntimeConfig } from '../lib/config';
-import { climberApproval } from '../lib/approval';
+import { climberApproval } from '../lib/climber/approval';
 
 export default defineDynamic({
   events: {

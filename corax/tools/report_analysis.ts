@@ -1,28 +1,45 @@
 import { defineTool } from '@coraxjs/core/tools';
 import { z } from 'zod';
-import { fitBet } from '../lib/report-analysis/bet';
-import { loadModel, modelIds } from '../lib/report-analysis/models';
-import { fitNldft } from '../lib/report-analysis/nldft';
-import { readReport } from '../lib/report-analysis/pdf';
+import {
+  calculateIsotherm,
+  calculationOptionsSchema,
+  isothermSchema,
+} from '../lib/report-analysis';
+import { modelIdSchema } from '../lib/report-analysis/contracts';
+import { loadModel, modelIds, modelInfo } from '../lib/report-analysis/g12/models';
+import { readReport } from '../lib/report-analysis/report/pdf';
+import { loadAdsCatalog } from '../lib/report-analysis/g12/resources';
+import { getRuntimeConfig } from '../lib/config';
+import { planSupplement, supplementTarget } from '../lib/report-analysis/report/supplement';
+import { exportSupplementPdf } from '../lib/report-analysis/report/export-pdf';
 
-const pressure = z.number().min(0).max(1.1);
-const modelIdSchema = z.enum(modelIds);
-const nldft = z
-  .object({
-    modelId: modelIdSchema,
-    branch: z.enum(['adsorption', 'desorption']).optional(),
-    minPP0: pressure.optional(),
-    maxPP0: pressure.optional(),
-    lambda: z.number().min(0).max(1000).optional(),
-  })
-  .strict();
+const reportOptions = {
+  reportPath: z.string().min(1),
+  expectedSamName: z.string().optional(),
+  expectedPort: z.number().int().positive().optional(),
+  adsorptionPointCount: z.number().int().min(0).optional(),
+  exportPdf: z.boolean().optional(),
+  reportLanguage: z
+    .enum(['zh-CN', 'en'])
+    .optional()
+    .describe('补充 PDF 的语言。按用户明确要求选择；未指定时用中文。'),
+  ...calculationOptionsSchema.shape,
+};
 
 export default defineTool({
   description:
-    '离线解析本机 SiCOPE PDF 并复算 BET、NLDFT。先用 reportPath 查看样品、原报告指标和等温线分支；可给 bet 选点范围，或给 nldft 指定一个或多个内置 G12 模型 ID 求解孔容贡献、重建等温线。list_models 列出内置核，inspect_model 按 modelId 查看核信息。根据用户确认的材料、孔形、气体、温度和分支选核，不从样品名猜测；未知分支时，仅在用户确认后传 adsorptionPointCount（等温线表从首行到吸附末行的有效点数）。get_points 分页取等温线。PDF 中的结果是原报告结果，求解结果是独立复算。',
+    '离线分析 SiCOPE 报告。supplement 接收 targets，仅补算请求的缺失项目（显式 bet.betsi 可另外运行智能选点）；analyze 读取报告，可显式复算 bet、bjh、nldft；calculate 对结构化等温线独立计算。bet.betsi={} 启用智能选点；bjh 逐项指定吸附/脱附支。DFT 未指定核时用 supplement 查看候选，材料、孔形和分支未确认不要猜测；孔容分段直接使用 poreBands。PDF 未知分支时确认后再传 adsorptionPointCount。exportPdf 仅在用户要求导出补充报告时设 true，reportLanguage 按用户要求选 zh-CN 或 en，默认中文。list_ads/list_models/inspect_model 查询资源，get_points 分页取等温线。',
   inputSchema: z.discriminatedUnion('action', [
     z.object({ action: z.literal('inspect_model'), modelId: modelIdSchema }).strict(),
     z.object({ action: z.literal('list_models') }).strict(),
+    z.object({ action: z.literal('list_ads') }).strict(),
+    z
+      .object({
+        action: z.literal('calculate'),
+        isotherm: isothermSchema,
+        ...calculationOptionsSchema.shape,
+      })
+      .strict(),
     z
       .object({
         action: z.literal('get_points'),
@@ -31,47 +48,26 @@ export default defineTool({
         limit: z.number().int().min(1).max(100).default(40),
       })
       .strict(),
+    z.object({ action: z.literal('analyze'), ...reportOptions }).strict(),
     z
       .object({
-        action: z.literal('analyze'),
-        reportPath: z.string().min(1),
-        expectedSamName: z.string().optional(),
-        expectedPort: z.number().int().positive().optional(),
-        adsorptionPointCount: z.number().int().min(0).optional(),
-        bet: z
-          .object({
-            minPP0: pressure.optional(),
-            maxPP0: pressure.optional(),
-            crossSectionNm2: z.number().positive().max(10).optional(),
-          })
-          .strict()
-          .optional(),
-        nldft: z.array(nldft).min(1).max(4).optional(),
+        action: z.literal('supplement'),
+        targets: z.array(supplementTarget).min(1).max(4),
+        ...reportOptions,
       })
       .strict(),
   ]),
   label: { start: () => '分析 SiCOPE 报告' },
   async execute(input, { abortSignal }) {
-    const modelInfo = ({
-      modelId,
-      label,
-      gas,
-      temperatureK,
-      branch,
-      sha256,
-      widths,
-      pressures,
-    }: Awaited<ReturnType<typeof loadModel>>) => ({
-      modelId,
-      label,
-      gas,
-      temperatureK,
-      branch,
-      sha256,
-      binCount: widths.length,
-      poreWidthRangeAngstrom: [widths[0], widths.at(-1)],
-      pressureRange: [pressures[0], pressures.at(-1)],
-    });
+    if (input.action === 'list_ads') return JSON.stringify(await loadAdsCatalog());
+    if (input.action === 'calculate') {
+      if (!input.bet && !input.bjh && !input.nldft) throw new Error('请指定要计算的模型。');
+      return JSON.stringify({
+        gas: input.isotherm.gas,
+        temperatureK: input.isotherm.temperatureK,
+        results: await calculateIsotherm(input.isotherm, input, abortSignal),
+      });
+    }
     if (input.action === 'inspect_model')
       return JSON.stringify(modelInfo(await loadModel(input.modelId)));
     if (input.action === 'list_models') {
@@ -83,6 +79,7 @@ export default defineTool({
       return JSON.stringify(entries);
     }
 
+    const report = await readReport(input.reportPath, abortSignal);
     const {
       sample,
       summaryMetrics,
@@ -92,7 +89,7 @@ export default defineTool({
       rejectedRows,
       sha256,
       unverifiedUnitPages,
-    } = await readReport(input.reportPath, abortSignal);
+    } = report;
     if (input.action === 'get_points') {
       const end = input.offset + input.limit;
       return JSON.stringify({
@@ -112,7 +109,11 @@ export default defineTool({
       throw new Error('PDF 记录的 SAM 文件名与实验不符。');
     if (input.expectedPort !== undefined && sample.port !== String(input.expectedPort))
       throw new Error('PDF 记录的分析口与实验不符。');
-    if (unverifiedUnitPages.length && (input.bet || input.nldft)) {
+    if (
+      input.action === 'analyze' &&
+      unverifiedUnitPages.length &&
+      (input.bet || input.bjh || input.nldft)
+    ) {
       throw new Error(
         `第 ${unverifiedUnitPages.join('、')} 页的等温线吸附量单位缺失或不受支持，不能复算。`,
       );
@@ -123,62 +124,57 @@ export default defineTool({
       branches.adsorption = points.slice(0, input.adsorptionPointCount);
       branches.desorption = points.slice(input.adsorptionPointCount);
     }
-    const results = [];
-    if (input.bet) {
-      try {
-        if (sample.gas !== 'N2' && input.bet.crossSectionNm2 === undefined)
-          throw new Error('非氮气报告需要指定气体分子横截面积（nm²）。');
-        results.push({
-          model: 'BET',
-          ...fitBet(
-            branches.adsorption,
-            input.bet.minPP0,
-            input.bet.maxPP0,
-            input.bet.crossSectionNm2,
-          ),
-        });
-      } catch (error) {
-        results.push({ model: 'BET', error: (error as Error).message });
-      }
-    }
-    for (const { modelId, branch, ...options } of input.nldft ?? []) {
-      abortSignal?.throwIfAborted();
-      try {
-        const kernel = await loadModel(modelId);
-        const selected = branch ?? kernel.branch ?? 'adsorption';
-        if (kernel.branch && branch && kernel.branch !== branch)
-          throw new Error('选定的分支与模型文件标明的分支不一致。');
-        if (
-          kernel.gas !== sample.gas ||
-          sample.temperatureK === undefined ||
-          Math.abs(kernel.temperatureK - sample.temperatureK) > 1
-        )
-          throw new Error('报告中的气体或温度与模型核不匹配。');
-        if (!branches[selected].length)
-          throw new Error('没有可计算的该分支数据，请确认等温线表及分支。');
-        results.push({
-          model: 'NLDFT',
-          kernel: modelInfo(kernel),
-          branch: selected,
-          options,
-          ...(await fitNldft(kernel, branches[selected], { ...options, signal: abortSignal })),
-        });
-      } catch (error) {
-        abortSignal?.throwIfAborted();
-        results.push({ model: 'NLDFT', modelId, error: (error as Error).message });
-      }
+    const plan =
+      input.action === 'supplement'
+        ? await planSupplement(report, input.targets, input, abortSignal)
+        : undefined;
+    const options = plan?.options ?? input;
+    const results =
+      options.bet || options.bjh || options.nldft
+        ? await calculateIsotherm(
+            { ...sample, branches, uptakeUnit: 'cm3(STP)/g' },
+            options,
+            abortSignal,
+          )
+        : [];
+    const branchLabel = input.adsorptionPointCount === undefined ? branchSource : 'user-confirmed';
+    let supplementPdf: string | undefined;
+    let exportError: string | undefined;
+    if (input.exportPdf) {
+      if (plan?.plan.length || results.some((result) => result.error === undefined)) {
+        try {
+          supplementPdf = await exportSupplementPdf(
+            getRuntimeConfig().dataDir,
+            { ...report, branchSource: branchLabel },
+            results,
+            abortSignal,
+            plan?.plan,
+            input.reportLanguage,
+          );
+        } catch (error) {
+          abortSignal?.throwIfAborted();
+          exportError = error instanceof Error ? error.message : '生成补充 PDF 失败。';
+        }
+      } else exportError = '没有已完成的补算结果，未生成补充 PDF。';
     }
     return JSON.stringify({
       sample,
       reportSha256: sha256,
       summaryMetrics,
+      modelSections: report.modelSections,
       pointCount: points.length,
       rejectedRows,
       unverifiedUnitPages,
-      branchSource: input.adsorptionPointCount === undefined ? branchSource : 'user-confirmed',
+      branchSource: branchLabel,
       adsorptionCount: branches.adsorption.length,
       desorptionCount: branches.desorption.length,
       results,
+      ...(plan && { supplementPlan: plan.plan }),
+      ...(supplementPdf && {
+        supplementPdf,
+        artifacts: [{ path: supplementPdf, kind: 'file', label: '补充报告.pdf' }],
+      }),
+      ...(exportError && { exportError }),
     });
   },
 });

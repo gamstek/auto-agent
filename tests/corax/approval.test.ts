@@ -8,11 +8,11 @@ import nativeWriteFile from '@coraxjs/core/tools/write_file';
 import bash from '../../corax/tools/bash';
 import writeFile from '../../corax/tools/write_file';
 import {
-  climberApproval as decideClimber,
   requestApproval,
   setApprovalSetting,
   approvalSetting,
-} from '../../corax/lib/approval';
+} from '../../corax/lib/approval/policy';
+import { climberApproval as decideClimber } from '../../corax/lib/climber/approval';
 import approvalChannel from '../../corax/channels/approval';
 import { ensureConfig } from '../../corax/lib/config';
 

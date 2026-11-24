@@ -1,0 +1,289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<RootNode version="1.0" copyright="Copyright @ 2025 - 2030">
+    <GasNode type="2" name="N2">  
+		<ReportNode name="DFT">  
+			<GeometryNode name="Slit">  
+				<CalcModel id="model002">  
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, DFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, DFT</LangName>
+				</CalcModel>
+				<CalcModel id="model001">  
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model008">
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, NLDFT(SD3)</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, NLDFT(SD3)</LangName>
+				</CalcModel>
+				<CalcModel id="model003">  
+					<LangName lang="en">N2 (77K), Carbon, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon, HS-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model000">
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, Het-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, Het-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model009">
+					<LangName lang="en">N2 (77K), Carbon Finite Pores, As=4, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Finite Pores, As=4, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model010">
+					<LangName lang="en">N2 (77K), Carbon Finite Pores, As=6, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Finite Pores, As=6, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model011">
+					<LangName lang="en">N2 (77K), Carbon Finite Pores, As=12, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Finite Pores, As=12, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model007">
+					<LangName lang="en">N2 (87K), Carbon Slit Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (87K), Carbon Slit Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model016">
+					<LangName lang="en">N2 (77K), Slit, Halsey Thickness Curve</LangName>
+					<LangName lang="zh-CN">N2 (77K), Slit, Halsey Thickness Curve</LangName>
+				</CalcModel>
+				<CalcModel id="model017">
+					<LangName lang="en">N2 (77K), Slit, Harkins and Jura Thickness Curve</LangName>
+					<LangName lang="zh-CN">N2 (77K), Slit, Harkins and Jura Thickness Curve</LangName>
+				</CalcModel>
+				<CalcModel id="model018">
+					<LangName lang="en">N2 (77K), Slit, Broekhoff - de Boer Model</LangName>
+					<LangName lang="zh-CN">N2 (77K), Slit, Broekhoff - de Boer Model</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ001">
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, Equilibrium, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, Equilibrium, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ002">
+					<LangName lang="en">N2 (77K), Carbon Slit Pores, Equilibrium, QSDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit Pores, Equilibrium, QSDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Cylinder">  
+				<CalcModel id="model004">  
+					<LangName lang="en">N2 (77K), Oxide Cylindr. Pores, DFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Oxide Cylindr. Pores, DFT</LangName>
+				</CalcModel>
+				<CalcModel id="model005">
+					<LangName lang="en">N2 (77K), Carbon Cylindr. Pores(ZTC), HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr. Pores(ZTC), HS-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model006">
+					<LangName lang="en">N2 (77K), Carbon Cylindr. Mesopores, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr. Mesopores, HS-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model012">
+					<LangName lang="en">N2 (77K), Cylindr. Pores, Tarazona NLDFT, Esf = 30.0K</LangName>
+					<LangName lang="zh-CN">N2 (77K), Cylindr. Pores, Tarazona NLDFT, Esf = 30.0K</LangName>
+				</CalcModel>
+				<CalcModel id="model013">
+					<LangName lang="en">N2 (77K), Cylindr. Pores in Pillared Clay, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Cylindr. Pores in Pillared Clay, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model014">
+					<LangName lang="en">N2 (77K), Carbon Cylindr. Pores, SWNT, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr. Pores, SWNT, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model015">
+					<LangName lang="en">N2 (77K), Carbon Cylindr. Pores, MWNT, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr. Pores, MWNT, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model019">
+					<LangName lang="en">N2 (77K), Cylinder, Halsey Thickness Curve</LangName>
+					<LangName lang="zh-CN">N2 (77K), Cylinder, Halsey Thickness Curve</LangName>
+				</CalcModel>
+				<CalcModel id="model020">
+					<LangName lang="en">N2 (77K), Cylinder, Harkins and Jura Thickness Curve</LangName>
+					<LangName lang="zh-CN">N2 (77K), Cylinder, Harkins and Jura Thickness Curve</LangName>
+				</CalcModel>
+				<CalcModel id="model021">
+					<LangName lang="en">N2 (77K), Cylinder, Broekhoff - de Boer Model</LangName>
+					<LangName lang="zh-CN">N2 (77K), Cylinder, Broekhoff - de Boer Model</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ007">
+					<LangName lang="en">N2 (77K), Carbon Cylindr. Pores, QSDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr. Pores, QSDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Complex">  
+				<CalcModel id="modelQ008">
+					<LangName lang="en">N2 (77K), Silica Cylindr./Spher. Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Silica Cylindr./Spher. Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ004">  
+					<LangName lang="en">N2 (77K), Carbon Slit/Cylindr. Pores, QSDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit/Cylindr. Pores, QSDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ003">
+					<LangName lang="en">N2 (77K), Carbon Slit/Cylindr. Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit/Cylindr. Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ005">  
+					<LangName lang="en">N2 (77K), Carbon Cylindr./Spher. Pores, QSDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Cylindr./Spher. Pores, QSDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ006">  
+					<LangName lang="en">N2 (77K), Carbon Slit/Cylindr./Spher. Pores, QSDFT</LangName>
+					<LangName lang="zh-CN">N2 (77K), Carbon Slit/Cylindr./Spher. Pores, QSDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+		</ReportNode>
+	</GasNode>
+	<GasNode type="8" name="Ar">  
+		<ReportNode name="DFT">  
+			<GeometryNode name="Slit">  
+				<CalcModel id="model103">
+					<LangName lang="en">Ar (77K), Carbon Slit Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (77K), Carbon Slit Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model102">  
+					<LangName lang="en">Ar (87K), Carbon Slit Pores, DFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Slit Pores, DFT</LangName>
+				</CalcModel>
+				<CalcModel id="model101">  
+					<LangName lang="en">Ar (87K), Carbon Slit Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Slit Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model115">
+					<LangName lang="en">Ar (87K), Carbon Finite Pores, As=4, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Finite Pores, As=4, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model116">
+					<LangName lang="en">Ar (87K), Carbon Finite Pores, As=6, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Finite Pores, As=6, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model117">
+					<LangName lang="en">Ar (87K), Carbon Finite Pores, As=12, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Finite Pores, As=12, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model104">  
+					<LangName lang="en">Ar (87K), Carbon, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon, HS-2D-NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Cylinder">
+				<CalcModel id="model113">
+					<LangName lang="en">Ar (77K), Zeolites, H-Form, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (77K), Zeolites, H-Form, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model114">
+					<LangName lang="en">Ar (77K), Zeolites, Me-Form, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (77K), Zeolites, Me-Form, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model111">
+					<LangName lang="en">Ar (87K), Carbon Cylindr. Pores, SWNT, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Cylindr. Pores, SWNT, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model112">
+					<LangName lang="en">Ar (87K), Carbon Cylindr. Pores, MWNT, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Cylindr. Pores, MWNT, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model107">  
+					<LangName lang="en">Ar (87K), MOF1 Cylindrical Mesopores, 2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), MOF1 Cylindrical Mesopores, 2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model106">  
+					<LangName lang="en">Ar (87K), Oxide Cylindrical Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Oxide Cylindrical Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model108">  
+					<LangName lang="en">Ar (87K), Oxide Cylindrical Pores, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Oxide Cylindrical Pores, HS-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model105">  
+					<LangName lang="en">Ar (77K), Zeolite Cylindrical Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (77K), Zeolite Cylindrical Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model109">  
+					<LangName lang="en">Ar (87K), Zeolite Cylindrical Pores, H-Form, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Zeolite Cylindrical Pores, H-Form, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model110">  
+					<LangName lang="en">Ar (87K), Zeolite Cylindrical Pores, Me-Form, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Zeolite Cylindrical Pores, Me-Form, NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Complex">  
+				<CalcModel id="modelQ104">
+					<LangName lang="en">Ar (87K), Zeolite/Silica Spher./Cylindr. Pores, NLDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Zeolite/Silica Spher./Cylindr. Pores, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ103">
+					<LangName lang="en">Ar (87K), Carbon Cylindr./Spher. Pores, ADS, QSDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Cylindr./Spher. Pores, ADS, QSDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ101">  
+					<LangName lang="en">Ar (87K), Carbon Slit Pores, DES, QSDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Slit Pores, DES, QSDFT</LangName>
+				</CalcModel>
+				<CalcModel id="modelQ102">  
+					<LangName lang="en">Ar (87K), Carbon Cylindr. Pores, ADS, QSDFT</LangName>
+					<LangName lang="zh-CN">Ar (87K), Carbon Cylindr. Pores, ADS, QSDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+		</ReportNode>
+	</GasNode>
+	<GasNode type="6" name="CO2">  
+		<ReportNode name="DFT">  
+			<GeometryNode name="Slit">  
+				<CalcModel id="model202">  
+					<LangName lang="en">CO2 (273K), Carbon Slit Pores, DFT</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon Slit Pores, DFT</LangName>
+				</CalcModel>
+				<CalcModel id="model201">  
+					<LangName lang="en">CO2 (273K), Carbon Slit Pores, 10 atm, NLDFT</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon Slit Pores, 10 atm, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model203"> 
+					<LangName lang="en">CO2 (273K), Carbon, NLDFT</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon, NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model204"> 
+					<LangName lang="en">CO2 (273K), Carbon, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon, HS-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model200">
+					<LangName lang="en">CO2 (273K), Carbon Slit Pores, Het-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon Slit Pores, Het-2D-NLDFT</LangName>
+				</CalcModel>
+				<CalcModel id="model205">
+					<LangName lang="en">CO2 (273K), Carbon Slit Pores, GCMC</LangName>
+					<LangName lang="zh-CN">CO2 (273K), Carbon Slit Pores, GCMC</LangName>
+				</CalcModel>
+			</GeometryNode>
+		</ReportNode>
+	</GasNode>
+	<GasNode type="3" name="H2">
+		<ReportNode name="DFT">
+			<GeometryNode name="Slit">
+				<CalcModel id="model401">
+					<LangName lang="en">H2 (77K), Carbon, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">H2 (77K), Carbon, HS-2D-NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Cylinder">
+				<CalcModel id="model402">
+					<LangName lang="en">H2 (77K), Ultramicroporous Zeolites, NLDFT</LangName>
+					<LangName lang="zh-CN">H2 (77K), Ultramicroporous Zeolites, NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+		</ReportNode>
+	</GasNode>
+	<GasNode type="4" name="O2">
+		<ReportNode name="DFT">
+			<GeometryNode name="Slit">
+				<CalcModel id="model301">
+					<LangName lang="en">O2 (77K), Carbon, HS-2D-NLDFT</LangName>
+					<LangName lang="zh-CN">O2 (77K), Carbon, HS-2D-NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+			<GeometryNode name="Cylinder">
+				<CalcModel id="model302">
+					<LangName lang="en">O2 (77K), Ultramicroporous Zeolites, NLDFT</LangName>
+					<LangName lang="zh-CN">O2 (77K), Ultramicroporous Zeolites, NLDFT</LangName>
+				</CalcModel>
+			</GeometryNode>
+		</ReportNode>
+	</GasNode>
+</RootNode>

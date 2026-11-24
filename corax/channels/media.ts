@@ -1,7 +1,7 @@
 import { defineChannel, GET } from '@coraxjs/core/channels';
 import { sessions } from '@coraxjs/core/server';
 import { toolMedia } from '@auto-agent/desktop-protocol';
-import { readChatMedia } from '../lib/chat-media';
+import { readChatMedia } from '../lib/media/attachments';
 import { getRuntimeConfig } from '../lib/config';
 
 export default defineChannel({

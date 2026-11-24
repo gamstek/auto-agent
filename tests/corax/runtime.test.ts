@@ -439,11 +439,12 @@ for (const mode of [
         'tsx',
         'shelljs',
         'pdfjs-dist',
+        'saxes',
         'image-size',
       ]) {
         const target = join(project, 'node_modules', name);
         await mkdir(dirname(target), { recursive: true });
-        const dependencyRoot = ['pdfjs-dist', 'image-size'].includes(name)
+        const dependencyRoot = ['pdfjs-dist', 'image-size', 'saxes'].includes(name)
           ? join(root, 'corax')
           : root;
         await symlink(

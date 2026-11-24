@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
-import { APICallError, generateText, wrapLanguageModel } from 'ai';
-import { createOpenAICompatible } from '@ai-sdk/openai-compatible';
+import { APICallError, generateText } from 'ai';
 import { sessions } from '@coraxjs/core/server';
 import type { MessageStreamEvent } from '@coraxjs/core/client';
 import type { QuestionSuggestions } from '@auto-agent/desktop-protocol';
 import { z } from 'zod';
-import type { AppConfig } from './config';
-import { modelErrorMiddleware } from './model';
+import type { AppConfig } from '../config/schema';
+import { createConfiguredModel } from '../model/client';
 
 export const recentSessionsSchema = z
   .array(
@@ -86,16 +85,8 @@ async function completeQuestions(
   signal: AbortSignal,
 ) {
   if (config.maxInputTokens < 4096) throw new Error('Insufficient suggestion input budget');
-  const provider = createOpenAICompatible({
-    name: 'question-suggestions',
-    baseURL: config.baseURL,
-    apiKey: process.env.AUTO_AGENT_API_KEY,
-  });
   const result = await generateText({
-    model: wrapLanguageModel({
-      model: provider.chatModel(config.model),
-      middleware: modelErrorMiddleware,
-    }),
+    model: createConfiguredModel(config, 'question-suggestions'),
     system,
     prompt: JSON.stringify(context),
     maxOutputTokens: Math.min(config.maxOutputTokens, 768),

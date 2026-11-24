@@ -1,6 +1,6 @@
 import { defineChannel, POST } from '@coraxjs/core/channels';
 import { getRuntimeConfig } from '../lib/config';
-import { sessionTitleInput, sessionTitles } from '../lib/session-title';
+import { sessionTitleInput, sessionTitles } from '../lib/conversation/title';
 
 export default defineChannel({
   routes: [

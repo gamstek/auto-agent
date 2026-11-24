@@ -4,22 +4,33 @@ corax/lib 实现配置、Corax 宿主约定、Agent 通用 Wiki 装配及 Climbe
 
 Corax 将 `lib/` 作为 authored-module 目录编译，其中只放受支持的代码模块；架构说明保存在 docs，不把 README 混入编译目录。
 
+聊天中的结构化文件产物（如 `report_analysis` 的补充 PDF）及助手回复中的显式本地 Markdown 文件链接显示为文件按钮。用户可打开、在文件管理器中定位或复制路径。普通行内代码和代码块保持原样。Rust 的 `local_file_action` 仅接受本机绝对路径，按操作检查目标类型并调用系统文件打开能力。
+
 ```text
 lib/
+├─ approval/           全局审批模式、修订号与原生策略
+├─ climber/            固定 MCP 客户端、设备状态、批次监控与领域审批适配
 ├─ config/
 │  ├─ schema.ts       当前 JSON schema、默认值与 AppConfig 类型，无文件读写
 │  ├─ paths.ts        默认配置位置与布局标识，不依赖 schema
 │  ├─ index.ts        统一入口：配置 IO、相对路径解析与进程内快照
 │  └─ runtime.ts      Corax 数据目录与宿主占用锁
-├─ host/              Node 原生 Host Provider、进程生命周期、真实文件 I/O 与执行组件定义
-├─ wiki/
-│  ├─ index.ts        知识库与预置集合装配，不创建另一个聊天循环
-│  ├─ ingest.ts       显式两阶段模型调用，无工具执行或自动重试
-│  ├─ desktop.ts      桌面来源状态和单次编译进度，复用同一知识编译引擎
-│  └─ reference.ts    通用只读索引适配，元数据过滤、固定引用与分页
-└─ climber/
-   ├─ index.ts        固定 Node stdio MCP 调用、预算与可信调用身份
-   └─ instruments.ts  临时只读投影，不保存厂家任务数据库
+├─ conversation/       会话标题和欢迎页推荐
+├─ diagnostics/        可选的历史读取计时
+├─ host/               Node 原生 Host Provider、进程生命周期、真实文件 I/O 与执行组件定义
+├─ media/              聊天附件快照和媒体下载
+├─ model/              模型客户端创建与服务错误解释
+├─ report-analysis/
+│  ├─ index.ts        共享计算入口与输入契约
+│  ├─ calculate.ts    选择物性、校验模型参数并调用求解器
+│  ├─ g12/            .ADS、模型目录与 .mod 加载
+│  ├─ report/         SiCOPE PDF 读取与等温线解析
+│  └─ solvers/        BET 拟合和 NLDFT 反演
+└─ wiki/
+   ├─ index.ts        知识库与预置集合装配，不创建另一个聊天循环
+   ├─ ingest.ts       显式两阶段模型调用，无工具执行或自动重试
+   ├─ desktop.ts      桌面来源状态和单次编译进度，复用同一知识编译引擎
+   └─ reference.ts    通用只读索引适配，元数据过滤、固定引用与分页
 ```
 
 ## 依赖方向
@@ -31,7 +42,7 @@ lib/
 - `channels/desktop.ts` 在 Corax 进程内使用官方 reducer 和会话句柄提供设置重启、更新等空闲保护所需的活动状态；交互退出不调用活动核验。聊天命令与事件仍使用原生 Corax 路由。
 - 知识库 UI 的 `KnowledgeBase` 保留整理受理、轮询及固定引用读取；`KnowledgeWorkspace`、`KnowledgeSources`、`KnowledgeReader` 和 `KnowledgeGraph` 仅负责布局与展示。默认设置侧边栏保持原样，内容区固定为左侧浏览、右侧正文两个主体。左栏通过图谱/目录/资料页签原位切换，没有附加侧栏、遮罩或弹窗；右栏正文独立滚动，来源和固定版本信息折叠展示。窄容器在同一内容区域切换到阅读，并提供返回浏览按钮；恢复宽屏时同一正文无须重新读取即可回到右栏。切换或调整尺寸不取消编译。图谱专注模式只占满知识内容区，不收起外层设置导航。知识页阅读使用独立请求序号，晚到响应不能覆盖新选择。
 - 设置中的工具/技能目录由 Rust 读取官方 Corax info 并投影显示字段；`channels/desktop.ts` 仅补充与模型注册共用定义的动态工具元数据，不执行工具或连接仪器。内置能力不可禁用。
-- `lib/model.ts` 仅解释模型服务实际返回的认证错误，不按模型名、服务商或 Key 是否为空添加认证要求。
+- `lib/model/client.ts` 为聊天、会话辅助生成和知识编译创建统一的模型客户端，各调用方负责自身提示词、预算与重试策略。`model/errors.ts` 仅解释模型服务实际返回的认证错误，不按模型名、服务商或 Key 是否为空添加认证要求。
 - `sandbox.ts` 仅选择公开 Corax 宿主 Provider，lib/host 负责 Node 原生进程/文件 I/O；保留原生工具，不在应用里复制 Bash/read_file/write_file/glob/grep 实现。Windows 使用随包 BusyBox-w32 与 ripgrep，不需要用户安装 Git Bash；POSIX 命令在真实宿主运行，不是虚拟文件系统。Provider 不需要 JustBash 模板或构建机个人缓存，也不负责设备协议。
 - `memory.ts` 仅声明公开 Corax 原生记忆槽：`defineMemory` + `fileMemory` + `sqliteMemory`，路径为 dataDir/corax/memory.sqlite。稳定 namespace=auto-agent、scope=local-user，身份不依赖会话、安装位置或传输令牌；文件随 dataDir 隔离。Corax 拥有召回、并发版本检查及保存/删除工具，应用不复制记忆存储或增设桌面数据库命令。默认召回上限 4000 字符，内容是持久记忆而非可丢弃缓存。
 - lib/wiki 为统一 Wiki Tool 装配 knowledge/reference 集合；知识编译与只读检索保留各自数据边界。reference 适配器接收应用绑定的数据源，不在工具 schema 中暴露数据库路径、SQL 或领域专用字段；人工材料规则由 Skill references 阅读。
@@ -40,7 +51,7 @@ lib/
 - 聊天直接渲染原生 `read_file` 返回的图像结果和工具返回的结构化图片、视频附件。原生图片在工具结果落盘时保存按事件绑定的只读预览快照；历史回放不从原路径补读。远程图片和视频由用户按显示的来源点击加载，下载只跟随同源跳转。文件或远端媒体通过认证路由按会话、事件序号和附件槽位读取。图片支持大图缩放，视频使用原生播放控件。
 - channels/instruments 通过同一 MCP 客户端只读查询，提供给受限 Rust IPC；不调用设备写工具，也不绕过 MCP 直接访问厂家。缓存仅用于显示最后已知状态，失败标 stale，不推断物理状态。
 - channels/knowledge 为桌面“知识库”提供固定认证路由。状态检查只读比较原文/规则指纹与完整发布页；整理调用既有 ingest，分页预览复用固定 generation/path/hash 引用。单个进程内操作保存实际阶段、完成数量和取消信号，不创建另一个 Agent 循环、持久任务库或模型工具入口。
-- `channels/suggestions.ts` 提供固定认证的欢迎页推荐路由，`lib/suggestions.ts` 以纯文本生成调用当前配置模型，无工具或会话写入。Rust 从原生目录选取最近 3 个会话，仅向后端传递有界显示元数据；Node 通过公开原生流读取各会话最多 80 个后缀事件，提取最近 2 条、每条最多 400 字符的用户提问。不可读历史只使用主题，不初始化、恢复或重放会话。单次生成使用 15 秒预算、最多 768 输出 tokens、无自动重试；推荐最多缓存 8 个上下文结果，成功 5 分钟、失败 1 分钟，不持久化历史或推荐。
+- `channels/suggestions.ts` 提供固定认证的欢迎页推荐路由，`lib/conversation/suggestions.ts` 以纯文本生成调用当前配置模型，无工具或会话写入。Rust 从原生目录选取最近 3 个会话，仅向后端传递有界显示元数据；Node 通过公开原生流读取各会话最多 80 个后缀事件，提取最近 2 条、每条最多 400 字符的用户提问。不可读历史只使用主题，不初始化、恢复或重放会话。单次生成使用 15 秒预算、最多 768 输出 tokens、无自动重试；推荐最多缓存 8 个上下文结果，成功 5 分钟、失败 1 分钟，不持久化历史或推荐。
 - `scripts/` 是入口组合层：选择配置、取得占用锁、启动标准 Corax CLI，并在退出时关闭自己拥有的资源。
 
 ## 生命周期
@@ -98,7 +109,7 @@ Rust 的后端生命周期锁只用于取得连接句柄和保留在途写请求
 
 `tools/bash.ts`、`tools/write_file.ts` 只组合官方导出的工具定义与原生审批 callback，schema/execute 保持原引用。Climber 动态工具通过 `defineDurableCallback` 绑定操作身份，只读 SAM 与设备查询不要求批准，SAM 写入及设备登记/启动调用统一审批策略；Wiki 的 ingest/resolve 同样接入。`tools/ask_question.ts` 直接导出原生 `askQuestion()`，不增加多选参数或自定义答案协议。
 
-`lib/approval.ts` 通过 Symbol carrier 在编译/注册模块间共享全局 `mode/revision`，调用原生 always/once/never helper；启动模式来自唯一 config.json 的 `approvalMode`，缺省 always。`lib/config/index.ts` 在原子保存模式后更新运行中选择，不应用其他已保存但待重启的模型或路径字段；只有其余已保存字段与运行快照一致时，才同步已应用配置的 revision。`channels/approval.ts` 的固定认证 GET/POST 不附带 sessionId、不遍历历史、不执行工具或响应待处理请求。Rust 在生命周期锁外转发并绑定 backend generation，预留 in-flight，不持有聊天 dispatch 锁；独立配置写锁串行化该请求与设置页保存，拒绝过期覆盖，响应同步配置 revision 但不解除 pending 写入。模式持久化不增加其他配置文件、会话设置表或许可记录；原生 once 的工具授权仍由 Corax 拥有，不向模型开放策略修改工具。
+`lib/approval/policy.ts` 通过 Symbol carrier 在编译/注册模块间共享全局 `mode/revision`，调用原生 always/once/never helper；启动模式来自唯一 config.json 的 `approvalMode`，缺省 always。Climber 工具的读写判定由 `lib/climber/approval.ts` 负责。`lib/config/index.ts` 在原子保存模式后更新运行中选择，不应用其他已保存但待重启的模型或路径字段；只有其余已保存字段与运行快照一致时，才同步已应用配置的 revision。`channels/approval.ts` 的固定认证 GET/POST 不附带 sessionId、不遍历历史、不执行工具或响应待处理请求。Rust 在生命周期锁外转发并绑定 backend generation，预留 in-flight，不持有聊天 dispatch 锁；独立配置写锁串行化该请求与设置页保存，拒绝过期覆盖，响应同步配置 revision 但不解除 pending 写入。模式持久化不增加其他配置文件、会话设置表或许可记录；原生 once 的工具授权仍由 Corax 拥有，不向模型开放策略修改工具。
 
 `useApprovalPolicy` 独立于当前会话，连接/配置身份改变时重新读取，普通切会话不请求策略；切换不乐观显示更宽权限，收到后端确认后更新，结果不明只允许重新读取而非自动重发。菜单的 never 指原生免询问，不代表科学条件已确认。已有输入请求仍由原生状态驱动，修改策略本身不会提交 approve/cancel 响应；后续原生评估和 recheck 按当前原生策略执行。
 

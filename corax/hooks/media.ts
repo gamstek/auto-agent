@@ -1,6 +1,6 @@
 import { defineHook } from '@coraxjs/core/hooks';
 import { toolMedia } from '@auto-agent/desktop-protocol';
-import { snapshotChatMedia } from '../lib/chat-media';
+import { snapshotChatMedia } from '../lib/media/attachments';
 import { getRuntimeConfig } from '../lib/config';
 
 export default defineHook({

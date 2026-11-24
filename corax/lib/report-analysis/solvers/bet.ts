@@ -1,4 +1,4 @@
-import type { Point } from './kernel';
+import type { Point } from '../isotherm';
 
 export function fitBet(points: Point[], minPP0 = 0.045, maxPP0 = 0.31, crossSectionNm2 = 0.162) {
   const selected = points.filter(
@@ -20,8 +20,14 @@ export function fitBet(points: Point[], minPP0 = 0.045, maxPP0 = 0.31, crossSect
     ? 1 - xy.reduce((sum, [x, y]) => sum + (y - intercept - slope * x) ** 2, 0) / ss
     : null;
   const warnings: string[] = [];
-  if (!(c > 0 && Number.isFinite(c))) warnings.push('BET 常数 C 不为有限正值。');
-  if (!(qm > 0 && Number.isFinite(qm))) warnings.push('单层吸附量不为有限正值。');
+  const positiveFinite = (value: number) => value > 0 && Number.isFinite(value);
+  const finiteOrNull = (value: number) => (Number.isFinite(value) ? value : null);
+  const area = qm * ((6.02214076e23 * crossSectionNm2) / 2.2414e22);
+  const areaM2G = positiveFinite(qm) && positiveFinite(area) ? area : null;
+  if (selected.length === 2) warnings.push('只有两个拟合点，R² 不能用于判断拟合可靠性。');
+  if (!positiveFinite(c)) warnings.push('BET 常数 C 不为有限正值。');
+  if (!positiveFinite(qm)) warnings.push('单层吸附量不为有限正值。');
+  else if (areaM2G === null) warnings.push('BET 比表面积超出可计算范围。');
   const ordered = [...selected].sort((a, b) => a.pp0 - b.pp0);
   if (
     ordered.some(
@@ -36,13 +42,16 @@ export function fitBet(points: Point[], minPP0 = 0.045, maxPP0 = 0.31, crossSect
   )
     warnings.push('模型给出的单层压力在实际选点范围之外。');
   return {
-    areaM2G: Number.isFinite(qm) ? (qm * 6.02214076e23 * crossSectionNm2) / 2.2414e22 : null,
+    status: areaM2G === null ? 'invalid' : warnings.length ? 'warning' : 'ok',
+    areaM2G,
     crossSectionNm2,
-    qm: Number.isFinite(qm) ? qm : null,
-    c: Number.isFinite(c) ? c : null,
-    slope,
-    intercept,
-    rSquared,
+    qm: finiteOrNull(qm),
+    c: finiteOrNull(c),
+    slope: finiteOrNull(slope),
+    intercept: finiteOrNull(intercept),
+    rSquared: rSquared === null ? null : finiteOrNull(rSquared),
+    fitPointCount: selected.length,
+    betsiEnabled: false as const,
     monolayerPP0,
     selected,
     warnings,

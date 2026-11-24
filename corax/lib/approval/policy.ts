@@ -1,4 +1,3 @@
-import { samWrites, samFileInput, type ClimberMcpTool } from '@auto-agent/climber-mcp/contracts';
 import {
   always,
   once,
@@ -7,7 +6,7 @@ import {
   type ApprovalStatus,
 } from '@coraxjs/core/tools/approval';
 import type { ApprovalMode, ApprovalSetting } from '@auto-agent/desktop-protocol';
-import { getRuntimeConfig, saveRuntimeApprovalMode } from './config';
+import { getRuntimeConfig, saveRuntimeApprovalMode } from '../config';
 
 export class ApprovalConflictError extends Error {}
 const key = Symbol.for('auto-agent.global-approval-setting');
@@ -42,18 +41,4 @@ export function requestApproval(
     /* Unreadable configuration requires native approval. */
   }
   return policies[mode](context);
-}
-
-/** Request-time policy only. Corax owns request IDs, decisions and execution. */
-export function climberApproval(
-  tool: ClimberMcpTool,
-  input: unknown,
-  context: ApprovalContext,
-): ApprovalStatus | Promise<ApprovalStatus> {
-  if (tool === 'get_health' || tool === 'get_status') return 'not-applicable';
-  if (tool !== 'sam_file') return requestApproval(context);
-  const parsed = samFileInput.safeParse(input);
-  return parsed.success && !samWrites.has(parsed.data.operation)
-    ? 'not-applicable'
-    : requestApproval(context);
 }

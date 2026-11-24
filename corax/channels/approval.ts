@@ -1,6 +1,6 @@
 import { defineChannel, GET, POST } from '@coraxjs/core/channels';
 import { z } from 'zod';
-import { ApprovalConflictError, approvalSetting, setApprovalSetting } from '../lib/approval';
+import { ApprovalConflictError, approvalSetting, setApprovalSetting } from '../lib/approval/policy';
 import { getRuntimeConfigRevision } from '../lib/config';
 
 const update = z
