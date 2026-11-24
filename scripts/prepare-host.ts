@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { copyFile, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -13,43 +13,24 @@ import {
   hostSearchArtifact,
 } from 'auto-agent/host-runtime';
 
-/** Build/development provisioning only. Installed applications never download executables. */
+/** Verify checked-in inputs and unpack the Windows search tool locally. */
 export async function prepareHostRuntime(project: string) {
   if (process.platform !== 'win32') return;
   const directory = hostRuntimeDirectory(project);
-  await mkdir(directory, { recursive: true });
   for (const [name, artifact] of [
     ['busybox.exe', hostRuntimeArtifact()],
     ['busybox-source.tgz', HOST_RUNTIME_SOURCE],
     ['ripgrep.zip', hostSearchArtifact()],
   ] as const) {
     const target = join(directory, name);
-    const digest = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
-    if (
-      await readFile(target).then(
-        (bytes) => digest(bytes) === artifact.sha256,
-        () => false,
-      )
-    )
-      continue;
-    const response = await fetch(artifact.url, {
-      headers: { 'User-Agent': 'auto-agent-host-runtime (https://github.com/gamstek/auto-agent)' },
-      signal: AbortSignal.timeout(120_000),
-    });
-    if (!response.ok)
+    const bytes = await readFile(target).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== 'ENOENT') throw error;
       throw new Error(
-        `Host runtime download failed: ${name}: HTTP ${response.status} ${response.statusText} (${artifact.url})`,
+        `Missing local host runtime input: ${target}. Restore the pinned assets before building.`,
       );
-    const bytes = Buffer.from(await response.arrayBuffer());
-    if (digest(bytes) !== artifact.sha256)
+    });
+    if (createHash('sha256').update(bytes).digest('hex') !== artifact.sha256)
       throw new Error(`Host runtime checksum mismatch: ${name}`);
-    const temporary = `${target}.${process.pid}.tmp`;
-    try {
-      await writeFile(temporary, bytes);
-      await rename(temporary, target);
-    } finally {
-      await rm(temporary, { force: true });
-    }
   }
   const temporary = await mkdtemp(join(tmpdir(), 'auto-agent-host-tools-'));
   try {

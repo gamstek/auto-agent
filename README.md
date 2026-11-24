@@ -73,7 +73,7 @@ UTF-8 Markdown/TXT → LLM 分析 → 生成/合并 Markdown 知识页
 
 `corax/sandbox.ts` 使用公开 Host Provider，文件读写与进程执行都由 Node 原生 API 接入真实宿主。Windows 随应用附带 BusyBox-w32 POSIX Shell 与 ripgrep，无需安装 Git Bash、WSL 或 Docker；macOS/Linux 使用宿主 Bash 或 `/bin/sh`。Corax 原生 Bash、读写、glob/grep 工具保持原执行器，默认工作目录为真实的 `dataDir/workspace`，也能访问宿主其他实际路径和启动已安装的本机程序。Windows 命令使用 POSIX 语法和 `C:/目录/文件` 路径；原生文件/搜索工具按 Corax 约定使用 `/C:/目录/文件`，Provider 映射到同一个真实路径。BusyBox 不等同于完整 GNU Bash。
 
-开发和构建入口会准备固定版本、校验哈希的执行组件（也可单独运行 `pnpm prepare:host`），安装包包含这些组件、BusyBox 对应源码及许可，用户启动时不下载或安装。Skill 引用仍绑定实际安装资源，不依赖虚拟模板缓存。
+Windows x64 的 BusyBox、对应源码和 ripgrep 压缩包随仓库检出。`pnpm prepare:host` 本地校验哈希并解包，开发、构建和 CI 都不联网获取这些组件。安装包包含执行组件、BusyBox 对应源码及许可。Skill 引用仍绑定实际安装资源，不依赖虚拟模板缓存。
 
 ```powershell
 pnpm install --frozen-lockfile

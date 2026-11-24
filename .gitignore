@@ -21,4 +21,9 @@ coverage/
 docs/internal/
 .corax/
 .output/
-corax/assets/host/
+corax/assets/host/*
+!corax/assets/host/win32-x64/
+corax/assets/host/win32-x64/*
+!corax/assets/host/win32-x64/busybox.exe
+!corax/assets/host/win32-x64/busybox-source.tgz
+!corax/assets/host/win32-x64/ripgrep.zip

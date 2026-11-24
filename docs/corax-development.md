@@ -38,7 +38,7 @@ lib/climber 用官方 MCP SDK 调用固定 Node stdio 服务，TypeScript CLI �
 
 模型在 step.started 选择 provider，角色在 turn.started 提供。Wiki 是应用补齐的 Agent 通用能力，由 tools/wiki.ts 提供；knowledge 对应用户知识，reference 对应预置只读证据。pnpm llm-wiki 仍是用户文本知识编译的维护 CLI，显式 ingest 才调用模型。桌面知识库通过 channels/knowledge 的固定认证路由复用同一编译引擎和只读页面接口；不提供领域专用资料 Tool 或数据库导入。
 
-sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 Node 原生进程/文件 I/O，不替换 Corax 原生工具；glob/grep 通过公开导出启用。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 使用应用附带的原生 BusyBox-w32 POSIX Shell 和 ripgrep，不需要 Git Bash；Unix 使用宿主 Bash 或 `/bin/sh`。`pnpm prepare:host` 下载并校验固定版本组件及源码/许可，CLI dev/build 与桌面开发入口自动调用，运行包直接携带 assets/host，正式启动不下载组件。
+sandbox.ts 显式导出 environment 和公开 defineSandbox selector，lib/host 使用公开 defineSandboxProvider 与 Node 原生进程/文件 I/O，不替换 Corax 原生工具；glob/grep 通过公开导出启用。prepare 只生成可搬迁的空准备产物，不依赖个人模板缓存；start/resume 连接当前数据目录的真实 workspace，关闭不删除宿主文件。Windows 使用应用附带的原生 BusyBox-w32 POSIX Shell 和 ripgrep，不需要 Git Bash；Unix 使用宿主 Bash 或 `/bin/sh`。`pnpm prepare:host` 校验 `corax/assets/host/win32-x64` 中固定的输入并在本地解包，无需联网；CLI dev/build 与桌面开发入口自动调用，运行包直接携带 assets/host。
 
 操作员批准的 `patches/@coraxjs__core@0.1.1.patch` 在原有会话重命名修复之外补齐 Host 契约，通过 pnpm patchedDependencies 和共享锁文件应用，不修改独立 Corax 仓库或手改已安装 SDK。`SandboxProviderImplementation.paths` 是无需 prepare/start/resume 即可读取的纯资源元数据；Host 根据启动器传入的项目根目录提供 skills，不根据构建机模块路径定位。Skill 激活只读取该元数据并返回实际 `Skill file` 和 `Resource directory`，不调用 SandboxAccess.get、不启动执行环境；其他 Provider 未提供元数据时仍直接返回已有正文。`SandboxSession.paths` 提供已打开会话的真实 home/workspace/skills；相对参考文档以激活结果目录为基准，文件工具和 Shell 指向同一份资源。原生文件/搜索工具接受 Windows 盘符及 UNC 绝对路径，保留对应归一化语义；`$HOME` 保持真实宿主值，ripgrep 探测使用实际 workspace。
 

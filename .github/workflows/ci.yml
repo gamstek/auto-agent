@@ -9,35 +9,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 jobs:
-  windows-host:
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - uses: actions/cache@v4
-        with:
-          path: corax/assets/host
-          key: host-runtime-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('corax/lib/host/runtime.ts', 'scripts/prepare-host.ts') }}
-      - name: Prepare Windows host tools
-        run: |
-          for ($attempt = 1; $attempt -le 3; $attempt++) {
-            pnpm prepare:host
-            if ($LASTEXITCODE -eq 0) { exit 0 }
-            if ($attempt -eq 3) { exit $LASTEXITCODE }
-            Start-Sleep -Seconds (10 * $attempt)
-          }
-      - uses: actions/upload-artifact@v4
-        with:
-          name: windows-host-runtime
-          path: corax/assets/host
-          if-no-files-found: error
   test:
-    needs: windows-host
     runs-on: windows-latest
     strategy:
       fail-fast: false
@@ -54,10 +26,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-host-runtime
-          path: corax/assets/host
+      - if: matrix.suite == 'unit'
+        run: pnpm prepare:host
       - if: matrix.suite != 'unit'
         run: bun test tests/corax/runtime.test.ts -t "native Corax ${{ matrix.suite }} "
       - if: matrix.suite == 'unit'
@@ -69,7 +39,6 @@ jobs:
       - if: matrix.suite == 'unit'
         run: pnpm -r --if-present run test
   packaged-runtime:
-    needs: windows-host
     # Preserve the deployed-runtime check on branch pushes without building an installer.
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/') && github.ref != 'refs/heads/main'
     runs-on: windows-latest
@@ -84,10 +53,6 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-host-runtime
-          path: corax/assets/host
       - run: pnpm prepare:runtime
       - run: bun test tests/corax/runtime.test.ts -t packaged
         env:
@@ -109,7 +74,6 @@ jobs:
         env:
           PLAYWRIGHT_CHANNEL: chromium
   desktop:
-    needs: windows-host
     if: github.event_name != 'push' || github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
     steps:
@@ -127,10 +91,6 @@ jobs:
         with:
           workspaces: desktop/src-tauri
       - run: pnpm install --frozen-lockfile
-      - uses: actions/download-artifact@v4
-        with:
-          name: windows-host-runtime
-          path: corax/assets/host
       - if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: pnpm build:desktop
         env:
