@@ -112,6 +112,12 @@ for (const mode of [
       releaseKnowledge = resolve;
     });
     const writes: unknown[] = [];
+    const automationRequests: string[] = [];
+    const combinations = [
+      { templateId: 'bet', versionId: 'v3', tubeCode: 'T001' },
+      { templateId: 'co2', versionId: 'v2', tubeCode: 'T002' },
+    ];
+    let automationItems: { experimentId: string; tubeCode: string }[] = [];
     let task: { batchId: string; state: string; experiments?: unknown[] } | null = null;
     const health = {
       softwareReady: true,
@@ -130,7 +136,42 @@ for (const mode of [
       hostname: '127.0.0.1',
       port: 0,
       async fetch(request) {
-        const path = new URL(request.url).pathname;
+        const url = new URL(request.url);
+        const path = url.pathname;
+        if (path.startsWith('/api/automation/v1/')) {
+          automationRequests.push(`${request.method} ${path}`);
+          if (path.endsWith('/experiment-templates'))
+            return Response.json({
+              items: combinations.map(({ templateId, versionId }) => ({
+                templateId,
+                versionId,
+                name: templateId,
+              })),
+            });
+          if (path.endsWith('/experiments')) {
+            const { items } = await request.json();
+            expect(
+              items.map(({ experimentId: _, ...item }: { experimentId: string }) => item),
+            ).toEqual(combinations);
+            automationItems = items;
+            return Response.json({
+              items: automationItems.map(({ experimentId, tubeCode }) => ({
+                experimentId,
+                tubeCode,
+                status: 'accepted',
+              })),
+            });
+          }
+          const ids = url.searchParams.getAll('experimentId');
+          expect(ids).toEqual(automationItems.map(({ experimentId }) => experimentId));
+          if (path.endsWith('/progress'))
+            return Response.json({
+              items: ids.map((experimentId) => ({ experimentId, status: 'running', steps: [] })),
+            });
+          return Response.json({
+            items: ids.map((experimentId) => ({ experimentId, status: 'not_ready' })),
+          });
+        }
         if (tracking && path.endsWith('/status')) monitorReads++;
         if (path.endsWith('/status') && monitorStatusSequence.length)
           return Response.json({ ok: true, data: monitorStatusSequence.shift() });
@@ -224,6 +265,10 @@ for (const mode of [
         },
       },
       { name: 'climber_start_batch', arguments: { batchId: 'LOCAL-BATCH' } },
+      { name: 'automation_list_templates', arguments: {} },
+      { name: 'automation_create_experiments', arguments: { items: combinations } },
+      { name: 'automation_get_progress', arguments: {} },
+      { name: 'automation_get_results', arguments: {} },
     ];
     let nextCall = 0;
     const mock = Bun.serve({
@@ -347,6 +392,11 @@ for (const mode of [
           usedResumedHost ||= output.includes('RESUMED-HOST');
         }
         const call = calls[nextCall++];
+        const args =
+          call &&
+          (['automation_get_progress', 'automation_get_results'].includes(call.name)
+            ? { experimentIds: automationItems.map(({ experimentId }) => experimentId) }
+            : call.arguments);
         if (call)
           expect(
             body.tools?.some((tool) => tool.function.name === call.name),
@@ -371,7 +421,7 @@ for (const mode of [
                     index: 0,
                     id: `local-call-${nextCall}`,
                     type: 'function',
-                    function: { name: call.name, arguments: JSON.stringify(call.arguments) },
+                    function: { name: call.name, arguments: JSON.stringify(args) },
                   },
                 ],
               })
@@ -397,6 +447,7 @@ for (const mode of [
         maxOutputTokens: 1234,
         llmWiki: { sources: [{ id: 'notes', type: 'file', path: knowledgeSource }] },
         climber: { enabled: true, serviceURL: `${vendor.url.origin}/api/v1`, timeoutMs: 1000 },
+        automation: { enabled: true, serviceURL: `${vendor.url.origin}/api/automation/v1` },
       }),
     );
     if (mode === 'packaged') {
@@ -596,14 +647,19 @@ for (const mode of [
       expect(information.tools.static.some((tool) => tool.owner.kind === 'framework')).toBe(true);
       const dynamicCatalog = await client.fetch('/desktop/tools');
       expect(dynamicCatalog.ok).toBe(true);
-      expect(
-        (await dynamicCatalog.json()).providers[0].tools.map((tool: { name: string }) => tool.name),
-      ).toEqual([
+      const { providers } = await dynamicCatalog.json();
+      expect(providers[0].tools.map((tool: { name: string }) => tool.name)).toEqual([
         'sam_file',
         'climber_get_health',
         'climber_get_status',
         'climber_register_batch',
         'climber_start_batch',
+      ]);
+      expect(providers[1].tools.map((tool: { name: string }) => tool.name)).toEqual([
+        'automation_list_templates',
+        'automation_create_experiments',
+        'automation_get_progress',
+        'automation_get_results',
       ]);
       expect((await fetch(`${host}/desktop/tools`)).status).toBe(401);
       const profiling = process.env.AUTO_AGENT_PROFILE_CHAT === '1';
@@ -645,6 +701,8 @@ for (const mode of [
           );
         if (request.action.toolName === 'climber_register_batch') expect(writes).toHaveLength(0);
         if (request.action.toolName === 'climber_start_batch') expect(writes).toHaveLength(1);
+        if (request.action.toolName === 'automation_create_experiments')
+          expect(automationRequests).toEqual(['GET /api/automation/v1/experiment-templates']);
       });
       expect(approved).toEqual([
         'bash',
@@ -653,6 +711,13 @@ for (const mode of [
         'write_file',
         'climber_register_batch',
         'climber_start_batch',
+        'automation_create_experiments',
+      ]);
+      expect(automationRequests).toEqual([
+        'GET /api/automation/v1/experiment-templates',
+        'POST /api/automation/v1/experiments',
+        'GET /api/automation/v1/experiments/progress',
+        'GET /api/automation/v1/experiments/results',
       ]);
       expect(result.message).toContain('Wiki 已连接');
       expect(usedWiki).toBe(true);

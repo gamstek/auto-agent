@@ -28,6 +28,7 @@ struct Settings {
     data_dir: String,
     llm_wiki: configuration::LlmWikiSettings,
     climber: configuration::ClimberSettings,
+    automation: configuration::AutomationSettings,
     max_input_tokens: u64,
     max_output_tokens: u64,
     system_prompt: String,
@@ -37,6 +38,7 @@ impl Default for Settings {
     fn default() -> Self {
         Self { model: "deepseek-flash".into(), base_url: "https://api.deepseek.com".into(),
             data_dir: ".".into(), llm_wiki: configuration::LlmWikiSettings::default(), climber: configuration::ClimberSettings::default(),
+            automation: configuration::AutomationSettings::default(),
              max_input_tokens: 128000, max_output_tokens: 16000, system_prompt: String::new(), approval_mode: "always".into() }
     }
 }
@@ -56,6 +58,7 @@ impl Settings {
         }
         self.llm_wiki.validate()?;
         self.climber.validate()?;
+        self.automation.validate()?;
         Ok(())
     }
 }

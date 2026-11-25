@@ -30,6 +30,36 @@ export const climberSchema = z
     }
   });
 
+const automationSchema = z
+  .object({
+    enabled: z.boolean().default(false),
+    serviceURL: z.string().max(4096).default(''),
+    timeoutMs: z.number().int().min(100).max(60000).default(10000),
+  })
+  .strict()
+  .refine(
+    ({ enabled, serviceURL }) => {
+      if (!enabled && !serviceURL) return true;
+      try {
+        const url = new URL(serviceURL);
+        return (
+          ['http:', 'https:'].includes(url.protocol) &&
+          !url.username &&
+          !url.password &&
+          !url.search &&
+          !url.hash &&
+          /^\/api\/automation\/v1\/?$/.test(url.pathname)
+        );
+      } catch {
+        return false;
+      }
+    },
+    {
+      path: ['serviceURL'],
+      message: '自动化仪器地址须为不含凭据、查询参数或片段的 HTTP(S) /api/automation/v1 地址。',
+    },
+  );
+
 export const configSchema = z
   .object({
     dataDir: z.string().min(1).default('.'),
@@ -53,6 +83,7 @@ export const configSchema = z
     systemPrompt: z.string().max(16000).default(''),
     approvalMode: z.enum(['always', 'once', 'never']).default('always'),
     climber: climberSchema.prefault({}),
+    automation: automationSchema.prefault({}),
     llmWiki: z
       .object({
         sources: z.array(textSourceSchema).max(100).default([]),

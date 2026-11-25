@@ -4,6 +4,7 @@ import { conversationReducer } from '@coraxjs/core/client';
 import { z } from 'zod';
 import { getRuntimeConfig } from '../lib/config';
 import { climberToolCatalog } from '../lib/climber/catalog';
+import { automationToolCatalog } from '../lib/automation/contracts';
 
 function authorized(request: Request) {
   const token = process.env.AUTO_AGENT_TOKEN;
@@ -34,8 +35,12 @@ export default defineChannel({
   routes: [
     GET('/desktop/tools', async (request) => {
       if (!authorized(request)) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      const config = getRuntimeConfig();
       return Response.json({
-        providers: [{ slug: 'climber', tools: climberToolCatalog(getRuntimeConfig()) }],
+        providers: [
+          { slug: 'climber', tools: climberToolCatalog(config) },
+          { slug: 'automation', tools: automationToolCatalog(config.automation.enabled) },
+        ],
       });
     }),
     POST('/desktop/activity', async (request, context) => {

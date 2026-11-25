@@ -47,6 +47,7 @@ lib/
 - `memory.ts` 仅声明公开 Corax 原生记忆槽：`defineMemory` + `fileMemory` + `sqliteMemory`，路径为 dataDir/corax/memory.sqlite。稳定 namespace=auto-agent、scope=local-user，身份不依赖会话、安装位置或传输令牌；文件随 dataDir 隔离。Corax 拥有召回、并发版本检查及保存/删除工具，应用不复制记忆存储或增设桌面数据库命令。默认召回上限 4000 字符，内容是持久记忆而非可丢弃缓存。
 - lib/wiki 为统一 Wiki Tool 装配 knowledge/reference 集合；知识编译与只读检索保留各自数据边界。reference 适配器接收应用绑定的数据源，不在工具 schema 中暴露数据库路径、SQL 或领域专用字段；人工材料规则由 Skill references 阅读。
 - lib/climber 只启动随应用发布的固定 MCP CLI；不接受模型指定的解释器、脚本、环境或 shell 命令。SAM schema、完整产品配置、单位和文件写入由 MCP 包拥有。Corax 动态工具直接复用包导出的定义；Skill 只维护操作工作流和解释边界。
+- lib/automation 连接配置中的外部仪器控制软件批量 API。Corax 动态注册四种操作；创建沿用原生审批，在 `dataDir/automation/pending-creates.sqlite` 保存管码与待核对实验编号，收到明确回执或查到原实验才释放。仪器侧拥有实验与调度，接入参数见 [AI 自动化一期](automation-phase1/auto-agent-development.md)。
 - `tools/report_analysis.ts` 与 `lib/report-analysis/` 负责本机 SiCOPE PDF 解析、BET 和 G12 模型核离线反演。实验身份通过已知 SAM 文件名和分析口校验；计算不依赖设备连接。参数、单位和可比性见 [报告分析](report-analysis.md)。
 - 聊天直接渲染原生 `read_file` 返回的图像结果和工具返回的结构化图片、视频附件。原生图片在工具结果落盘时保存按事件绑定的只读预览快照；历史回放不从原路径补读。远程图片和视频由用户按显示的来源点击加载，下载只跟随同源跳转。文件或远端媒体通过认证路由按会话、事件序号和附件槽位读取。图片支持大图缩放，视频使用原生播放控件。
 - channels/instruments 通过同一 MCP 客户端只读查询，提供给受限 Rust IPC；不调用设备写工具，也不绕过 MCP 直接访问厂家。缓存仅用于显示最后已知状态，失败标 stale，不推断物理状态。

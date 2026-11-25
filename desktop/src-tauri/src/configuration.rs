@@ -3,7 +3,7 @@ use sha2::{Digest, Sha256};
 use std::io::Write;
 use std::collections::HashSet;
 
-const FIELDS: &[&str] = &["dataDir", "model", "baseURL", "maxInputTokens", "maxOutputTokens", "systemPrompt", "approvalMode", "llmWiki", "climber"];
+const FIELDS: &[&str] = &["dataDir", "model", "baseURL", "maxInputTokens", "maxOutputTokens", "systemPrompt", "approvalMode", "llmWiki", "climber", "automation"];
 pub const DATA_LAYOUT: &str = "corax-node-llm-wiki-v1";
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -24,6 +24,29 @@ impl ClimberSettings {
         let url = reqwest::Url::parse(&self.service_url).map_err(|_| "Climber 地址不是有效 URL")?;
         if !["http", "https"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() || !["/api/v1", "/api/v1/"].contains(&url.path()) {
             return Err("Climber 地址须为不含凭据、查询参数或片段的 HTTP(S) /api/v1 地址".into());
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default, deny_unknown_fields)]
+pub struct AutomationSettings {
+    enabled: bool,
+    #[serde(rename = "serviceURL")]
+    service_url: String,
+    timeout_ms: u64,
+}
+impl Default for AutomationSettings {
+    fn default() -> Self { Self { enabled: false, service_url: String::new(), timeout_ms: 10000 } }
+}
+impl AutomationSettings {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(100..=60000).contains(&self.timeout_ms) || self.service_url.len() > 4096 { return Err("自动化仪器超时应为100–60000毫秒".into()); }
+        if !self.enabled && self.service_url.is_empty() { return Ok(()); }
+        let url = reqwest::Url::parse(&self.service_url).map_err(|_| "自动化仪器地址不是有效 URL")?;
+        if !["http", "https"].contains(&url.scheme()) || !url.username().is_empty() || url.password().is_some() || url.query().is_some() || url.fragment().is_some() || !["/api/automation/v1", "/api/automation/v1/"].contains(&url.path()) {
+            return Err("自动化仪器地址须为不含凭据、查询参数或片段的 HTTP(S) /api/automation/v1 地址".into());
         }
         Ok(())
     }

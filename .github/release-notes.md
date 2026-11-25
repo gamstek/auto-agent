@@ -1,13 +1,12 @@
-## Auto-Agent 2.0 Beta 9
+## Auto-Agent 2.0 Beta 11
 
-- 扩展 SiCOPE 报告分析，搭配聊天中的报告与图片预览查看结果。
-- 聊天支持对本地文件执行打开等操作。
-- 改进氮气微孔测试模板和 BJH 孔径报告选项。
-- 新增 Apple Silicon 和 Intel 的 macOS DMG 构建及安装包验证。正式发布的 macOS 安装包需通过 Developer ID 签名和 Apple 公证。
+- 现有 Auto-Agent 对话接入自动化仪器的四个批量接口：查询模板、按模板版本和样品管创建实验、查进度及查结果。
+- 创建回执未知时，记住原实验编号并阻止同一管重复提交。批次内各项独立返回，较大的测量结果以文件附件提供。
+- 设置中的仪器分组显示为 Climber。自动化接入默认关闭，使用前需配置已提供相应接口的仪器后端，见[接入说明](https://github.com/gamstek/auto-agent/blob/v2.0.0-beta.11/docs/automation-phase1/auto-agent-development.md)。
 
 ### 安装与升级
 
-Windows x64 下载 `Auto-Agent_2.0.0-beta.9_x64-setup.exe`，或在“关于与诊断”检查 Beta 更新。安装包内置 Node.js；缺少 WebView2 时，安装器会下载其运行时。
+Windows x64 下载 `Auto-Agent_2.0.0-beta.11_x64-setup.exe`，或在“关于与诊断”检查 Beta 更新。安装包内置 Node.js；缺少 WebView2 时，安装器会下载其运行时。
 
 若本页提供 macOS DMG，Apple Silicon 请选择 `_aarch64.dmg`，Intel 请选择 `_x64.dmg`。打开 DMG 后将应用拖到 Applications。macOS 更新需手动安装新版本。
 

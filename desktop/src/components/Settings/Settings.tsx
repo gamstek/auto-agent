@@ -46,7 +46,7 @@ const categories = [
   {
     id: 'device',
     label: '仪器',
-    description: 'Climber MCP 厂家 地址 超时 仪器',
+    description: 'Climber 厂家 地址 超时 仪器',
     icon: Cable,
     group: '工作空间',
   },
@@ -526,7 +526,7 @@ export function Settings({
               {initialTab === 'tools' && capabilityList('tools')}
               {initialTab === 'device' && (
                 <>
-                  <Group title="Climber MCP">
+                  <Group title="Climber">
                     <Row
                       id="climberEnabled"
                       label="启用设备连接"
