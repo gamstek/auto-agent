@@ -3328,6 +3328,37 @@ test('an incompatible suffix is discarded and rebuilt once from zero', async ({ 
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled();
 });
 
+test('idle stream recovery permits sending the existing draft without new events', async ({
+  page,
+}) => {
+  await nativeDesktop(page, true);
+  await page.goto('/');
+  await page.getByRole('button', { name: /^会话一/ }).click();
+  const send = page.getByRole('button', { name: '发送消息', exact: true });
+  await page.getByRole('textbox', { name: '输入消息' }).fill('恢复后继续');
+  await expect(send).toBeEnabled();
+  const signal = (error?: string) =>
+    page.evaluate((error) => {
+      const fixture = (window as any).__desktopFixture;
+      const state = (window as any).__desktopTest;
+      const { sessionId, watchId } = state.watchRequests.at(-1);
+      fixture.emit('corax-events', {
+        sessionId,
+        watchId,
+        generation: state.generation,
+        startIndex: fixture.histories[sessionId].length,
+        events: [],
+        connectionError: error,
+      });
+    }, error);
+  await signal('事件连接中断');
+  await expect(send).toBeDisabled();
+  await signal();
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(page.getByRole('textbox', { name: '输入消息' })).toHaveValue('');
+});
+
 test('failed synchronization retains cached display but requires a successful refresh before writing', async ({
   page,
 }) => {

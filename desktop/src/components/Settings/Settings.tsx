@@ -667,7 +667,7 @@ export function Settings({
                     />
                   </Group>
                   <Maintenance />
-                  <Group title="数据与诊断">
+                  <Group title="数据">
                     <Row
                       label="共享配置"
                       description="与 CLI 直接读写同一份 config.json。外部修改在重启后生效。"
@@ -684,20 +684,6 @@ export function Settings({
                         <code className="directory-value selectable" title={info?.dataDirectory}>
                           {info?.dataDirectory}
                         </code>
-                      }
-                    />
-                    <Row
-                      label="诊断日志"
-                      description="Corax 运行日志"
-                      control={
-                        <Button
-                          variant="subtle"
-                          onClick={() =>
-                            native('open_logs').catch((error) => setError(errorText(error)))
-                          }
-                        >
-                          打开日志目录
-                        </Button>
                       }
                     />
                   </Group>

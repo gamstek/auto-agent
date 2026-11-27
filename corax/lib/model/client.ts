@@ -7,6 +7,7 @@ export function createConfiguredModel(
   config: Pick<AppConfig, 'baseURL' | 'model'>,
   name: string,
   middleware?: LanguageModelMiddleware,
+  errors: LanguageModelMiddleware = modelErrorMiddleware,
 ) {
   const provider = createOpenAICompatible({
     name,
@@ -15,6 +16,6 @@ export function createConfiguredModel(
   });
   return wrapLanguageModel({
     model: provider.chatModel(config.model),
-    middleware: middleware ? [modelErrorMiddleware, middleware] : modelErrorMiddleware,
+    middleware: middleware ? [errors, middleware] : errors,
   });
 }

@@ -140,12 +140,6 @@ async fn settings_save(app: tauri::AppHandle, state: State<'_, Desktop>, setting
     Ok(json!({ "saved": true, "applied": applied.is_ok(), "error": applied.err(), "configRevision": config_revision }))
 }
 #[tauri::command]
-fn open_logs(app: tauri::AppHandle, state: State<'_, Desktop>) -> Result<(), String> {
-    let document = configuration::read(&state.config_path)?;
-    let path = configuration::data_directory(&state.config_path, &document.raw)?.join("corax").join("logs"); std::fs::create_dir_all(&path).map_err(|_| "无法创建日志目录")?;
-    app.opener().open_path(path.to_string_lossy(), None::<&str>).map_err(|_| "无法打开日志目录".into())
-}
-#[tauri::command]
 fn open_link(app: tauri::AppHandle, url: String) -> Result<(), String> {
     let parsed = reqwest::Url::parse(&url).map_err(|_| "链接无效")?;
     if !["http", "https"].contains(&parsed.scheme()) || !parsed.username().is_empty() || parsed.password().is_some() { return Err("仅支持普通网页链接".into()); }
@@ -228,7 +222,7 @@ fn main() {
             "launcher-exit" => request_exit(app.clone()),
             _ => {}
         })
-        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_logs, open_link, local_files::local_file_action, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, shutdown::exit_app])
+        .invoke_handler(tauri::generate_handler![chat_debug::frontend_debug, updates::update_check, updates::update_install, support::export_diagnostics, backend_start, corax::backend_request, corax::backend_watch, corax::backend_chat_open, corax::backend_chat_close, settings_read, settings_save, open_link, local_files::local_file_action, show_main, hide_main, window_action, drag_launcher, launcher_compact, launcher_menu, shutdown::exit_app])
         .run(tauri::generate_context!()).expect("Unable to start desktop application");
 }
 

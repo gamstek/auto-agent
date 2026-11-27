@@ -1,12 +1,12 @@
-## Auto-Agent 2.0 Beta 11
+## Auto-Agent 2.0 Beta 12
 
-- 现有 Auto-Agent 对话接入自动化仪器的四个批量接口：查询模板、按模板版本和样品管创建实验、查进度及查结果。
-- 创建回执未知时，记住原实验编号并阻止同一管重复提交。批次内各项独立返回，较大的测量结果以文件附件提供。
-- 设置中的仪器分组显示为 Climber。自动化接入默认关闭，使用前需配置已提供相应接口的仪器后端，见[接入说明](https://github.com/gamstek/auto-agent/blob/v2.0.0-beta.11/docs/automation-phase1/auto-agent-development.md)。
+- 模型拒绝本轮输入时，可在原会话继续发送下一条消息。事件连接恢复后，无需刷新即可发送已有草稿。
+- 设置中统一使用“导出诊断包”。即使已切换会话，安装版也能记录运行时故障的时间、类别和可用的 HTTP 状态码，不包含聊天正文或密钥。
+- 导出完成后显示记录数；没有有效记录时会明确提示，不生成空包。
 
 ### 安装与升级
 
-Windows x64 下载 `Auto-Agent_2.0.0-beta.11_x64-setup.exe`，或在“关于与诊断”检查 Beta 更新。安装包内置 Node.js；缺少 WebView2 时，安装器会下载其运行时。
+Windows x64 下载 `Auto-Agent_2.0.0-beta.12_x64-setup.exe`，或在“关于与诊断”检查 Beta 更新。安装包内置 Node.js；缺少 WebView2 时，安装器会下载其运行时。
 
 若本页提供 macOS DMG，Apple Silicon 请选择 `_aarch64.dmg`，Intel 请选择 `_x64.dmg`。打开 DMG 后将应用拖到 Applications。macOS 更新需手动安装新版本。
 

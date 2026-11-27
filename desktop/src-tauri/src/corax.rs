@@ -8,6 +8,7 @@ use history::HistoryQuery;
 const PROTOCOL_VERSION: u64 = 4;
 
 pub struct CoraxRuntime {
+    diagnostics_data: PathBuf,
     child: Child,
     connection: Arc<Connection>,
     chat: ChatViews,
@@ -266,6 +267,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     let document = configuration::read(&state.config_path)?;
     let data = configuration::data_directory(&state.config_path, &document.raw)?.join("corax");
     let ownership = Ownership::acquire(&data)?;
+    support::record(&data, "backend.starting");
     let key = match std::env::var("AUTO_AGENT_API_KEY").ok().filter(|value| !value.trim().is_empty()) { Some(key) => Some(key), None => read_key(&state.root)? };
     let token = uuid::Uuid::new_v4().to_string();
     let project = if cfg!(debug_assertions) { Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap().parent().unwrap().join("corax") }
@@ -284,7 +286,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     if cfg!(debug_assertions) { command.args(["--no-ui", "--resume"]); }
     command.args(["--host", "127.0.0.1", "--port", &port]);
     if state.exiting.load(Ordering::SeqCst) { return Err("应用正在退出或安装更新".into()); }
-    let mut child = command.spawn().map_err(|_| "无法启动 Node/Corax，请检查运行时和应用资源")?;
+    let mut child = command.spawn().map_err(|_| { support::record(&data, "backend.spawn_failed"); "无法启动 Node/Corax，请检查运行时和应用资源" })?;
     let tree = Arc::new(ProcessTree::attach(&child)?);
     *state.owned_tree.lock().unwrap_or_else(|error| error.into_inner()) = Some(Arc::downgrade(&tree));
     let ready = Arc::new(AtomicBool::new(false));
@@ -304,18 +306,20 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
     }
     let secrets: Vec<String> = std::iter::once(token.clone()).chain(key).collect();
     let connection = Arc::new(Connection { url, token, secrets, generation: uuid::Uuid::new_v4().to_string(), config_revision: SyncMutex::new(document.revision), pending: SyncMutex::new(HashMap::new()), knowledge_pending: SyncMutex::new(None), dispatch: Mutex::new(()), in_flight: std::sync::atomic::AtomicUsize::new(0) });
-    let mut backend = CoraxRuntime { child, connection, chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
+    let mut backend = CoraxRuntime { diagnostics_data: data.clone(), child, connection, chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(120);
     loop {
         if backend.child.try_wait().map_err(|_| "无法检查 Corax 进程")?.is_some() {
             let detail = output.lock().unwrap().iter().cloned().collect::<Vec<_>>().join("\n");
+            support::record(&data, "backend.exited");
             return Err(redact_text(&format!("Corax 启动时退出：{detail}"), &backend.secrets));
         }
         if ready.load(Ordering::SeqCst) && request(state, &backend, "GET", "/corax/v1/health", None).await.is_ok() { break; }
-        if tokio::time::Instant::now() > deadline { return Err("Corax 启动超时".into()); }
+        if tokio::time::Instant::now() > deadline { support::record(&data, "backend.start_timeout"); return Err("Corax 启动超时".into()); }
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
     let (handle, generation) = (app.clone(), backend.generation.clone());
+    support::record(&data, "backend.ready");
     backend.monitor = Some(tauri::async_runtime::spawn(async move {
         loop {
             tokio::time::sleep(Duration::from_secs(2)).await;
@@ -323,7 +327,7 @@ pub async fn start(app: &tauri::AppHandle, state: &Desktop, slot: &mut Option<Co
             let Ok(mut slot) = state.backend.try_lock() else { continue; };
             let Some(backend) = slot.as_mut() else { return; };
             if backend.generation != generation { return; }
-            if backend.child.try_wait().ok().flatten().is_some() { let _ = handle.emit("backend-stream", "disconnected"); return; }
+            if backend.child.try_wait().ok().flatten().is_some() { support::record(&data, "backend.exited"); let _ = handle.emit("backend-stream", "disconnected"); return; }
         }
     }));
     *slot = Some(backend);
@@ -929,11 +933,13 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
     let connection = Arc::clone(&backend.connection);
     let (url, token, secrets, generation) = (backend.url.clone(), backend.token.clone(), backend.secrets.clone(), backend.generation.clone());
     let id = session_id.clone();
+    let data = backend.diagnostics_data.clone();
     let task = tauri::async_runtime::spawn(async move {
         let timing = chat_debug::Span::new("watch-stream");
         let client = match reqwest::Client::builder().no_proxy().connect_timeout(Duration::from_secs(5)).build() { Ok(client) => client, Err(_) => return };
         let mut cursor = start_index;
         let mut received = false;
+        let mut interrupted = false;
         loop {
             let response = client.get(format!("{url}/corax/v1/session/{id}/stream?startIndex={cursor}&streamControlVersion=1")).basic_auth("auto-agent", Some(&token)).send().await;
             let mut terminal = false;
@@ -942,6 +948,11 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
             if let Ok(response) = response {
                 if !received { timing.mark("headers", json!({"status":response.status().as_u16()})); }
                 if response.status().is_success() {
+                    if interrupted {
+                        interrupted = false;
+                        support::record(&data, "stream.recovered");
+                        let _ = app.emit("corax-events", json!({"sessionId":id,"generation":generation,"watchId":watch_id,"startIndex":cursor,"events":[]}));
+                    }
                     let mut stream = response.bytes_stream();
                     let mut pending = Vec::<u8>::new();
                     while let Some(Ok(bytes)) = stream.next().await {
@@ -972,16 +983,19 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
                         if terminal || format_error { break; }
                     }
                 } else if [404, 409, 410].contains(&response.status().as_u16()) {
+                    support::record(&data, "session.closed");
                     let _ = app.emit("corax-events", json!({"sessionId":id,"watchId":watch_id,"startIndex":cursor,"events":[],"closed":true,"error":"Corax 会话不可继续，历史仍可查看，请新建会话。"}));
                     return;
                 }
             }
             if terminal { return; }
             if format_error {
+                support::record(&data, "stream.invalid");
                 let _ = app.emit("corax-events", json!({"sessionId":id,"watchId":watch_id,"startIndex":cursor,"events":[],"connectionError":"Corax 事件格式无效或超出单条读取上限，请刷新会话。"}));
                 return;
             }
             if renewed { continue; }
+            if !interrupted { support::record(&data, "stream.interrupted"); interrupted = true; }
             let _ = app.emit("corax-events", json!({"sessionId":id,"watchId":watch_id,"startIndex":cursor,"events":[],"connectionError":"Corax 事件连接中断，正在恢复。"}));
             tokio::time::sleep(Duration::from_secs(1)).await;
         }
@@ -1567,7 +1581,7 @@ pub async fn backend_watch(app: tauri::AppHandle, state: State<'_, Desktop>, ses
         let child = command.spawn().unwrap();
         let tree = Arc::new(ProcessTree::attach(&child).unwrap());
         let connection = connection(url);
-        let backend = CoraxRuntime { child, connection: Arc::clone(&connection), chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
+        let backend = CoraxRuntime { diagnostics_data: root.clone(), child, connection: Arc::clone(&connection), chat: ChatViews::default(), tree, monitor: None, _ownership: ownership };
         (root, Some(backend), connection)
     }
 

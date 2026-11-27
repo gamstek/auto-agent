@@ -97,15 +97,15 @@ export function Maintenance() {
         )}
         <SettingsRow
           label="诊断包"
-          description="仅包含版本、运行配置数值和日志元数据，不包含密钥、路径、聊天正文或脚本输出。"
+          description="遇到问题时，将导出的 ZIP 发给技术支持。包含版本和近期运行事件，不包含聊天正文、文件路径或密钥。"
           control={
             <Button
               variant="subtle"
               disabled={busy}
               onClick={() =>
                 void run(async () => {
-                  const saved = await native<boolean>('export_diagnostics');
-                  setMessage(saved ? '诊断包已导出' : '已取消导出');
+                  const count = await native<number | null>('export_diagnostics');
+                  setMessage(count === null ? '已取消导出' : `诊断包已导出，包含 ${count} 条记录`);
                 })
               }
             >

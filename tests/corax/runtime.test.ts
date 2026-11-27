@@ -8,6 +8,7 @@ import {
   Client,
   ClientError,
   conversationReducer,
+  createTextWithFileContent,
   parseInputResponses,
   type ClientSession,
   type MessageResponse,
@@ -16,7 +17,10 @@ import {
 
 // Prewarmed sessions can still be initializing after create() returns. Only
 // this explicit no-admission response may be retried; ambiguous sends propagate.
-async function sendWhenReady(session: ClientSession, message: string) {
+async function sendWhenReady(
+  session: ClientSession,
+  message: Parameters<ClientSession['send']>[0],
+) {
   const deadline = Date.now() + 20000;
   for (;;) {
     try {
@@ -271,6 +275,7 @@ for (const mode of [
       { name: 'automation_get_results', arguments: {} },
     ];
     let nextCall = 0;
+    let rejectedRequests = 0;
     const mock = Bun.serve({
       hostname: '127.0.0.1',
       port: 0,
@@ -291,6 +296,26 @@ for (const mode of [
             /"status"\s*:\s*"completed"/.test(text)
           );
         });
+        if (
+          body.stream &&
+          (mode === 'development'
+            ? JSON.stringify(
+                body.messages.filter((m) => m.role === 'user').at(-1)?.content ?? '',
+              ).includes('reject-text-fixture')
+            : JSON.stringify(body.messages).includes('reject-input-fixture.pdf') &&
+              JSON.stringify(body.messages).includes('data:application/pdf;base64,'))
+        ) {
+          rejectedRequests++;
+          return Response.json(
+            {
+              error: {
+                type: 'invalid_request_error',
+                message: 'Fixture provider rejected this request.',
+              },
+            },
+            { status: mode === 'development' ? 422 : 400 },
+          );
+        }
         const suggesting = body.messages.some(
           (message) =>
             message.role === 'system' && String(message.content).includes('<question_suggestions>'),
@@ -684,6 +709,22 @@ for (const mode of [
           'coldHistory',
           `/corax/v1/session/${session.state.sessionId}/stream?startIndex=0&follow=false`,
         );
+      await sendWhenReady(
+        session,
+        mode === 'development'
+          ? 'reject-text-fixture'
+          : createTextWithFileContent({
+              text: '请检查附件',
+              bytes: Buffer.from(reportPdf()),
+              mediaType: 'application/pdf',
+              filename: 'reject-input-fixture.pdf',
+            }),
+      );
+      for await (const event of session.stream({ startIndex: 0 })) {
+        if (event.type === 'session.failed')
+          throw new Error('Rejected model input closed the session');
+        if (event.type === 'session.waiting') break;
+      }
       const response = await sendWhenReady(
         session,
         `本地模拟验证：查询 Wiki，检查 SAM 配置，并登记、启动 LOCAL-BATCH 测试批次。请记住我的长期偏好：${memoryFact}`,
@@ -736,6 +777,22 @@ for (const mode of [
           event.data.result.toolName === 'read_file' &&
           JSON.stringify(event.data.result.output).includes('conversation-image.png'),
       );
+      expect(rejectedRequests).toBe(1);
+      expect(events.some((event) => event.type === 'turn.failed' && !event.data.terminal)).toBe(
+        true,
+      );
+      expect(events.some((event) => event.type === 'session.failed')).toBe(false);
+      const failed = events.find((event) => event.type === 'turn.failed');
+      const records = (await Bun.file(join(temporary, 'corax/logs/runtime-failures.log')).text())
+        .trim()
+        .split('\n')
+        .map((line) => JSON.parse(line));
+      expect(records).toContainEqual({
+        event: 'turn.failed',
+        timestampMs: Date.parse(failed.meta.at),
+        errorCode: 'MODEL_CALL_FAILED',
+        httpStatus: mode === 'development' ? 422 : 400,
+      });
       expect(mediaIndex).toBeGreaterThan(-1);
       await rm(imagePath);
       const chatImage = await client.fetch(

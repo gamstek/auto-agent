@@ -88,9 +88,10 @@ export class CoraxProjection {
   }
 
   disconnected(message?: string) {
-    this.connectionError = message;
+    if (!this.closed) this.connectionError = message;
   }
   unavailable(message: string) {
+    if (this.closed) return; // Preserve the recorded terminal reason on a late stream closure.
     this.closed = true;
     this.admitted = false;
     this.error = message;
